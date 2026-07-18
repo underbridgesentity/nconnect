@@ -1,0 +1,1 @@
+ALTER TABLE "rica_records" ALTER COLUMN "service_id" DROP NOT NULL;

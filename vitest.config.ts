@@ -8,6 +8,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // server-only is a bundler guard; tests run in Node legitimately.
+      "server-only": path.resolve(__dirname, "scripts/noop.js"),
       "@": path.resolve(__dirname, "."),
     },
   },

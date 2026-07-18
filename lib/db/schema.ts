@@ -882,9 +882,9 @@ export const ricaRecords = pgTable(
     customerId: uuid("customer_id")
       .notNull()
       .references(() => customers.id),
-    serviceId: uuid("service_id")
-      .notNull()
-      .references(() => services.id),
+    // Nullable: RICA is captured at signup, before the service exists; the
+    // service links up when it is created from the paid order (M3).
+    serviceId: uuid("service_id").references(() => services.id),
     simId: uuid("sim_id").references(() => sims.id),
     idNumberEncrypted: text("id_number_encrypted").notNull(),
     idDocPath: text("id_doc_path"),

@@ -110,8 +110,53 @@ Notes / deviations:
   self-hosted fonts, no client JS beyond the shells — structurally in
   line with the >=90 target).
 
-## M2 — Signup, orders, payments-in (next)
+## M2 — Signup, orders, payments-in ✅ (2026-07-18)
 
-- [ ] 3-step wizard with server-held draft, OTP account creation, RICA
-      capture to compliance bucket, PayFast sandbox checkout + idempotent
-      ITN webhook, order snapshots, receipts, abandoned-lead capture.
+Done:
+- PayFast integration (`lib/payfast.ts`): redirect checkout builder, ITN
+  signature verification (byte-identical to PHP `urlencode` — JS
+  `encodeURIComponent` differs on `!'()*` and broke signatures), source-IP
+  check against PayFast's published hosts, server-to-server validation in
+  live mode, ad-hoc token charge for M4. Signature unit-tested against an
+  independent PHP-urlencode reference vector.
+- Orders domain: server-side cart pricing (client sends identifiers only),
+  mandatory snapshots, gap-free NC-/INV- sequences via a locked upsert,
+  `markOrderPaid` (idempotent by order status + unique gateway ref) creating
+  the paid order invoice + payment + stock decrement + audit + `order.paid`
+  and `payment.received` outbox events.
+- Invoice PDF (`lib/pdf/invoice.tsx`) attached to the receipt email; EFT
+  banking box shown on unpaid invoices.
+- Notification dispatcher (`lib/notify`) + template registry — full §8
+  matrix copy in place; WhatsApp legs fall back to email while disabled.
+- 3-step wizard: server-held draft (opaque cookie → `signup_drafts`),
+  preselection deep-links (?plan=/?bundle=), hardware attach with running
+  total pinned bottom, address step with ManualConnector coverage semantics
+  (fibre → feasibility lead + warm exit page), step 3 with inline OTP that
+  creates user+customer atomically, explicit unticked POPIA consent +
+  separate marketing opt-ins, conditional RICA capture (ID number +
+  camera/file uploads → compliance bucket, normalised to webp), order
+  review, PayFast auto-submitting redirect, honest "confirming payment"
+  return page, one-tap portal sign-in via a single-use internal OTP.
+- Abandoned-signup capture: hourly Inngest cron turns stale drafts (contact
+  + selection, no order) into `web_abandoned` leads with what they chose.
+- `scripts/simulate-itn.ts`: signs and posts a sandbox-grade ITN to the
+  local webhook (PayFast can't reach localhost).
+
+Verified end-to-end in a 375px browser: plan page → wizard → OTP (console)
+→ POPIA consent → review → PayFast sandbox redirect reached → simulated
+ITN → order paid + invoice INV-2026-00001 + payment + card token stored +
+admin bell + receipt email (console) → success page → "Open your portal"
+signs the customer in. ITN replay left exactly one payment. Compliance
+upload + signed URL round-trip verified (tampered signature → 403).
+
+**Blocked on real-world credential (spec §16.10):** PayFast's shared
+sandbox merchant (10000100) no longer accepts third-party signatures —
+merchants must register their own sandbox account. Everything up to the
+PayFast hosted page is exercised for real; the hosted-page hop itself needs
+the client's sandbox credentials (launch checklist). `PAYFAST_PASSPHRASE`
+currently empty in dev.
+
+## M3 — Service lifecycle + ops (next)
+
+- [ ] State machine, ManualConnector, provisioning tasks + checklists,
+      admin Today queue (six sections), Customers 360, feasibility tasks.
