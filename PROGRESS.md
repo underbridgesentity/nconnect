@@ -62,9 +62,56 @@ Decisions where the spec was silent:
   access); customer surface is customer-only.
 - Dev seed prints random credentials rather than fixed passwords.
 
-## M1 — Catalogue + public site (next)
+## M1 — Catalogue + public site ✅ (2026-07-18)
 
-- [ ] Admin Catalogue area (plans/hardware/bundles, publish flow, image
-      upload → webp, PDF catalogue)
-- [ ] Public site §9.1 fully server-rendered from the DB with SEO
-      (sitemap, robots, JSON-LD, OG images, ISR + revalidation on publish)
+Done:
+- Catalogue domain (`lib/domain/catalogue.ts`): public + admin queries,
+  plan/hardware/bundle upsert and publish mutations — all zod → authorize →
+  transaction → audit; publish triggers `revalidateTag("catalogue")` +
+  per-path ISR revalidation.
+- Admin Catalogue area: Plans grouped by category with sell/cost/computed
+  margin and missing-cost badges; Hardware with image upload (sharp: min
+  800px enforced, converted to webp, max 1600px) plus stock and threshold;
+  Bundle builder with plans + hardware + custom lines and a live margin
+  readout; draft/publish/archive on all three; "Generate PDF catalogue"
+  renders the published records to a branded A4 PDF via @react-pdf/renderer
+  (also runnable via `pnpm tsx scripts/render-catalogue.tsx`).
+- Storage adapter (`lib/storage.ts`): Supabase buckets in production; local
+  `.uploads/` + HMAC-signed expiring URLs in dev (`/api/files/...`) so the
+  signed-URL contract is identical. Recorded per §16.10.
+- Public site (§9.1), all server-rendered: Home (hero, category cards,
+  featured plans/bundles, how-it-works, trust strip, FAQ + FAQPage JSON-LD),
+  /internet /fibre (grouped by FNO, `?fno=` filter) /voip /sim-data with
+  crawlable server-driven sort params, /plans/[slug] (Product JSON-LD,
+  canonical, FUP in plain language, what-happens-next, hardware
+  suggestions), /hardware + /hardware/[sku], /bundles + detail, /coverage
+  (LTE instant answer with honest disclaimer; fibre feasibility promise
+  creating a `web_coverage` lead — provisioning task joins in M3), About,
+  Contact, Help/FAQ, Blog (2 real MDX posts), POPIA/Privacy/Terms/RICA
+  legal pages with real copy, /q/[token] route stub (full render in M7).
+- SEO: per-page metadata + canonicals, sitemap.xml, robots.txt,
+  Organization/Product/FAQPage JSON-LD, ISR (revalidate 3600) with
+  on-demand revalidation from publish actions. 26 plan pages prerendered
+  at build.
+- /signup placeholder: preserves plan/bundle preselection, honestly routes
+  to WhatsApp until the M2 wizard replaces it.
+
+Verified: `curl` of `/` and `/plans/telkom-lte-plus` returns full readable
+HTML without JS including Product JSON-LD; sitemap + robots valid;
+catalogue PDF rendered and visually checked (branded, all categories,
+company footer); admin catalogue UI verified in browser (margin badges,
+editor drawer, publish menu). Typecheck, lint, tests, production build all
+green.
+
+Notes / deviations:
+- Category pages using search params render dynamically (still full SSR
+  HTML); detail pages are SSG + revalidate.
+- Lighthouse run deferred to M8 hardening (pages are static/ISR,
+  self-hosted fonts, no client JS beyond the shells — structurally in
+  line with the >=90 target).
+
+## M2 — Signup, orders, payments-in (next)
+
+- [ ] 3-step wizard with server-held draft, OTP account creation, RICA
+      capture to compliance bucket, PayFast sandbox checkout + idempotent
+      ITN webhook, order snapshots, receipts, abandoned-lead capture.
