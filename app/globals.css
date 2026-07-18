@@ -1,26 +1,182 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Needd Connect design tokens (spec §11).
+ * Light theme only at launch; the .dark block exists so dark mode is additive later.
+ * Accent sampled from the brand logo: #136FB0 (N blue); ink navy #121829.
+ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  /* Status colours — always paired with text, never colour-only */
+  --color-status-active: var(--status-active);
+  --color-status-provisioning: var(--status-provisioning);
+  --color-status-pending: var(--status-pending);
+  --color-status-suspended: var(--status-suspended);
+  --color-status-pastdue: var(--status-pastdue);
+  --color-status-cancelled: var(--status-cancelled);
+  --radius-sm: 0.5rem;   /* controls: 8px */
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem; /* cards: 10px */
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.125rem;
+  --radius-3xl: 1.375rem;
+  --radius-4xl: 1.625rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* Surfaces: warm near-white page, white cards, 1px zinc borders */
+  --background: #fafaf9;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  /* Needd blue */
+  --primary: #136fb0;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #eff6fb;
+  --accent-foreground: #0f5a91;
+  --destructive: #dc2626;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #136fb0;
+  --chart-1: #136fb0;
+  --chart-2: #059669;
+  --chart-3: #d97706;
+  --chart-4: #121829;
+  --chart-5: #71717a;
+  --radius: 0.625rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #136fb0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eff6fb;
+  --sidebar-accent-foreground: #0f5a91;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #136fb0;
+  /* Status palette (spec §11) */
+  --status-active: #059669;       /* emerald-600 */
+  --status-provisioning: #2563eb; /* blue-600 */
+  --status-pending: #f59e0b;      /* amber-500 */
+  --status-suspended: #d97706;    /* amber-600 */
+  --status-pastdue: #dc2626;      /* red-600 */
+  --status-cancelled: #a1a1aa;    /* zinc-400 */
+}
+
+.dark {
+  /* Structured for a later additive dark mode; not shipped at launch */
+  --background: #101014;
+  --foreground: #fafafa;
+  --card: #17171c;
+  --card-foreground: #fafafa;
+  --popover: #17171c;
+  --popover-foreground: #fafafa;
+  --primary: #3b95d6;
+  --primary-foreground: #0b1220;
+  --secondary: #232329;
+  --secondary-foreground: #fafafa;
+  --muted: #232329;
+  --muted-foreground: #a1a1aa;
+  --accent: #14273a;
+  --accent-foreground: #9ecbeb;
+  --destructive: #ef4444;
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(255 255 255 / 15%);
+  --ring: #3b95d6;
+  --chart-1: #3b95d6;
+  --chart-2: #10b981;
+  --chart-3: #f59e0b;
+  --chart-4: #cbd5e1;
+  --chart-5: #a1a1aa;
+  --sidebar: #17171c;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #3b95d6;
+  --sidebar-primary-foreground: #0b1220;
+  --sidebar-accent: #14273a;
+  --sidebar-accent-foreground: #9ecbeb;
+  --sidebar-border: rgb(255 255 255 / 10%);
+  --sidebar-ring: #3b95d6;
+  --status-active: #10b981;
+  --status-provisioning: #3b82f6;
+  --status-pending: #fbbf24;
+  --status-suspended: #f59e0b;
+  --status-pastdue: #ef4444;
+  --status-cancelled: #71717a;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* Money figures, invoice numbers, and table numerals always tabular */
+  .tnum {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* 44px minimum touch target helper for mobile primary actions */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

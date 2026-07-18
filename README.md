@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Needd Connect
 
-## Getting Started
+The operating platform for Needd Technology Solutions' connectivity reseller
+business: public acquisition site, customer self-service portal, admin
+operations system (CRM, catalogue, billing, support) and sales workspace —
+one Next.js codebase.
 
-First, run the development server:
+- **Spec:** [SPEC.md](SPEC.md) (locked decisions) — the full handover spec is the source of truth
+- **Progress:** [PROGRESS.md](PROGRESS.md) (per-milestone log + open client items)
+
+## Stack
+
+Next.js (App Router, RSC) · TypeScript strict · Tailwind + shadcn/ui ·
+Drizzle ORM on Supabase Postgres (af-south-1) · Auth.js v5 · Inngest ·
+PayFast · Resend · Meta WhatsApp Cloud API · Vercel (cpt1).
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.example .env.local        # fill DATABASE_URL etc.
+createdb nconnect_dev             # or point DATABASE_URL at Supabase
+pnpm db:migrate                   # apply Drizzle migrations
+pnpm seed:dev                     # catalogue + dev logins (printed to console)
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Staff sign-in: `/staff-login` (dev credentials printed by `pnpm seed:dev`)
+- Customer sign-in: `/login` — OTP prints to the dev server console
+  (`SMS_PROVIDER=console`)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Checks
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm typecheck && pnpm lint && pnpm test
+```
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+All money is integer cents through `lib/money`. Every state-changing
+operation flows through a domain service: zod → authorize → transaction →
+audit log → domain event (outbox → Inngest).
