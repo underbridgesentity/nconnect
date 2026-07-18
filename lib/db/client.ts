@@ -14,8 +14,17 @@ if (!connectionString) {
   throw new Error("DATABASE_URL is not set");
 }
 
-// Supabase transaction pooler does not support PREPARE.
-const client = postgres(connectionString, { prepare: false });
+// Supabase transaction pooler does not support PREPARE. The client is
+// cached on globalThis in dev so hot reloads don't leak connection pools.
+const globalForDb = globalThis as unknown as {
+  __ncPgClient?: ReturnType<typeof postgres>;
+};
+const client =
+  globalForDb.__ncPgClient ??
+  postgres(connectionString, { prepare: false, max: 5 });
+if (process.env.NODE_ENV !== "production") {
+  globalForDb.__ncPgClient = client;
+}
 
 export const db = drizzle(client, { schema });
 export type Db = typeof db;

@@ -131,6 +131,7 @@ export async function fibreFeasibilityAction(form: FormData): Promise<void> {
       source: "web_coverage",
       interest: `Fibre signup: ${draft.planSlug ?? draft.bundleSlug ?? "unspecified plan"}`,
       addressText,
+      feasibilityTask: true,
     });
   } catch {
     redirect("/signup?step=2&fibre=1&error=phone");

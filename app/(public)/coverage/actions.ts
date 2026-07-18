@@ -34,6 +34,7 @@ export async function coverageCheckAction(formData: FormData): Promise<void> {
         source: "web_coverage",
         interest: "Fibre feasibility check",
         addressText,
+        feasibilityTask: true,
       });
     } catch {
       redirect("/coverage?result=invalid-phone");

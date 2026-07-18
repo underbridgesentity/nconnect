@@ -573,9 +573,10 @@ export const provisioningTasks = pgTable(
   "provisioning_tasks",
   {
     id: id(),
-    serviceId: uuid("service_id")
-      .notNull()
-      .references(() => services.id),
+    // Nullable: feasibility_check tasks precede any service; they carry a
+    // lead instead (spec §7 fibre flow).
+    serviceId: uuid("service_id").references(() => services.id),
+    leadId: uuid("lead_id").references(() => leads.id),
     type: provisioningTaskType("type").notNull(),
     status: provisioningTaskStatus("status").notNull().default("open"),
     assignedTo: uuid("assigned_to").references(() => users.id),

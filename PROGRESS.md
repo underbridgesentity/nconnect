@@ -156,7 +156,52 @@ PayFast hosted page is exercised for real; the hosted-page hop itself needs
 the client's sandbox credentials (launch checklist). `PAYFAST_PASSPHRASE`
 currently empty in dev.
 
-## M3 — Service lifecycle + ops (next)
+## M3 — Service lifecycle + ops ✅ (2026-07-18)
 
-- [ ] State machine, ManualConnector, provisioning tasks + checklists,
-      admin Today queue (six sections), Customers 360, feasibility tasks.
+Done:
+- Connector abstraction (`lib/connectors`): §7 interface, ManualConnector
+  creating typed provisioning tasks with category-specific checklists
+  (SIM: RICA check/SIM allocation/MSISDN; fibre: circuit/feasibility; VoIP:
+  extensions/porting); `checkCoverage` honest semantics; `getUsage` null.
+- State machine (`lib/domain/services.ts`) — the only status-write path.
+  All §5 transitions implemented: paid order → pending services (incl.
+  bundle plans) → auto-provisioning → task; activation sets activation
+  date + clamped anchor day + next invoice date and fires
+  `service_activated`; suspend/reactivate/cancel-request/withdraw/finalize/
+  admin-override each audited + evented, connector tasks per transition;
+  goodwill audit note when activation lags payment >14 days; RICA gate
+  blocks SIM activation without a verified record.
+- Task completion records provider external ref, MSISDN, circuit, SIM
+  (creates/updates `sims`, links service, deactivates on cancel).
+- Manual EFT recording (`lib/domain/billing.ts`): partial-payment aware,
+  clears pending collection attempts, uniform payment.received flow,
+  auto-reactivates suspended services when everything past due settles.
+- Admin Today queue: six §9.4.1 sections live (provisioning tasks with
+  inline checklists + completion form, past-due invoices, waiting
+  conversations, fibre feasibility with WhatsApp links + close form, RICA
+  verification with audited signed-URL doc access + verify/reject, true
+  low stock) + the slim strip (active services, MRR, open conversations).
+- Customers area: searchable list (ILIKE), CSV export, 360 page with
+  header (balance/status/rep), tabs Overview/Services/Billing (record EFT,
+  mark pending orders paid → services created)/Conversations/Documents &
+  RICA/Audit/Notes; service actions (suspend, reactivate, override cancel
+  with mandatory reason).
+- Feasibility flow: fibre coverage/signup leads now create a
+  feasibility_check task (leadId; no service yet) landing in Today.
+- Fix: dev DB pool cached on globalThis (Turbopack hot-reload was
+  exhausting Postgres connections).
+
+Verified in browser: SIM order (Telkom LTE Starter + router, R1 611) paid
+via simulated ITN → service pending→provisioning + activation task + RICA
+linked; Today queue showed task + 2 RICA records; verified RICA; ticked
+all 5 checklist items (persisted); completed with external ref + ICCID +
+MSISDN → service active, anchor day 18, next invoice 2026-08-18, SIM
+active, provider account recorded; full audit chain
+(service.pending → service.provisioning → rica.verify →
+provisioning.activate.complete → service.active). Customer 360 renders
+services/billing/RICA/audit. Typecheck/lint/tests green.
+
+## M4 — Billing engine (next)
+
+- [ ] Recurring invoice cron, dunning timeline, token charges,
+      auto-suspend/reactivate, plan-change pro-rata + tests, age analysis.

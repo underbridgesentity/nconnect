@@ -8,6 +8,7 @@ import {
   confirmItnWithPayfast,
 } from "@/lib/payfast";
 import { markOrderPaid } from "@/lib/domain/orders";
+import { createServicesForPaidOrder } from "@/lib/domain/services";
 import { notify } from "@/lib/notify";
 import { renderInvoicePdf } from "@/lib/pdf/invoice";
 
@@ -83,6 +84,13 @@ export async function POST(req: NextRequest) {
     });
 
     if (!result.alreadyPaid) {
+      // Spec §5: paid order -> pending services -> auto-provisioning.
+      try {
+        await createServicesForPaidOrder(mPaymentId);
+      } catch (err) {
+        console.error("service creation after payment failed:", err);
+      }
+
       const [order] = await db
         .select()
         .from(orders)

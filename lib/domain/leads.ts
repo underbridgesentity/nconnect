@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { leads } from "@/lib/db/schema";
+import { leads, provisioningTasks } from "@/lib/db/schema";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { normalizePhone } from "@/lib/auth/otp";
@@ -22,12 +22,13 @@ const leadInput = z.object({
 });
 
 export async function createLead(
-  input: z.infer<typeof leadInput>
+  input: z.infer<typeof leadInput> & { feasibilityTask?: boolean }
 ): Promise<string> {
-  const data = leadInput.parse(input);
+  const { feasibilityTask, ...rest } = input;
+  const data = leadInput.parse(rest);
   const phone = normalizePhone(data.phone);
 
-  const eventId = await db.transaction(async (tx) => {
+  const { leadId, eventId } = await db.transaction(async (tx) => {
     const [lead] = await tx
       .insert(leads)
       .values({ ...data, phone })
@@ -39,11 +40,64 @@ export async function createLead(
       entityId: lead.id,
       after: { ...data, phone },
     });
-    return emitDomainEvent(tx, "lead.created", {
+
+    // Fibre coverage promise (spec §7): a feasibility task joins the lead so
+    // it lands in the Today queue with a one-business-day due date.
+    if (feasibilityTask) {
+      await tx.insert(provisioningTasks).values({
+        serviceId: null,
+        leadId: lead.id,
+        type: "feasibility_check",
+        status: "open",
+        dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        checklist: [
+          { label: "Check address on FNO coverage tools", done: false },
+          { label: "Confirm availability (or honest alternatives)", done: false },
+          { label: "WhatsApp the customer the outcome", done: false },
+        ],
+      });
+    }
+
+    const eventId = await emitDomainEvent(tx, "lead.created", {
       leadId: lead.id,
       source: data.source,
     });
+    return { leadId: lead.id, eventId };
   });
   await forwardDomainEvent(eventId);
-  return eventId;
+  return leadId;
+}
+
+/** Close a feasibility task from its lead (Today queue action). */
+export async function closeFeasibilityTask(
+  taskId: string,
+  actorUserId: string,
+  resultNotes: string
+): Promise<void> {
+  const { eq } = await import("drizzle-orm");
+  await db.transaction(async (tx) => {
+    const [task] = await tx
+      .select()
+      .from(provisioningTasks)
+      .where(eq(provisioningTasks.id, taskId))
+      .limit(1);
+    if (!task || task.status === "done") return;
+    await tx
+      .update(provisioningTasks)
+      .set({
+        status: "done",
+        checklist: task.checklist.map((c) => ({ ...c, done: true })),
+        resultNotes,
+        completedBy: actorUserId,
+        completedAt: new Date(),
+      })
+      .where(eq(provisioningTasks.id, taskId));
+    await writeAudit(tx, {
+      actor: { userId: actorUserId, role: "admin" },
+      action: "provisioning.feasibility_check.complete",
+      entity: "provisioning_task",
+      entityId: taskId,
+      after: { resultNotes },
+    });
+  });
 }
