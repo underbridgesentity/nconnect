@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LayoutDashboard, ContactRound, FileText, Users } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { SignOutButton } from "@/components/shared/sign-out-button";
+import { NotificationBell } from "@/components/shared/bell";
 
 const NAV = [
   { href: "/sales", label: "Home", icon: LayoutDashboard },
@@ -47,6 +48,7 @@ export default async function SalesLayout({
           <span className="hidden truncate text-xs text-muted-foreground sm:inline">
             {session?.user?.name}
           </span>
+          <NotificationBell />
           <SignOutButton compact />
         </div>
       </header>

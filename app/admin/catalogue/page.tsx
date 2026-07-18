@@ -10,7 +10,7 @@ import {
 import { fileUrl } from "@/lib/storage";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -134,13 +134,13 @@ export default async function CataloguePage({
             render from these records.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          render={<a href="/admin/catalogue/pdf" download />}
+        <a
+          href="/admin/catalogue/pdf"
+          download
+          className={buttonVariants({ variant: "outline", size: "sm" })}
         >
           <FileDown className="size-4" /> Generate PDF catalogue
-        </Button>
+        </a>
       </div>
 
       <div className="flex gap-1 border-b">

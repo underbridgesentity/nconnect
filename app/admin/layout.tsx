@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { SignOutButton } from "@/components/shared/sign-out-button";
+import { NotificationBell } from "@/components/shared/bell";
 
 const NAV = [
   { href: "/admin", label: "Today", icon: ListTodo },
@@ -56,7 +57,10 @@ export default async function AdminLayout({
           <span className="truncate text-xs text-muted-foreground">
             {session?.user?.name}
           </span>
-          <SignOutButton compact />
+          <span className="flex items-center">
+            <NotificationBell />
+            <SignOutButton compact />
+          </span>
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -73,7 +77,10 @@ export default async function AdminLayout({
               </Link>
             ))}
           </nav>
-          <SignOutButton compact />
+          <span className="flex items-center">
+            <NotificationBell />
+            <SignOutButton compact />
+          </span>
         </header>
         <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
       </div>

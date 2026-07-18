@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Home, Receipt, LifeBuoy, UserRound } from "lucide-react";
+import { NotificationBell } from "@/components/shared/bell";
 
 const TABS = [
   { href: "/portal", label: "Home", icon: Home },
@@ -17,7 +18,7 @@ export default function PortalLayout({
 }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col">
-      <header className="flex h-14 items-center justify-center border-b bg-card">
+      <header className="relative flex h-14 items-center justify-center border-b bg-card">
         <Link href="/portal">
           <Image
             src="/brand/logo-dark.png"
@@ -27,6 +28,9 @@ export default function PortalLayout({
             priority
           />
         </Link>
+        <span className="absolute right-2">
+          <NotificationBell />
+        </span>
       </header>
       <main className="flex-1 p-4 pb-24">{children}</main>
       <nav

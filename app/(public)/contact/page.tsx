@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Phone, Mail, MessageCircle } from "lucide-react";
+import Link from "next/link";
 import { getSetting } from "@/lib/domain/settings";
 
 export const metadata: Metadata = {
@@ -19,9 +20,9 @@ export default async function ContactPage() {
       <h1 className="text-3xl font-semibold tracking-tight">Contact us</h1>
       <p className="mt-2 text-muted-foreground">
         Existing customers: the fastest route is a conversation in{" "}
-        <a href="/portal/help" className="text-primary hover:underline">
+        <Link href="/portal/help" className="text-primary hover:underline">
           your portal
-        </a>{" "}
+        </Link>{" "}
         — it lands directly with the team that manages your services.
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-3">

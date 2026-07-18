@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { createHmac } from "node:crypto";
-import { db, type Tx } from "@/lib/db/client";
+import { db } from "@/lib/db/client";
 import {
   services,
   plans,
@@ -14,10 +14,10 @@ import {
   users,
   notifications,
 } from "@/lib/db/schema";
-import { add, prorata, prorataComplement } from "@/lib/money";
+import { add, prorataComplement } from "@/lib/money";
 import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
-import { emitDomainEvent, forwardDomainEvent } from "./events";
+import { emitDomainEvent } from "./events";
 import { nextNumber } from "./sequences";
 import { getSettingOr } from "./settings";
 import {

@@ -246,7 +246,42 @@ Notes:
 - Bulk reminders button on the Billing area deferred to M8 with the
   reconciliation worksheet.
 
-## M5 — Inbox + notifications (next)
+## M5 — Inbox + notifications ✅ (2026-07-18)
 
-- [ ] Unified conversations (portal + WhatsApp), realtime, internal notes,
-      assignment, WhatsApp inbound webhook, full matrix wiring.
+Done:
+- Inbox domain (`lib/domain/inbox.ts`): start/post/assign/resolve with
+  authorize() scoping; staff replies delivered per §8 (WhatsApp text when
+  the channel is whatsapp and enabled, else portal bell + email with a
+  deep link); internal notes never leave the building; inbound messages
+  reopen resolved threads and bell all admins + the assigned rep.
+- WhatsApp inbound webhook (`/api/webhooks/whatsapp`): Meta verification
+  handshake (403 on bad token), message ingestion matched to customers by
+  phone, idempotent by WhatsApp message id, always-200 so Meta stops
+  retrying, non-text messages recorded as typed placeholders.
+- Realtime (`lib/realtime.ts`): server-side Supabase broadcast on
+  `admin:inbox`, `conversation:{id}`, `user:{id}` after writes. Without
+  Supabase creds (dev) broadcasts no-op and an `AutoRefresh` 5s polling
+  fallback keeps the UI live — recorded per §16.10; scoped client tokens
+  activate when the Supabase project exists.
+- Admin Inbox (§9.4.5): list with channel chips + status/assignee filters,
+  thread view, reply box with visually-distinct internal notes (amber,
+  "never sent"), assignment select, resolve/reopen — replaces the old
+  Tickets + Communications split entirely.
+- Portal Help: conversation list, new-conversation form, thread with reply
+  + photo attachments (webp-normalised into the private documents bucket,
+  rendered via signed URLs), ownership-scoped 404s, internal notes
+  filtered out of the customer view.
+- Bell UI on all three surfaces: unread badge, recent list, mark-all-read.
+
+Verified in browser: customer (OTP login) started a portal conversation →
+admin bell "New message from Lerato Molefe" + inbox thread; admin added an
+internal note and a reply → customer bell + email (console) recorded;
+simulated Meta webhook created an identified WhatsApp conversation and a
+replayed message id inserted exactly once. Typecheck/lint/29 tests green.
+Also fixed: Base UI hydration mismatch on the bell trigger and anchor
+semantics on the PDF button.
+
+## M6 — Portal complete + PWA (next)
+
+- [ ] Service detail + plan change + cancellation with retention, Billing
+      screens, payment methods, Account, POPIA request, manifest + SW.

@@ -1,0 +1,76 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import sharp from "sharp";
+import { requireActor } from "@/lib/auth";
+import { startConversation, postMessage } from "@/lib/domain/inbox";
+import { uploadFile, randomFileName } from "@/lib/storage";
+
+export type Result = { ok: boolean; error?: string; conversationId?: string };
+const fail = (err: unknown): Result => ({
+  ok: false,
+  error: err instanceof Error ? err.message : "Failed",
+});
+
+async function processAttachment(
+  file: File,
+  customerId: string
+): Promise<string> {
+  if (file.size > 10 * 1024 * 1024) throw new Error("Photo too large (max 10MB)");
+  const input = Buffer.from(await file.arrayBuffer());
+  const webp = await sharp(input)
+    .rotate()
+    .resize({ width: 1600, withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toBuffer();
+  const path = `conversations/${customerId}/${randomFileName(".webp")}`;
+  await uploadFile("documents", path, webp, "image/webp");
+  return path;
+}
+
+export async function startPortalConversationAction(
+  form: FormData
+): Promise<Result> {
+  try {
+    const actor = await requireActor();
+    if (!actor.customerId) throw new Error("No customer account");
+    const attachments: string[] = [];
+    const photo = form.get("photo") as File | null;
+    if (photo && photo.size > 0) {
+      attachments.push(await processAttachment(photo, actor.customerId));
+    }
+    const { conversationId } = await startConversation(actor, {
+      customerId: actor.customerId,
+      channel: "portal",
+      subject: String(form.get("subject") ?? "") || null,
+      body: String(form.get("body") ?? "").trim(),
+      attachments,
+    });
+    revalidatePath("/portal/help");
+    return { ok: true, conversationId };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function portalReplyAction(form: FormData): Promise<Result> {
+  try {
+    const actor = await requireActor();
+    if (!actor.customerId) throw new Error("No customer account");
+    const conversationId = String(form.get("conversationId"));
+    const attachments: string[] = [];
+    const photo = form.get("photo") as File | null;
+    if (photo && photo.size > 0) {
+      attachments.push(await processAttachment(photo, actor.customerId));
+    }
+    await postMessage(actor, {
+      conversationId,
+      body: String(form.get("body") ?? "").trim(),
+      attachments,
+    });
+    revalidatePath(`/portal/help/${conversationId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
