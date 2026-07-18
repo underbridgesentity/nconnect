@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Home, Receipt, LifeBuoy, UserRound } from "lucide-react";
 import { NotificationBell } from "@/components/shared/bell";
+import { ServiceWorkerRegister } from "@/components/shared/sw-register";
 
 const TABS = [
   { href: "/portal", label: "Home", icon: Home },
@@ -18,6 +19,7 @@ export default function PortalLayout({
 }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col">
+      <ServiceWorkerRegister />
       <header className="relative flex h-14 items-center justify-center border-b bg-card">
         <Link href="/portal">
           <Image

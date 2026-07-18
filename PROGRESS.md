@@ -281,7 +281,39 @@ replayed message id inserted exactly once. Typecheck/lint/29 tests green.
 Also fixed: Base UI hydration mismatch on the bell trigger and anchor
 semantics on the PDF button.
 
-## M6 — Portal complete + PWA (next)
+## M6 — Portal complete + PWA ✅ (2026-07-18)
 
-- [ ] Service detail + plan change + cancellation with retention, Billing
-      screens, payment methods, Account, POPIA request, manifest + SW.
+Done:
+- Portal Home: real service cards (status pill, next invoice, monthly),
+  provisioning/suspended/pending-cancellation states in plain language,
+  outstanding banner with a prominent Pay now (oldest open invoice link).
+- Service detail: plan + pricing + FUP plain language, install address,
+  linked hardware from the origin order, no usage module (ManualConnector
+  returns null — nothing fake in its place).
+- Plan change: same-category list marked upgrade/downgrade; upgrade shows
+  the exact engine pro-rata summary (credit/charge/due-now) before
+  confirm and applies immediately; downgrade states its effective date
+  plainly and schedules at the anchor.
+- Cancellation with retention: one honest screen (cheaper plans + talk to
+  us), confirm with effective date, withdraw button while pending.
+- Billing: outstanding banner, invoice list with per-invoice PDF
+  (customer-scoped route) + pay links, payment-method card (token from
+  checkout; replacement happens on the next online payment — PayFast has
+  no charge-free tokenisation endpoint, noted for launch), payment history.
+- Account: profile edit, addresses, marketing consent toggles (append-only
+  consent history with IP/UA), consent timeline, POPIA "Request my data"
+  (admin bell + audit + written email confirmation), sign out.
+- PWA: manifest (brand icons, standalone, /portal start), minimal service
+  worker (network-first navigation, offline shell at /offline, cache-first
+  brand assets only — no dynamic caching), registered from the portal.
+
+Verified at 390px in browser: OTP sign-in → home with outstanding banner →
+service detail → change plan (pro-rata summary matched the engine: credit
+-R331 / charge R654 / due R323; plan swapped, INV-2026-00042 created) →
+billing (card-on-file shown from the checkout token, PDFs + pay links) →
+account. manifest.webmanifest, /sw.js and /offline all 200.
+
+## M7 — Sales workspace (next)
+
+- [ ] Leads, activities, quote builder with discount floor, share links,
+      quote-to-signup acceptance, pipeline home, scoping.
