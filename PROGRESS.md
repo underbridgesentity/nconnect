@@ -313,7 +313,45 @@ service detail → change plan (pro-rata summary matched the engine: credit
 billing (card-on-file shown from the checkout token, PDFs + pay links) →
 account. manifest.webmanifest, /sw.js and /offline all 200.
 
-## M7 — Sales workspace (next)
+## M7 — Sales workspace ✅ (2026-07-18)
 
-- [ ] Leads, activities, quote builder with discount floor, share links,
-      quote-to-signup acceptance, pipeline home, scoping.
+Done:
+- Quotes domain: snapshot pricing at creation, §10.4 discount floor
+  (cost set → discounted ≥ cost × (1 + floor%); cost null → ≤ 15% of
+  sell; admins bypass via quote.discount_below_floor; the error message
+  explains the block honestly), Q- sequence, share tokens, validity from
+  settings, send via WhatsApp template + email (lead → quoted +
+  activity), viewed flip with sales bell, quote list per §12 scoping.
+- Leads: quick-add (name + phone, phone-sized), unclaimed web leads
+  claimable, detail with activity timeline (note/call/whatsapp/status),
+  status transitions with lost reason, convert-to-quote entry.
+- Quote builder: plans/hardware/bundles/custom with quantities and
+  per-line discounts, live line + total margin visible to the rep
+  (computed — cost never shown or editable), save draft / send.
+- Acceptance flow (/q/[token]/accept): lead-prefilled contact → OTP →
+  POPIA → address (+ RICA when the quote includes a SIM) →
+  `createOrderFromQuote` locks pricing to quote snapshots (discounts
+  applied, cost snapshots carried), attributes the customer to the rep,
+  flips quote accepted + lead won, then PayFast redirect. ITN payment
+  then provisions services as usual.
+- Sales home: pipeline counts by status, quotes awaiting response with
+  viewed indicators, this-month won deals + estimated commission with the
+  formula displayed (first-month margin on won quotes × settings percent,
+  display-only).
+- My customers: read-only 360 subset (services, invoice statuses only,
+  conversations) strictly for assigned customers.
+
+Verified in browser at 390px: rep captured "Nomsa Dube" → built a VoIP
+quote with R100 discount → sent (Q-2026-00001, lead → quoted) → public
+link viewed (status flip + rep bell) → accepted with OTP + address →
+order NC-2026-00004 at the discounted R664 → simulated ITN → service
+provisioning + customer attributed to Demo Rep + lead won. Floor check:
+rep blocked at R200 discount on a no-cost line, admin override allowed.
+Second rep (rep2) gets a 404 on rep1's lead URL. Typecheck/lint/29 tests
+green.
+
+## M8 — Reports, reconciliation, hardening (next)
+
+- [ ] Reports + CSV exports, reconciliation worksheet, settings/staff/
+      integrations/audit viewer, rate limits, Playwright e2e, security
+      pass, LAUNCH-CHECKLIST.md.

@@ -517,3 +517,162 @@ export async function markOrderPaid(input: {
 function sqlDecrement(by: number) {
   return sql`greatest(stock_qty - ${by}, 0)`;
 }
+
+// ------------------------------------------------ order from accepted quote
+
+/**
+ * Create an order from a quote's snapshots (spec §9.5, §10.4): pricing is
+ * locked to the quote (including per-line discounts), the customer is
+ * attributed to the rep, and the lead (if any) flips to won on payment.
+ */
+export async function createOrderFromQuote(input: {
+  quoteId: string;
+  customerId: string;
+  address: {
+    line1: string;
+    line2?: string | null;
+    suburb?: string | null;
+    city: string;
+    province?: string | null;
+    postalCode?: string | null;
+  };
+  rica?: { idNumber: string; idDocPath: string; poaDocPath: string } | null;
+}): Promise<{ orderId: string; orderNumber: string; totalCents: number }> {
+  const { quotes, quoteItems } = await import("@/lib/db/schema");
+
+  return db.transaction(async (tx) => {
+    const [quote] = await tx
+      .select()
+      .from(quotes)
+      .where(eq(quotes.id, input.quoteId))
+      .limit(1);
+    if (!quote) throw new Error("Quote not found");
+    if (quote.acceptedOrderId) throw new Error("Quote already accepted");
+    if (quote.expiresAt && quote.expiresAt.getTime() < Date.now()) {
+      throw new Error("This quote has expired — ask your rep for a fresh one");
+    }
+    const items = await tx
+      .select()
+      .from(quoteItems)
+      .where(eq(quoteItems.quoteId, input.quoteId));
+    if (items.length === 0) throw new Error("Quote has no items");
+
+    // RICA requirement from the quoted plans.
+    const planIds = items.flatMap((i) => (i.planId ? [i.planId] : []));
+    let requiresRica = false;
+    if (planIds.length) {
+      const planRows = await tx
+        .select()
+        .from(plans)
+        .where(inArray(plans.id, planIds));
+      requiresRica = planRows.some((p) =>
+        (SIM_CATEGORIES as readonly string[]).includes(p.category)
+      );
+    }
+    if (requiresRica && !input.rica) {
+      throw new Error("This quote includes a SIM service and needs RICA details");
+    }
+
+    const totalCents = items.reduce(
+      (sum, i) =>
+        add(sum, multiply(i.unitPriceCentsSnapshot - i.discountCents, i.qty)),
+      0
+    );
+
+    const [address] = await tx
+      .insert(addresses)
+      .values({
+        customerId: input.customerId,
+        line1: input.address.line1,
+        line2: input.address.line2 ?? null,
+        suburb: input.address.suburb ?? null,
+        city: input.address.city,
+        province: input.address.province ?? null,
+        postalCode: input.address.postalCode ?? null,
+        isPrimary: true,
+      })
+      .returning({ id: addresses.id });
+
+    const number = await nextNumber(tx, "NC");
+    const [order] = await tx
+      .insert(orders)
+      .values({
+        number,
+        customerId: input.customerId,
+        channel: "sales",
+        quoteId: input.quoteId,
+        status: "pending_payment",
+        subtotalCents: totalCents,
+        totalCents,
+        createdBy: quote.createdBy,
+        addressId: address.id,
+      })
+      .returning({ id: orders.id });
+
+    await tx.insert(orderItems).values(
+      items.map((i) => ({
+        orderId: order.id,
+        itemType: i.itemType,
+        planId: i.planId,
+        hardwareId: i.hardwareId,
+        bundleId: i.bundleId,
+        nameSnapshot:
+          i.discountCents > 0
+            ? `${i.nameSnapshot} (quote discount applied)`
+            : i.nameSnapshot,
+        unitPriceCentsSnapshot: i.unitPriceCentsSnapshot - i.discountCents,
+        unitCostCentsSnapshot: i.unitCostCentsSnapshot,
+        qty: i.qty,
+      }))
+    );
+
+    if (input.rica) {
+      await tx.insert(ricaRecords).values({
+        customerId: input.customerId,
+        serviceId: null,
+        idNumberEncrypted: encryptSensitive(input.rica.idNumber),
+        idDocPath: input.rica.idDocPath,
+        poaDocPath: input.rica.poaDocPath,
+        status: "pending",
+      });
+    }
+
+    // Attribution: the quoted customer belongs to the rep (spec §9.5).
+    await tx
+      .update(customers)
+      .set({ assignedSalesId: quote.createdBy })
+      .where(eq(customers.id, input.customerId));
+    await tx
+      .update(quotes)
+      .set({ status: "accepted", acceptedOrderId: order.id, customerId: input.customerId })
+      .where(eq(quotes.id, input.quoteId));
+    if (quote.leadId) {
+      const { leads, leadActivities } = await import("@/lib/db/schema");
+      await tx
+        .update(leads)
+        .set({ status: "won", convertedCustomerId: input.customerId })
+        .where(eq(leads.id, quote.leadId));
+      await tx.insert(leadActivities).values({
+        leadId: quote.leadId,
+        kind: "status_change",
+        body: `Quote ${quote.number} accepted — order ${number}`,
+        createdBy: quote.createdBy,
+      });
+    }
+
+    await writeAudit(tx, {
+      actor: null,
+      action: "quote.accept",
+      entity: "quote",
+      entityId: input.quoteId,
+      after: { orderId: order.id, orderNumber: number, totalCents },
+    });
+    await emitDomainEvent(tx, "quote.accepted", {
+      quoteId: input.quoteId,
+      orderId: order.id,
+      createdBy: quote.createdBy,
+    });
+
+    return { orderId: order.id, orderNumber: number, totalCents };
+  });
+}
