@@ -75,6 +75,26 @@ export async function POST(req: NextRequest) {
 
   const amountCents = Math.round(parseFloat(amountGross ?? "0") * 100);
 
+  // Invoice pay-link payments carry an "inv:" prefix (§6.2).
+  if (mPaymentId.startsWith("inv:")) {
+    const invoiceId = mPaymentId.slice(4).split(":")[0];
+    try {
+      const { markInvoicePaidFromGateway } = await import(
+        "@/lib/domain/billing-engine"
+      );
+      await markInvoicePaidFromGateway({
+        invoiceId,
+        gatewayRef: pfPaymentId,
+        amountCents,
+        method: "payfast_card",
+      });
+      return new NextResponse("OK", { status: 200 });
+    } catch (err) {
+      console.error("invoice itn processing failed:", err);
+      return new NextResponse("Processing error", { status: 500 });
+    }
+  }
+
   try {
     const result = await markOrderPaid({
       orderId: mPaymentId,

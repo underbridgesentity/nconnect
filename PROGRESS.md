@@ -201,7 +201,52 @@ active, provider account recorded; full audit chain
 provisioning.activate.complete → service.active). Customer 360 renders
 services/billing/RICA/audit. Typecheck/lint/tests green.
 
-## M4 — Billing engine (next)
+## M4 — Billing engine ✅ (2026-07-18)
 
-- [ ] Recurring invoice cron, dunning timeline, token charges,
-      auto-suspend/reactivate, plan-change pro-rata + tests, age analysis.
+Done:
+- `lib/domain/billing-engine.ts`, all date inputs explicit for time-travel:
+  - Anniversary invoice generation (§6.1): period anchor→anchor, due +7d
+    (settings), idempotent per service+period, pointer always advances,
+    scheduled-downgrade rollover at the anchor (audited), invoice_issued
+    notification with pay link + PDF.
+  - Dunning (§6.3): token charges on days 0/2/5 (idempotent per attempt
+    slot), past_due at +7 with the 3-day warning, suspension at +10 through
+    the state machine, +40 unpaid+suspended → admin decision bell (nothing
+    automatic). Payment at any point clears pending attempts; settling
+    everything past due auto-reactivates via the state machine.
+  - Token charges via injectable `Charger` (PayFast ad-hoc token API in
+    production; mocks in tests); failures notify payment_failed with link.
+  - Plan changes (§5): upgrade immediate with integer-exact
+    prorata_credit/prorata_charge adjustment invoice (remainder on the
+    charge line), plan swaps at once, change_plan task, token charged or
+    pay link sent; downgrade scheduled at next anchor via
+    pending_plan_id/plan_change_effective_date, swapped in the billing run.
+  - Age analysis buckets (current/30/60/90+) per customer.
+- Pay links: HMAC-tokenised public `/pay/[invoiceId]` page rendering lines
+  + PayFast form (`m_payment_id = inv:<id>`); ITN webhook routes the inv:
+  prefix through `markInvoicePaidFromGateway` (idempotent, amount-checked).
+- Inngest `billing-run` daily at 02:00 Africa/Johannesburg: invoices →
+  dunning → cancellation sweep, in that order.
+- Admin Billing area: invoice list with status filters, age analysis,
+  payments log, read-only dunning timeline from settings.
+- Tests (29 total green): §5 pro-rata unit tests across 28/29/30/31-day
+  periods proving credit+consumed ≡ old price and charge ≡ exact
+  complement at every day offset; DB-backed time-travel integration suite
+  driving issue → 3 failed charges → past_due → suspended → paid (manual
+  EFT) → auto-reactivated, plus token-charge success, upgrade adjustment
+  exactness and downgrade rollover.
+
+Notes:
+- Integration tests run against the dev DATABASE_URL with their own
+  fixtures; time-travel runs can also invoice real dev services whose
+  anchor falls inside the travelled window (harmless in dev; CI should use
+  a scratch database).
+- Reactivation fee (settings `reactivation_fee_cents`, default 0) is not
+  yet charged as a line; revisit in M8 hardening if the client wants it.
+- Bulk reminders button on the Billing area deferred to M8 with the
+  reconciliation worksheet.
+
+## M5 — Inbox + notifications (next)
+
+- [ ] Unified conversations (portal + WhatsApp), realtime, internal notes,
+      assignment, WhatsApp inbound webhook, full matrix wiring.

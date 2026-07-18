@@ -29,6 +29,13 @@
       "when": 1784376683989,
       "tag": "0003_secret_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784377766694,
+      "tag": "0004_rapid_johnny_storm",
+      "breakpoints": true
     }
   ]
 }

@@ -512,6 +512,9 @@ export const services = pgTable(
     cancelReason: text("cancel_reason"),
     cancelEffectiveDate: date("cancel_effective_date"),
     suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    // Scheduled downgrade (spec §5): swaps at the next billing anchor.
+    pendingPlanId: uuid("pending_plan_id"),
+    planChangeEffectiveDate: date("plan_change_effective_date"),
     ...timestamps,
   },
   (t) => [
