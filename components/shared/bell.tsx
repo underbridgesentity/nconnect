@@ -12,7 +12,11 @@ import {
 import { MarkAllReadButton } from "./bell-client";
 
 /** Bell notifications (spec §8): unread badge + recent list, per user. */
-export async function NotificationBell() {
+export async function NotificationBell({
+  tone = "light",
+}: {
+  tone?: "light" | "dark";
+}) {
   const actor = await currentActor();
   if (!actor) return null;
 
@@ -32,7 +36,11 @@ export async function NotificationBell() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="relative inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+        className={`relative inline-flex size-8 items-center justify-center rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${
+          tone === "dark"
+            ? "text-white/70 hover:bg-white/10 hover:text-white"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+        }`}
         aria-label={`Notifications${unread.n ? ` (${unread.n} unread)` : ""}`}
       >
         <Bell className="size-4" />

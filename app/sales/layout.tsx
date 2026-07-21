@@ -1,16 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
-import { LayoutDashboard, ContactRound, FileText, Users } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { SignOutButton } from "@/components/shared/sign-out-button";
 import { NotificationBell } from "@/components/shared/bell";
-
-const NAV = [
-  { href: "/sales", label: "Home", icon: LayoutDashboard },
-  { href: "/sales/leads", label: "Leads", icon: ContactRound },
-  { href: "/sales/quotes", label: "Quotes", icon: FileText },
-  { href: "/sales/customers", label: "My customers", icon: Users },
-];
+import { SalesNav } from "./nav";
 
 export default async function SalesLayout({
   children,
@@ -20,7 +13,7 @@ export default async function SalesLayout({
   const session = await auth();
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b bg-card px-3 md:px-6">
+      <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b bg-card/95 px-3 backdrop-blur md:px-6">
         <div className="flex items-center gap-4">
           <Link href="/sales">
             <Image
@@ -31,18 +24,7 @@ export default async function SalesLayout({
               priority
             />
           </Link>
-          <nav className="flex items-center gap-1">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex touch-target items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              >
-                <item.icon className="size-4" aria-hidden />
-                <span className="hidden sm:inline">{item.label}</span>
-              </Link>
-            ))}
-          </nav>
+          <SalesNav />
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden truncate text-xs text-muted-foreground sm:inline">
