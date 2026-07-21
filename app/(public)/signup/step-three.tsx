@@ -276,12 +276,12 @@ export function StepThree({
                   {line.name}
                   {line.qty > 1 ? ` × ${line.qty}` : ""}
                 </span>
-                <span className="tnum font-mono">{formatR(line.totalCents)}</span>
+                <span className="tnum">{formatR(line.totalCents)}</span>
               </div>
             ))}
             <div className="flex items-center justify-between p-3 font-semibold">
               <span>Due now</span>
-              <span className="tnum font-mono">
+              <span className="tnum">
                 {formatR(summary.totalDueNowCents)}
               </span>
             </div>

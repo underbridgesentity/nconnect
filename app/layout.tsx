@@ -1,6 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { GeistSans } from "geist/font/sans";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { GeistMono } from "geist/font/mono";
+
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-jakarta",
+  display: "swap",
+});
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -34,7 +40,7 @@ export default function RootLayout({
   return (
     <html
       lang="en-ZA"
-      className={`${GeistSans.variable} ${GeistMono.variable} h-full`}
+      className={`${jakarta.variable} ${GeistMono.variable} h-full`}
     >
       <body className="min-h-full flex flex-col">
         {children}

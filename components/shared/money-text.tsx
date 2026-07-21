@@ -12,7 +12,7 @@ export function MoneyText({
   className?: string;
 }) {
   return (
-    <span className={cn("tnum font-mono", className)}>
+    <span className={cn("tnum", className)}>
       {formatCents(cents, { whole })}
     </span>
   );

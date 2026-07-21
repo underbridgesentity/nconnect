@@ -243,7 +243,7 @@ export function QuoteBuilder({
                     />
                   </label>
                   <span className="ml-auto text-sm">
-                    <span className="tnum font-mono font-medium">
+                    <span className="tnum font-medium">
                       {formatR(lineTotal)}
                     </span>
                     {lineMargin != null ? (
@@ -270,11 +270,11 @@ export function QuoteBuilder({
           <div className="rounded-lg border bg-muted/40 p-3 text-sm">
             <div className="flex justify-between font-semibold">
               <span>Quote total</span>
-              <span className="tnum font-mono">{formatR(totals.total)}</span>
+              <span className="tnum">{formatR(totals.total)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Your visible margin</span>
-              <span className="tnum font-mono">
+              <span className="tnum">
                 {totals.margin != null ? formatR(totals.margin) : "cost prices missing"}
               </span>
             </div>

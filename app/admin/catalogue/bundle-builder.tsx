@@ -323,15 +323,15 @@ export function BundleBuilder({
           <div className="rounded-md border bg-muted/40 p-3 text-sm">
             <div className="flex justify-between">
               <span>Component prices add up to</span>
-              <span className="tnum font-mono">{formatR(totals.componentPrice)}</span>
+              <span className="tnum">{formatR(totals.componentPrice)}</span>
             </div>
             <div className="flex justify-between">
               <span>Known wholesale cost</span>
-              <span className="tnum font-mono">{formatR(totals.cost)}</span>
+              <span className="tnum">{formatR(totals.cost)}</span>
             </div>
             <div className="mt-1 flex justify-between border-t pt-1 font-medium">
               <span>Margin at bundle price</span>
-              <span className="tnum font-mono">
+              <span className="tnum">
                 {totals.margin == null ? "cost price missing" : formatR(totals.margin)}
               </span>
             </div>
