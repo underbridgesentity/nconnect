@@ -21,7 +21,7 @@ export default function AboutPage() {
         </p>
         <p>
           Being a reseller is the point, not a compromise. We buy wholesale
-          from the networks and sell to you directly — which means you never
+          from the networks and sell to you directly, which means you never
           phone a network call centre again. One provider, one bill, and
           support from people who know your account, on WhatsApp.
         </p>

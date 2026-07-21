@@ -65,7 +65,7 @@ export function ClaimButton({ leadId }: { leadId: string }) {
         startTransition(async () => {
           const r = await claimLeadAction(leadId);
           if (r.ok) {
-            toast.success("Lead claimed — it's yours");
+            toast.success("Lead claimed, it's yours");
             router.refresh();
           } else toast.error(r.error ?? "Failed");
         })

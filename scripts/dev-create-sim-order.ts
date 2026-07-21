@@ -1,6 +1,6 @@
 /**
  * Dev utility: create a SIM-based (RICA-requiring) order end-to-end at the
- * domain level — customer, RICA docs in the compliance bucket, order — then
+ * domain level, customer, RICA docs in the compliance bucket, order, then
  * simulate the PayFast ITN so the M3 lifecycle can be exercised in the
  * admin UI. Mirrors exactly what the signup wizard actions do.
  *

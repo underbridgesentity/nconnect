@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * StatusPill (spec §11): the same component everywhere a status appears.
- * Never colour-only — the label always renders.
+ * Never colour-only, the label always renders.
  */
 
 const STATUS_STYLES: Record<string, { label: string; className: string }> = {

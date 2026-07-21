@@ -83,7 +83,7 @@ export function authorize(
   }
 }
 
-/** The actor's scope for a capability — for query-shaping in list endpoints. */
+/** The actor's scope for a capability, for query-shaping in list endpoints. */
 export function scopeFor(actor: Actor, capability: Capability): Scope {
   return PERMISSION_MAP[capability][actor.role];
 }

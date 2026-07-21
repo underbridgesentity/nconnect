@@ -19,7 +19,7 @@ export default function OfflinePage() {
       <WifiOff className="size-8 text-muted-foreground" aria-hidden />
       <h1 className="text-xl font-semibold">You&apos;re offline</h1>
       <p className="max-w-xs text-sm text-muted-foreground">
-        We can&apos;t reach the internet right now — which, we admit, is
+        We can&apos;t reach the internet right now, which, we admit, is
         awkward for an internet company. Your portal will load again the
         moment you&apos;re back online.
       </p>

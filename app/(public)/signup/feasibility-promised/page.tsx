@@ -14,7 +14,7 @@ export default function FeasibilityPromisedPage() {
       <h1 className="mt-4 text-2xl font-semibold">We&apos;re on it.</h1>
       <p className="mt-2 text-muted-foreground">
         We confirm fibre availability at your address within one business day,
-        on WhatsApp. Your plan choice is saved — once we confirm, signup takes
+        on WhatsApp. Your plan choice is saved, once we confirm, signup takes
         two minutes.
       </p>
       <p className="mt-6 text-sm text-muted-foreground">

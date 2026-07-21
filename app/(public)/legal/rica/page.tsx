@@ -18,7 +18,7 @@ export default function RicaPage() {
             The Regulation of Interception of Communications and Provision of
             Communication-related Information Act requires every SIM card in
             South Africa to be registered to an identified person. It applies
-            to our LTE, 5G and SIM data services — not to fibre or VoIP
+            to our LTE, 5G and SIM data services, not to fibre or VoIP
             without a SIM.
           </p>
         </section>
@@ -33,7 +33,7 @@ export default function RicaPage() {
             </li>
           </ul>
           <p className="mt-2">
-            You upload these during signup — a clear phone photo is fine. Your
+            You upload these during signup, a clear phone photo is fine. Your
             service activates only once we&apos;ve verified them, which we do
             within one business day.
           </p>
@@ -45,7 +45,7 @@ export default function RicaPage() {
             Africa; ID numbers are additionally encrypted and masked in our
             systems. Access is limited to verification staff and every access
             is logged. RICA law requires us to retain these records for 5
-            years after your service ends — they are excluded from deletion
+            years after your service ends, they are excluded from deletion
             requests for that period.
           </p>
         </section>

@@ -65,7 +65,7 @@ export async function sendWhatsAppTemplate(
   return { ok: true, externalId: data.messages?.[0]?.id };
 }
 
-/** Free-form session message (24h window) — used for inbox replies. */
+/** Free-form session message (24h window), used for inbox replies. */
 export async function sendWhatsAppText(
   to: string,
   body: string

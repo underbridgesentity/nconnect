@@ -86,7 +86,7 @@ export default async function PortalServicePage({
       {flags.changed === "upgrade" ? (
         <p className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
           <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-          Upgrade done — it&apos;s live now.{" "}
+          Upgrade done, it&apos;s live now.{" "}
           {flags.invoice
             ? "The pro-rata adjustment invoice is in your Billing tab."
             : "The pro-rata adjustment was charged to your saved card."}
@@ -95,7 +95,7 @@ export default async function PortalServicePage({
       {flags.changed === "downgrade" ? (
         <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
           Downgrade scheduled for {flags.date}. You keep your current plan
-          until then — no partial charges.
+          until then, no partial charges.
         </p>
       ) : null}
       {flags.cancelled ? (
@@ -108,7 +108,7 @@ export default async function PortalServicePage({
       {flags.withdrawn ? (
         <p className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
           <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-          Cancellation withdrawn — nothing changes, welcome back.
+          Cancellation withdrawn, nothing changes, welcome back.
         </p>
       ) : null}
 
@@ -180,7 +180,7 @@ export default async function PortalServicePage({
             type="submit"
             className="flex w-full touch-target items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            Withdraw cancellation — keep my service
+            Withdraw cancellation, keep my service
           </button>
         </form>
       ) : null}

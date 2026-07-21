@@ -53,7 +53,7 @@ function integrationStatus() {
       state:
         process.env.WHATSAPP_ENABLED === "true"
           ? "live"
-          : "disabled — email fallback active",
+          : "disabled, email fallback active",
     },
     {
       name: "Resend (email)",
@@ -72,7 +72,7 @@ function integrationStatus() {
       name: "Supabase (storage + realtime)",
       state: process.env.SUPABASE_URL
         ? "configured"
-        : "local drivers (dev) — polling fallback",
+        : "local drivers (dev), polling fallback",
     },
     {
       name: "Inngest",
@@ -213,7 +213,7 @@ async function ReportsTab() {
                     {row.marginCents != null ? (
                       <MoneyText cents={row.marginCents} whole />
                     ) : (
-                      "—"
+                      ", "
                     )}
                   </td>
                   <td
@@ -300,7 +300,7 @@ async function ReportsTab() {
             Set cost prices ({missingCost.length} plans)
           </h2>
           <p className="text-xs text-muted-foreground">
-            Margin is flying blind on these — fill wholesale costs in the
+            Margin is flying blind on these, fill wholesale costs in the
             Catalogue.
           </p>
           <div className="mt-2 space-y-1">
@@ -337,7 +337,7 @@ async function ReconciliationTab({ provider }: { provider: string }) {
       <p className="text-sm text-muted-foreground">
         Monthly wholesale check (spec §6.4): platform-active services vs the
         provider statement. Upload a CSV with <code>external_ref,amount</code>{" "}
-        columns to match line items — nothing auto-adjusts; this is a
+        columns to match line items, nothing auto-adjusts; this is a
         checklist you resolve.
       </p>
       <div className="flex flex-wrap gap-1.5">
@@ -406,13 +406,13 @@ async function ReconciliationTab({ provider }: { provider: string }) {
                   <td className="p-3">{row.customerName}</td>
                   <td className="p-3">{row.planName}</td>
                   <td className="p-3 font-mono text-xs">
-                    {row.externalRef ?? "—"}
+                    {row.externalRef ?? "-"}
                   </td>
                   <td className="p-3 text-right">
                     {row.expectedCostCents != null ? (
                       <MoneyText cents={row.expectedCostCents} />
                     ) : (
-                      "—"
+                      ", "
                     )}
                   </td>
                   <td className="p-3">

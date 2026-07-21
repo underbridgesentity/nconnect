@@ -51,7 +51,7 @@ export default async function CancelServicePage({
             <span className="font-medium">{effectiveDate}</span>.
           </p>
           <ul className="mt-2 space-y-1 text-muted-foreground">
-            <li>• It stays fully active until that date — you&apos;ve paid for it.</li>
+            <li>• It stays fully active until that date, you&apos;ve paid for it.</li>
             <li>• No further invoices after that.</li>
             <li>• You can withdraw the cancellation any time before then.</li>
           </ul>
@@ -60,7 +60,7 @@ export default async function CancelServicePage({
           <input type="hidden" name="serviceId" value={id} />
           <label className="block text-sm">
             <span className="text-muted-foreground">
-              Mind telling us why? (helps us fix things — optional)
+              Mind telling us why? (helps us fix things, optional)
             </span>
             <textarea
               name="reason"
@@ -78,7 +78,7 @@ export default async function CancelServicePage({
             href={`/portal/services/${id}`}
             className="flex touch-target items-center justify-center text-sm text-muted-foreground hover:text-foreground"
           >
-            Never mind — keep my service
+            Never mind, keep my service
           </Link>
         </form>
       </div>
@@ -116,7 +116,7 @@ export default async function CancelServicePage({
         <div className="rounded-lg border bg-card p-4">
           <h2 className="text-sm font-semibold">Paying too much?</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Drop to a cheaper plan instead — from{" "}
+            Drop to a cheaper plan instead, from{" "}
             <MoneyText
               cents={Math.min(...cheaper.map((p) => p.priceCents))}
               whole
@@ -135,7 +135,7 @@ export default async function CancelServicePage({
       <div className="rounded-lg border bg-card p-4">
         <h2 className="text-sm font-semibold">Something not working?</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Slow evenings, drops, billing confusion — most issues are fixable in
+          Slow evenings, drops, billing confusion, most issues are fixable in
           one conversation with someone who knows your setup.
         </p>
         <Link
@@ -150,7 +150,7 @@ export default async function CancelServicePage({
         href={`/portal/services/${id}/cancel?confirm=1`}
         className="flex touch-target items-center justify-center rounded-md px-5 text-sm font-medium text-destructive hover:underline"
       >
-        No thanks — continue to cancel
+        No thanks, continue to cancel
       </Link>
     </div>
   );

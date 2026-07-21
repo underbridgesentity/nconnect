@@ -130,7 +130,7 @@ export default async function CataloguePage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Catalogue</h1>
           <p className="text-sm text-muted-foreground">
-            One catalogue, one truth — the site, signup, quotes and the PDF all
+            One catalogue, one truth, the site, signup, quotes and the PDF all
             render from these records.
           </p>
         </div>
@@ -210,7 +210,7 @@ export default async function CataloguePage({
                             {p.costCents != null ? (
                               <MoneyText cents={p.costCents} whole />
                             ) : (
-                              <span className="text-muted-foreground">—</span>
+                              <span className="text-muted-foreground">-</span>
                             )}
                           </td>
                           <td className="p-3 text-right">
@@ -293,7 +293,7 @@ export default async function CataloguePage({
                             {h.costCents != null ? (
                               <MoneyText cents={h.costCents} whole />
                             ) : (
-                              <span className="text-muted-foreground">—</span>
+                              <span className="text-muted-foreground">-</span>
                             )}
                           </td>
                           <td className="p-3 text-right">

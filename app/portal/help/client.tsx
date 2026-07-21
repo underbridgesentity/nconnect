@@ -34,7 +34,7 @@ export function NewConversationForm() {
         startTransition(async () => {
           const r: Result = await startPortalConversationAction(form);
           if (r.ok && r.conversationId) {
-            toast.success("Sent — we'll get back to you");
+            toast.success("Sent, we'll get back to you");
             router.push(`/portal/help/${r.conversationId}`);
           } else toast.error(r.error ?? "Failed");
         })

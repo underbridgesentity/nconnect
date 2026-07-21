@@ -38,8 +38,7 @@ export async function toggleHardwareAction(form: FormData): Promise<void> {
 }
 
 export async function continueToAddressAction(form: FormData): Promise<void> {
-  // Deep-linked selections (?plan= / ?bundle=) arrive as hidden fields —
-  // cookies can only be written here, not during page render.
+  // Deep-linked selections (?plan= / ?bundle=) arrive as hidden fields, // cookies can only be written here, not during page render.
   const planSlug = String(form.get("planSlug") ?? "") || undefined;
   const bundleSlug = String(form.get("bundleSlug") ?? "") || undefined;
   const draft = await readDraft();
@@ -187,7 +186,7 @@ export async function verifySignupOtpAction(
     return {
       ok: false,
       error:
-        "We need your consent to process your information — it's required to provide the service.",
+        "We need your consent to process your information, it's required to provide the service.",
     };
   }
 
@@ -196,7 +195,7 @@ export async function verifySignupOtpAction(
 
   const result = await verifyOtp(draft.contact.phone, code);
   if (!result.ok) {
-    return { ok: false, error: "That code didn't match — try again." };
+    return { ok: false, error: "That code didn't match, try again." };
   }
 
   const hdrs = await headers();

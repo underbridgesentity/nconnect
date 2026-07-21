@@ -13,7 +13,7 @@ export default function PrivacyPage() {
     <div className="mx-auto max-w-3xl px-4 py-10">
       <h1 className="text-3xl font-semibold tracking-tight">Privacy Policy</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        Needd Technology Solutions (Pty) Ltd (Reg 2014/063733/07) — last
+        Needd Technology Solutions (Pty) Ltd (Reg 2014/063733/07), last
         reviewed July 2026. Plain language on purpose.
       </p>
 
@@ -24,7 +24,7 @@ export default function PrivacyPage() {
             We collect only what running your service requires: your name and
             contact details (to identify you and communicate), your service
             address (to deliver and provision connectivity), payment records
-            (to bill you), and — for SIM-based services only — your ID number,
+            (to bill you), and, for SIM-based services only, your ID number,
             ID document and proof of address, because RICA legally requires
             it. Every form on this site says why each field is collected.
           </p>
@@ -59,8 +59,7 @@ export default function PrivacyPage() {
         <section>
           <h2>Retention</h2>
           <p className="mt-2">
-            We keep financial records as tax law requires. RICA records —
-            including your ID document and proof of address — are retained for
+            We keep financial records as tax law requires. RICA records, including your ID document and proof of address, are retained for
             5 years after your service ends, as RICA requires, and are excluded
             from deletion requests for that period.
           </p>

@@ -47,8 +47,8 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
         required
         placeholder={
           internal
-            ? "Internal note — the customer never sees this"
-            : "Reply — goes out on the conversation's channel"
+            ? "Internal note, the customer never sees this"
+            : "Reply, goes out on the conversation's channel"
         }
         className={internal ? "border-amber-300 bg-amber-50" : ""}
       />

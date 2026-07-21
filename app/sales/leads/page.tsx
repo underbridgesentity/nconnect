@@ -48,7 +48,7 @@ export default async function SalesLeadsPage({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
         <p className="text-sm text-muted-foreground">
-          Built for capturing mid-conversation — a name and number is enough.
+          Built for capturing mid-conversation, a name and number is enough.
         </p>
       </div>
 

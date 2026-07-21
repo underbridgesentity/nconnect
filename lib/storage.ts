@@ -9,7 +9,7 @@ import { randomBytes, createHmac } from "node:crypto";
  * `compliance` and `documents` (private, short-lived signed URLs only).
  *
  * Dev fallback: without SUPABASE_URL the driver writes to `.uploads/` on disk
- * and serves via /api/files with HMAC-signed, expiring URLs — same contract,
+ * and serves via /api/files with HMAC-signed, expiring URLs, same contract,
  * recorded in PROGRESS.md. Production always uses Supabase.
  */
 

@@ -153,7 +153,7 @@ export async function acceptFinalizeAction(
       if (!idNumber || !idDoc?.size || !poaDoc?.size) {
         return {
           ok: false,
-          error: "This quote includes a SIM — ID number and both documents are required",
+          error: "This quote includes a SIM, ID number and both documents are required",
         };
       }
       rica = {

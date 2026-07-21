@@ -83,7 +83,7 @@ export default async function PayInvoicePage({
       {invoice.status === "paid" ? (
         <p className="mt-6 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <CheckCircle2 className="size-5" aria-hidden />
-          This invoice is settled — thank you.
+          This invoice is settled, thank you.
         </p>
       ) : payable ? (
         <PayForm invoiceId={invoice.id} />
@@ -122,7 +122,7 @@ async function PayForm({ invoiceId }: { invoiceId: string }) {
         Pay securely with PayFast
       </button>
       <p className="mt-2 text-center text-xs text-muted-foreground">
-        Prefer EFT? The banking details are on your invoice PDF — reference{" "}
+        Prefer EFT? The banking details are on your invoice PDF, reference{" "}
         {invoice.number}.
       </p>
     </form>

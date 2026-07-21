@@ -160,7 +160,7 @@ export async function renderInvoicePdf(invoiceId: string): Promise<Buffer> {
               <>
                 <Text style={[styles.muted, { marginTop: 4 }]}>Period</Text>
                 <Text>
-                  {dateFmt.format(new Date(invoice.periodStart))} —{" "}
+                  {dateFmt.format(new Date(invoice.periodStart))}, {" "}
                   {dateFmt.format(new Date(invoice.periodEnd))}
                 </Text>
               </>

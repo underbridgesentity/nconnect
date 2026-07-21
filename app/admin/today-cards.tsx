@@ -78,7 +78,7 @@ export function TaskCard({ task }: { task: TaskCardData }) {
         <div className="mt-3 space-y-3 border-t pt-3">
           {task.type === "activate" && task.isSim && !task.ricaVerified ? (
             <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800">
-              RICA not verified yet — verify it in the RICA section below
+              RICA not verified yet, verify it in the RICA section below
               before completing this activation.
             </p>
           ) : null}
@@ -283,7 +283,7 @@ export function RicaCard({ record }: { record: RicaCardData }) {
               const r = await rejectRicaAction(form);
               if (!r.ok) toast.error(r.error);
               else {
-                toast.success("RICA rejected — customer must resubmit");
+                toast.success("RICA rejected, customer must resubmit");
                 router.refresh();
               }
             })

@@ -28,7 +28,7 @@ export const abandonedSignups = inngest.createFunction(
       const state = draft.state as SignupDraftState;
       if (
         !state.contact?.phone ||
-        state.orderId || // paid or paying — not abandoned
+        state.orderId || // paid or paying, not abandoned
         state.abandonedLeadCaptured ||
         !(state.address || state.planSlug || state.bundleSlug)
       ) {

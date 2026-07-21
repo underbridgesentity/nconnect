@@ -34,7 +34,7 @@ const SIM_CATEGORIES = ["lte_home", "telkom_lte", "sim_data"];
 
 /** Today (spec §9.4.1): a queue, not a dashboard. */
 export default async function AdminTodayPage() {
-  // Slim strip: active services, MRR, open conversations — that is all.
+  // Slim strip: active services, MRR, open conversations, that is all.
   const [strip] = await db
     .select({
       activeServices: sql<number>`count(*) filter (where ${services.status} = 'active')::int`,
@@ -183,7 +183,7 @@ export default async function AdminTodayPage() {
               <span>
                 <span className="font-medium">{customerDisplayName(customer)}</span>
                 <span className="block text-sm text-muted-foreground">
-                  {invoice.number} — due {invoice.dueDate}
+                  {invoice.number}, due {invoice.dueDate}
                 </span>
               </span>
               <MoneyText cents={invoice.totalCents} className="font-medium" />
@@ -273,7 +273,7 @@ export default async function AdminTodayPage() {
         </p>
       </div>
 
-      {/* Slim strip (spec: active services, MRR, open conversations — that is all) */}
+      {/* Slim strip (spec: active services, MRR, open conversations, that is all) */}
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-lg border bg-card p-3">
           <p className="text-xs text-muted-foreground">Active services</p>

@@ -4,8 +4,7 @@ import * as schema from "./schema";
 
 /**
  * Single server-side database client over the Supabase connection pooler
- * (or local Postgres in dev). Never imported from client components —
- * enforced by the `server-only` import.
+ * (or local Postgres in dev). Never imported from client components, * enforced by the `server-only` import.
  */
 import "server-only";
 

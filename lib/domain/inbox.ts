@@ -189,7 +189,7 @@ async function deliverStaffReply(
     await sendEmail({
       to: customer.email,
       subject: conv.subject
-        ? `Re: ${conv.subject} — Needd Connect`
+        ? `Re: ${conv.subject}, Needd Connect`
         : "New reply from Needd Connect support",
       html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>${body.replace(/\n/g, "<br/>")}</p><p style="margin-top:24px;font-size:13px"><a href="${process.env.APP_URL}/portal/help/${conversationId}">Reply in your portal</a></p></div>`,
       text: `${body}\n\nReply in your portal: ${process.env.APP_URL}/portal/help/${conversationId}`,

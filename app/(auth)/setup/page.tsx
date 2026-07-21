@@ -17,7 +17,7 @@ export default async function SetupPage({
       <div className="rounded-lg border bg-card p-6">
         <h1 className="text-xl font-semibold">Missing setup link</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Open the link from your invitation email — it carries your one-time
+          Open the link from your invitation email, it carries your one-time
           setup token.
         </p>
       </div>

@@ -37,7 +37,7 @@ export default async function SalesHomePage() {
     )
     .limit(10);
 
-  // This month: won deals + estimated commission (§9.5) — display-only:
+  // This month: won deals + estimated commission (§9.5), display-only:
   // sum of first-month margin on accepted quotes × commission percent.
   const monthStart = new Date();
   monthStart.setDate(1);
@@ -105,7 +105,7 @@ export default async function SalesHomePage() {
         <h2 className="text-sm font-semibold">Quotes awaiting response</h2>
         {awaiting.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            Nothing out there right now — build one from a lead.
+            Nothing out there right now, build one from a lead.
           </p>
         ) : (
           awaiting.map((quote) => (
@@ -146,7 +146,7 @@ export default async function SalesHomePage() {
         <p className="mt-3 text-xs text-muted-foreground">
           Formula: first-month margin on won quotes ({marginKnown ? "" : "excluding lines with missing cost prices, "}
           <MoneyText cents={marginCents} />) × {commissionPercent}%. A
-          display-only estimate — payroll confirms the real figure.
+          display-only estimate, payroll confirms the real figure.
         </p>
       </section>
     </div>

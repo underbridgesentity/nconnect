@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 /**
- * PayFast return URL. The ITN webhook is the source of truth — this page
+ * PayFast return URL. The ITN webhook is the source of truth, this page
  * reflects the order's current status honestly and refreshes until the ITN
  * lands (usually seconds).
  */
@@ -30,7 +30,7 @@ export default async function SignupSuccessPage({
       <div className="mx-auto max-w-xl px-4 py-16 text-center">
         <h1 className="text-2xl font-semibold">We couldn&apos;t find that order</h1>
         <p className="mt-2 text-muted-foreground">
-          If you&apos;ve just paid, give it a minute — or contact us and
+          If you&apos;ve just paid, give it a minute, or contact us and
           we&apos;ll check immediately.
         </p>
       </div>
@@ -51,7 +51,7 @@ export default async function SignupSuccessPage({
             </h1>
             <p className="mt-2 text-muted-foreground">
               PayFast is confirming order {order.number}. This page updates
-              itself — usually within seconds.
+              itself, usually within seconds.
             </p>
           </div>
         </>
@@ -59,7 +59,7 @@ export default async function SignupSuccessPage({
         <div className="text-center">
           <CheckCircle2 className="mx-auto size-10 text-emerald-600" aria-hidden />
           <h1 className="mt-4 text-2xl font-semibold">
-            Payment received — you&apos;re in.
+            Payment received, you&apos;re in.
           </h1>
           <div className="mx-auto mt-6 max-w-sm space-y-3 text-left text-sm text-muted-foreground">
             <p>
@@ -74,8 +74,7 @@ export default async function SignupSuccessPage({
             </p>
             <p>
               <span className="font-semibold text-foreground">3.</span> We
-              activate your service and WhatsApp you the moment it&apos;s live —
-              your paid month starts then.
+              activate your service and WhatsApp you the moment it&apos;s live, your paid month starts then.
             </p>
           </div>
           <form action={signInVerifiedCustomerAction} className="mt-8">

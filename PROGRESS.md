@@ -399,3 +399,40 @@ State at M8 close: all milestones M0–M8 complete; typecheck, lint, 29
 vitest tests, 4 Playwright tests green; production build verified in M1.
 The platform is code-complete pending the launch checklist's real-world
 credentials and client decisions.
+
+## Design pass (post-M8, 2026-07-21)
+
+Full visual overhaul of the public site, modelled on the photographic,
+dark-hero style of the current needdconnect.co.za:
+
+- Marketing imagery: 8 Freepik free-licence photos processed to webp via
+  sharp (hero 1920w, rest 1200–1600w, all under 100KB) in
+  `public/marketing/`; supersedes the no-stock-photos note in the M8
+  image manifest at the client's request.
+- Product photos: `scripts/fetch-product-images.ts` scrapes manufacturer
+  og:image (Cudy sitemap, Yealink), validates at least 500px, flattens to
+  white 1200x1200 webp, uploads to the catalogue bucket and points
+  `hardware_products.image_path` at it. 12 SKUs have real photos on both
+  dev and staging; the rest keep the honest "Image coming soon" card.
+- Admin uploads: hardware editor accepts an image (min 800px wide,
+  converted to webp, stored via the storage abstraction with signed
+  URLs). Verified end to end with a headless-browser run: upload, save,
+  editor preview and the public hardware card all serve the stored file.
+- Home page rebuilt: full-bleed dark photo hero with scrim, trust chip,
+  pill CTAs and a stat row; photo category cards; featured-plan cards
+  with gradient top bar; photographic image band; steps, trust strip,
+  FAQ cards and an ink CTA band.
+- `PageHeader` photographic band applied to internet, fibre, voip,
+  sim-data, hardware and coverage pages.
+- Buttons are pill-shaped globally (`rounded-full` in the Button
+  variants), radius scale raised (`--radius: 1rem`), `.card-hover`,
+  `.img-zoom` and `.hero-scrim` utilities added.
+- Scroll reveals: `components/shared/reveal.tsx`, an
+  IntersectionObserver fade-and-rise wrapper with a scroll-position
+  fallback and reduced-motion handling (motion/react whileInView proved
+  unreliable, so reveals are hand-rolled). Verified headless at five
+  scroll depths: no in-viewport element ever stays hidden.
+- Em dashes removed across the whole platform (91 files swept, standing
+  rule for all future copy).
+
+Checks after the pass: typecheck, lint and all 29 vitest tests green.

@@ -23,7 +23,7 @@ export default async function ContactPage() {
         <Link href="/portal/help" className="text-primary hover:underline">
           your portal
         </Link>{" "}
-        — it lands directly with the team that manages your services.
+       , it lands directly with the team that manages your services.
       </p>
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
         <a

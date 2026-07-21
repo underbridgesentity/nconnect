@@ -4,8 +4,8 @@
  *
  * Scope meanings:
  *  - "all":   no resource restriction
- *  - "own":   sales — resource must belong to / be assigned to the actor
- *  - "self":  customer — resource must be the actor's own record
+ *  - "own":   sales, resource must belong to / be assigned to the actor
+ *  - "self":  customer, resource must be the actor's own record
  *  - "none":  capability denied outright
  * Some capabilities carry a narrower qualifier documented inline.
  */

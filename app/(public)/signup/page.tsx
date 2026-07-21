@@ -87,8 +87,7 @@ export default async function SignupWizardPage({
   const params = await searchParams;
   const stored = await readDraft();
 
-  // Deep links (?plan= / ?bundle=) preselect without touching the draft —
-  // cookies can't be written during render; persistence happens when the
+  // Deep links (?plan= / ?bundle=) preselect without touching the draft, // cookies can't be written during render; persistence happens when the
   // visitor takes an action (spec §9.2).
   const draft = {
     ...stored,
@@ -305,8 +304,8 @@ async function Step1Choose({
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {selectedCategory === "lte_home"
-              ? "MTN/Vodacom LTE needs a network-approved router — pick one below if you don't have one."
-              : "Optional — add what you need, skip what you don't."}
+              ? "MTN/Vodacom LTE needs a network-approved router, pick one below if you don't have one."
+              : "Optional, add what you need, skip what you don't."}
           </p>
           <div className="mt-2 space-y-2">
             {suggestions.map((h) => {
@@ -388,7 +387,7 @@ function Step2Address({
           </h2>
           <p className="mt-1 text-sm text-blue-800/90">
             We confirm fibre availability at your address with the network
-            operator before taking any payment — it takes one business day at
+            operator before taking any payment, it takes one business day at
             most. Leave your details and we&apos;ll come back to you on
             WhatsApp with a yes (and next steps) or honest alternatives.
           </p>

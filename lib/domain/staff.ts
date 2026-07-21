@@ -59,7 +59,7 @@ export async function inviteStaff(
   await sendEmail({
     to: email,
     subject: "You've been invited to Needd Connect",
-    html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${input.name},</p><p>You've been invited to the Needd Connect ${input.role} workspace.</p><p><a href="${link}">Set your password</a> — the link is valid for 7 days.</p></div>`,
+    html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${input.name},</p><p>You've been invited to the Needd Connect ${input.role} workspace.</p><p><a href="${link}">Set your password</a>, the link is valid for 7 days.</p></div>`,
     text: `Set up your Needd Connect account: ${link}`,
   });
 }

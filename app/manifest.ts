@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Needd Connect",
     short_name: "Needd",
     description:
-      "Your Needd Connect services, invoices and support — one provider, one bill.",
+      "Your Needd Connect services, invoices and support, one provider, one bill.",
     start_url: "/portal",
     scope: "/",
     display: "standalone",

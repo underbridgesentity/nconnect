@@ -31,7 +31,7 @@ export default async function SalesCustomersPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">My customers</h1>
         <p className="text-sm text-muted-foreground">
-          Customers attributed to you — read-only view of their services and
+          Customers attributed to you, read-only view of their services and
           billing status.
         </p>
       </div>

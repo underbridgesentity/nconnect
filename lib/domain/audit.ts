@@ -5,7 +5,7 @@ import type { Actor } from "@/lib/auth/authorize";
 
 /**
  * Audit writer (spec §2.7): financial and lifecycle mutations record who,
- * what, when, before, after — in the same transaction as the mutation.
+ * what, when, before, after, in the same transaction as the mutation.
  */
 
 export const SYSTEM_ACTOR: Actor = {

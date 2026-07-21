@@ -10,7 +10,7 @@ import { decryptSensitive, maskIdNumber } from "@/lib/crypto";
 /**
  * RICA verification (spec §13). Documents live in the private compliance
  * bucket; every signed-URL issuance and ID-number decryption is audited.
- * Records are retained 5 years after service termination — no deletes.
+ * Records are retained 5 years after service termination, no deletes.
  */
 
 export async function pendingRicaRecords() {
@@ -20,7 +20,7 @@ export async function pendingRicaRecords() {
     .where(eq(ricaRecords.status, "pending"));
 }
 
-/** Signed URLs for the verification view — issuance is audited (§13). */
+/** Signed URLs for the verification view, issuance is audited (§13). */
 export async function ricaDocUrls(
   actor: Actor,
   ricaId: string

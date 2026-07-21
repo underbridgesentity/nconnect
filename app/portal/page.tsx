@@ -105,7 +105,7 @@ export default async function PortalHomePage() {
                 </div>
                 {service.status === "provisioning" ? (
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Being activated — we&apos;ll WhatsApp you the moment
+                    Being activated, we&apos;ll WhatsApp you the moment
                     it&apos;s live.
                   </p>
                 ) : service.status === "suspended" ? (
@@ -115,7 +115,7 @@ export default async function PortalHomePage() {
                   </p>
                 ) : service.status === "pending_cancellation" ? (
                   <p className="mt-2 text-sm text-muted-foreground">
-                    Cancels on {service.cancelEffectiveDate} — active until
+                    Cancels on {service.cancelEffectiveDate}, active until
                     then. Changed your mind? Open the service to withdraw.
                   </p>
                 ) : service.nextInvoiceDate ? (

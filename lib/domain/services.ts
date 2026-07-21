@@ -22,7 +22,7 @@ import { getConnector, type ServiceContext } from "@/lib/connectors";
 import { notify } from "@/lib/notify";
 
 /**
- * Service lifecycle state machine (spec §5) — the ONLY path for status
+ * Service lifecycle state machine (spec §5), the ONLY path for status
  * changes. Direct status writes anywhere else are a bug. Every transition:
  * authorised, transactional, audited, event-emitting.
  */
@@ -255,7 +255,7 @@ export async function startProvisioning(serviceId: string): Promise<void> {
 export class RicaNotVerifiedError extends Error {
   constructor() {
     super(
-      "RICA is not verified for this customer — verify (or reject) the RICA record before activating a SIM service."
+      "RICA is not verified for this customer, verify (or reject) the RICA record before activating a SIM service."
     );
     this.name = "RicaNotVerifiedError";
   }
@@ -425,7 +425,7 @@ export async function completeProvisioningTask(
             entity: "service",
             entityId: ctx.serviceId,
             after: {
-              note: `Activation took ${Math.round(daysSincePaid)} days after payment — consider a goodwill gesture.`,
+              note: `Activation took ${Math.round(daysSincePaid)} days after payment, consider a goodwill gesture.`,
             },
           });
         }

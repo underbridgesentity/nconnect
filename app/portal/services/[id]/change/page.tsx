@@ -61,7 +61,7 @@ export default async function ChangePlanPage({
 
     let adjustment = null;
     if (isUpgrade) {
-      // Same maths the engine will apply — shown before the customer confirms.
+      // Same maths the engine will apply, shown before the customer confirms.
       const [py, pm] = periodEnd.split("-").map(Number);
       const prevMonth = pm === 1 ? 12 : pm - 1;
       const prevYear = pm === 1 ? py - 1 : py;
@@ -93,14 +93,14 @@ export default async function ChangePlanPage({
           <div className="flex justify-between">
             <span className="text-muted-foreground">Current plan</span>
             <span>
-              {plan.name} — <MoneyText cents={plan.priceCents} whole />
+              {plan.name}, <MoneyText cents={plan.priceCents} whole />
               /mo
             </span>
           </div>
           <div className="mt-1 flex justify-between font-medium">
             <span className="text-muted-foreground">New plan</span>
             <span>
-              {chosen.name} — <MoneyText cents={chosen.priceCents} whole />
+              {chosen.name}, <MoneyText cents={chosen.priceCents} whole />
               /mo
             </span>
           </div>
@@ -140,7 +140,7 @@ export default async function ChangePlanPage({
             <p className="mt-1 text-muted-foreground">
               Your downgrade takes effect on{" "}
               <span className="font-medium text-foreground">{periodEnd}</span>{" "}
-              — the start of your next billing cycle. Until then you keep{" "}
+             , the start of your next billing cycle. Until then you keep{" "}
               {plan.name} exactly as it is, with no partial charges. From that
               date you pay <MoneyText cents={chosen.priceCents} whole />
               /month.

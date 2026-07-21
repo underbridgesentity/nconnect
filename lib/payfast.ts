@@ -37,7 +37,7 @@ function config() {
  * (not alphabetical for the request payload), with passphrase appended.
  * Encoding must be byte-identical to PHP's urlencode(): everything except
  * [A-Za-z0-9-_.] percent-encoded with UPPERCASE hex, spaces as '+'.
- * (JS encodeURIComponent leaves !'()*~ raw — that breaks the signature.)
+ * (JS encodeURIComponent leaves !'()*~ raw, that breaks the signature.)
  */
 function pfEncode(value: string): string {
   const bytes = Buffer.from(value.trim(), "utf8");
@@ -67,7 +67,7 @@ export function signPayload(
 }
 
 export interface CheckoutRequest {
-  /** Our payment id — becomes m_payment_id, the idempotency key. */
+  /** Our payment id, becomes m_payment_id, the idempotency key. */
   paymentId: string;
   amountCents: number;
   itemName: string;

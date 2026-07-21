@@ -27,7 +27,7 @@ export async function setupAction(
     return {};
   } catch (err) {
     if (err instanceof AuthError) {
-      return { error: "Account activated — sign in at /staff-login." };
+      return { error: "Account activated, sign in at /staff-login." };
     }
     throw err; // NEXT_REDIRECT
   }

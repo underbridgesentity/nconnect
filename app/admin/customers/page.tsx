@@ -46,7 +46,7 @@ export default async function CustomersPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground">
-            Every customer, their services and balance — one page each.
+            Every customer, their services and balance, one page each.
           </p>
         </div>
         {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- file download, not navigation */}
@@ -113,7 +113,7 @@ export default async function CustomersPage({
                     </td>
                     <td className="p-3">{customer.phone}</td>
                     <td className="p-3 text-muted-foreground">
-                      {repName ?? "—"}
+                      {repName ?? "-"}
                     </td>
                     <td className="tnum p-3 text-right">{serviceCount}</td>
                     <td className="p-3">

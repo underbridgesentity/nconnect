@@ -24,7 +24,7 @@ export async function generateMetadata({
   const bundle = await publishedBundleBySlug(slug);
   if (!bundle) return { title: "Bundle not found" };
   return {
-    title: `${bundle.name} — R${Math.round(bundle.priceCents / 100)}`,
+    title: `${bundle.name}, R${Math.round(bundle.priceCents / 100)}`,
     description: bundle.description ?? bundle.name,
     alternates: { canonical: `/bundles/${bundle.slug}` },
   };

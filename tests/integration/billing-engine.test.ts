@@ -237,7 +237,7 @@ d("billing engine time-travel", () => {
     const { and, eq } = await import("drizzle-orm");
     // Upgrade Advanced (R754) -> Plus? Plus is cheaper; use Starter->? Within
     // telkom_lte: advanced R754 is top; switch service to Starter first via
-    // fixture would complicate — instead upgrade from Advanced to Advanced is
+    // fixture would complicate, instead upgrade from Advanced to Advanced is
     // invalid, so seed the service back to Starter for the test.
     await db
       .update(schema.services)

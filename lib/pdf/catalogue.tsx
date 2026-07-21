@@ -117,7 +117,7 @@ function PlanTable({ plans: rows }: { plans: PlanWithProvider[] }) {
           <Text style={styles.cName}>{p.name}</Text>
           <Text style={styles.cSmall}>{formatCents(p.priceCents, { whole: true })}</Text>
           <Text style={styles.cSmall}>
-            {p.onceOffCents > 0 ? formatCents(p.onceOffCents, { whole: true }) : "—"}
+            {p.onceOffCents > 0 ? formatCents(p.onceOffCents, { whole: true }) : "-"}
           </Text>
           <Text style={styles.cWide}>{p.dataAllocation ?? p.description ?? ""}</Text>
         </View>
@@ -164,7 +164,7 @@ export async function renderCataloguePdf(): Promise<Buffer> {
           {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
           <Image src={logoPath} style={styles.logo} />
           <Text style={styles.subtitle}>
-            Generated {generatedOn} — always current
+            Generated {generatedOn}, always current
           </Text>
         </View>
         <Text style={styles.title}>Needd Connect Services Catalogue</Text>
@@ -189,7 +189,7 @@ export async function renderCataloguePdf(): Promise<Buffer> {
                 ) : null}
                 {cat === "fibre" ? (
                   <Text style={styles.note}>
-                    * Coverage subject to area — contact us to verify fibre
+                    * Coverage subject to area, contact us to verify fibre
                     availability at your address. All packages uncapped and
                     unshaped.
                   </Text>

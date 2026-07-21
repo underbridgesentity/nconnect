@@ -3,13 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 
 /**
  * Realtime (spec §10.2): the server broadcasts after writes on scoped
- * channels — `user:{id}` (bell), `conversation:{id}` (threads),
+ * channels, `user:{id}` (bell), `conversation:{id}` (threads),
  * `admin:inbox` (staff). Clients subscribe with narrowly scoped tokens
  * minted server-side; they never see service keys.
  *
  * Without Supabase configured (local dev) broadcasts are no-ops and the
- * UI's polling fallback (short refresh interval) keeps things live-ish —
- * recorded in PROGRESS.md per §16.10.
+ * UI's polling fallback (short refresh interval) keeps things live-ish, * recorded in PROGRESS.md per §16.10.
  */
 
 function supabase() {

@@ -74,7 +74,7 @@ export function AcceptFlow({
               required
             />
             <p className="text-xs text-muted-foreground">
-              We verify it with a 6-digit code — it becomes your sign-in.
+              We verify it with a 6-digit code, it becomes your sign-in.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -180,7 +180,7 @@ export function AcceptFlow({
             <div className="space-y-3 rounded-lg border bg-card p-3">
               <p className="flex items-start gap-2 text-sm text-muted-foreground">
                 <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-                Your quote includes a SIM — RICA (SA law) needs your ID and
+                Your quote includes a SIM, RICA (SA law) needs your ID and
                 proof of address. Phone photos are fine; stored encrypted.
               </p>
               <div className="space-y-1.5">

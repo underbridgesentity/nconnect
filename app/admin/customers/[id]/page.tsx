@@ -173,7 +173,7 @@ export default async function Customer360Page({
                     {service.cancelEffectiveDate ? (
                       <p className="text-sm text-amber-700">
                         Cancels {service.cancelEffectiveDate}
-                        {service.cancelReason ? ` — ${service.cancelReason}` : ""}
+                        {service.cancelReason ? `, ${service.cancelReason}` : ""}
                       </p>
                     ) : null}
                   </div>
@@ -370,7 +370,7 @@ async function DocumentsTab({ customerId }: { customerId: string }) {
         <h2 className="text-sm font-semibold">RICA records</h2>
         {rica.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No RICA records — this customer has no SIM-based services.
+            No RICA records, this customer has no SIM-based services.
           </p>
         ) : (
           rica.map((r) => (
@@ -466,7 +466,7 @@ async function RecentActivity({ customerId }: { customerId: string }) {
       <h2 className="text-sm font-semibold">Recent activity</h2>
       {rows.map((row) => (
         <p key={row.id} className="text-sm text-muted-foreground">
-          <span className="font-mono text-xs">{row.action}</span> —{" "}
+          <span className="font-mono text-xs">{row.action}</span>, {" "}
           {row.createdAt.toISOString().replace("T", " ").slice(0, 16)}
         </p>
       ))}

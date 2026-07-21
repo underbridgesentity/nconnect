@@ -11,8 +11,7 @@ import {
 import { todayInJohannesburg } from "./services";
 
 /**
- * Reports (spec §6.4, §9.4.6). Everything computed from live records —
- * margin is price - cost where cost is present; nothing invented.
+ * Reports (spec §6.4, §9.4.6). Everything computed from live records, * margin is price - cost where cost is present; nothing invented.
  */
 
 export async function activeServicesByCategory() {
@@ -88,7 +87,7 @@ export async function activationsVsCancellations() {
     .sort((a, b) => a.month.localeCompare(b.month));
 }
 
-/** Plans in use with missing cost prices — the "set cost prices" checklist. */
+/** Plans in use with missing cost prices, the "set cost prices" checklist. */
 export async function missingCostChecklist() {
   return db
     .select({

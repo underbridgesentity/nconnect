@@ -9,7 +9,7 @@ const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
-    default: "Needd Connect — One provider, one bill, local support",
+    default: "Needd Connect, One provider, one bill, local support",
     template: "%s | Needd Connect",
   },
   description:

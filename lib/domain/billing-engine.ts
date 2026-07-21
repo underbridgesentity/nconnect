@@ -187,7 +187,7 @@ export async function runInvoiceGeneration(
       await tx.insert(invoiceLines).values({
         invoiceId: invoice.id,
         kind: "subscription",
-        description: `${billingPlan.name} — ${periodStart} to ${periodEnd}`,
+        description: `${billingPlan.name}, ${periodStart} to ${periodEnd}`,
         serviceId: service.id,
         amountCents: billingPlan.priceCents,
       });
@@ -523,7 +523,7 @@ export async function runDunning(
       }
     }
 
-    // +adminDecisionDay: unpaid and suspended — human decision, nothing
+    // +adminDecisionDay: unpaid and suspended, human decision, nothing
     // automatic (§6.3). One bell per invoice.
     if (age >= dunning.adminDecisionDay) {
       const marker = `dunning_decision:${invoice.id}`;
@@ -549,7 +549,7 @@ export async function runDunning(
             admins.map((a) => ({
               userId: a.id,
               type: marker,
-              title: `Decision needed: ${name} — ${current.number} unpaid ${age} days`,
+              title: `Decision needed: ${name}, ${current.number} unpaid ${age} days`,
               body: "Suspended for 30 days. Cancel the service or write off the invoice; nothing happens automatically.",
               link: `/admin/customers/${current.customerId}?tab=billing`,
             }))
@@ -668,7 +668,7 @@ export async function changePlan(
     if (newPlan.id === oldPlan.id) throw new Error("Already on that plan");
     if (newPlan.category !== oldPlan.category) {
       throw new Error(
-        "Plan changes stay within the same category — start a new signup for a different product"
+        "Plan changes stay within the same category, start a new signup for a different product"
       );
     }
     return { service, oldPlan, newPlan };
@@ -733,14 +733,14 @@ export async function changePlan(
       {
         invoiceId: invoice.id,
         kind: "prorata_credit",
-        description: `${oldPlan.name} — credit for ${adjustment.daysRemaining} unused days`,
+        description: `${oldPlan.name}, credit for ${adjustment.daysRemaining} unused days`,
         serviceId,
         amountCents: adjustment.creditCents,
       },
       {
         invoiceId: invoice.id,
         kind: "prorata_charge",
-        description: `${newPlan.name} — ${adjustment.daysRemaining} days to ${periodEnd}`,
+        description: `${newPlan.name}, ${adjustment.daysRemaining} days to ${periodEnd}`,
         serviceId,
         amountCents: adjustment.chargeCents,
       },
@@ -801,7 +801,7 @@ export async function changePlan(
       await notifyInvoiceIssued(invoiceId);
     }
   } else {
-    // Net zero or credit — nothing to collect.
+    // Net zero or credit, nothing to collect.
     await db
       .update(invoices)
       .set({ status: "paid", paidAt: new Date() })

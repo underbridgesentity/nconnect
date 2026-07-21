@@ -141,7 +141,7 @@ async function main() {
       name: `Uncapped LTE/5G ${name}`,
       slug: `lte-home-${name.toLowerCase().replace("+", "-plus")}`,
       description:
-        "Uncapped MTN/Vodacom LTE or 5G home internet. No fixed line required — plug in the router and you're online.",
+        "Uncapped MTN/Vodacom LTE or 5G home internet. No fixed line required, plug in the router and you're online.",
       dataAllocation: allocation,
       fupDetail: `After the full-speed allocation, speed continues uncapped at ${fupSpeed}.`,
       priceCents: rands(price),
@@ -188,7 +188,7 @@ async function main() {
 
   // ------------------------------------------------------------- Fibre
   // Once-off seeded R0; client confirms installation/activation fees before
-  // publish (spec §14) — flagged in PROGRESS.md and the launch checklist.
+  // publish (spec §14), flagged in PROGRESS.md and the launch checklist.
   const fibre: [string, string, number, number, number][] = [
     ["Openserve", "openserve-30-50", 30, 50, 533],
     ["Openserve", "openserve-100-100", 100, 100, 1072],
@@ -277,7 +277,7 @@ async function main() {
         "SIM-only capped LTE data on a 24-month subscription. Data split equally between day and night bundles. Router sold separately.",
       dataAllocation: name.includes("2TB")
         ? "2TB on a 24-month contract"
-        : `${name} — day and night split`,
+        : `${name}, day and night split`,
       fupDetail: "Capped data; no throttling. Unused data per bundle rules.",
       contractMonths: 24,
       priceCents: rands(price),
@@ -396,7 +396,7 @@ async function main() {
   await setSettingIfMissing("banking", {
     bank: "TBC",
     accountName: "Needd Technology Solutions (Pty) Ltd",
-    accountNumber: "TBC — client to provide before launch",
+    accountNumber: "TBC, client to provide before launch",
     branchCode: "TBC",
     reference: "Your invoice number",
   });
@@ -427,7 +427,7 @@ async function main() {
         status: "invited",
       });
       console.log(
-        `  Admin ${adminEmail} seeded as invited — send the setup link from Staff management.`
+        `  Admin ${adminEmail} seeded as invited, send the setup link from Staff management.`
       );
     }
   }

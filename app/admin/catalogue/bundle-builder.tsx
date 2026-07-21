@@ -220,7 +220,7 @@ export function BundleBuilder({
                     <SelectContent>
                       {planOptions.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
-                          {p.name} — {formatR(p.priceCents)}/mo
+                          {p.name}, {formatR(p.priceCents)}/mo
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -236,7 +236,7 @@ export function BundleBuilder({
                     <SelectContent>
                       {hardwareOptions.map((h) => (
                         <SelectItem key={h.id} value={h.id}>
-                          {h.name} — {formatR(h.priceCents)}
+                          {h.name}, {formatR(h.priceCents)}
                         </SelectItem>
                       ))}
                     </SelectContent>

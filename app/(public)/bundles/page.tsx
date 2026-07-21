@@ -10,7 +10,7 @@ export const revalidate = 3600;
 export const metadata: Metadata = {
   title: "Bundle Deals",
   description:
-    "Plan-plus-hardware bundles from Needd Connect — one price, everything you need to get online.",
+    "Plan-plus-hardware bundles from Needd Connect, one price, everything you need to get online.",
   alternates: { canonical: "/bundles" },
 };
 
@@ -27,7 +27,7 @@ export default async function BundlesPage() {
         <div className="mt-8">
           <EmptyState
             icon={Package}
-            sentence="No bundle deals are running right now. Browse the plans — every plan page suggests the hardware that fits it."
+            sentence="No bundle deals are running right now. Browse the plans, every plan page suggests the hardware that fits it."
             action={
               <Link
                 href="/internet"

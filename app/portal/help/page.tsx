@@ -21,7 +21,7 @@ export default async function PortalHelpPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Help</h1>
         <p className="text-sm text-muted-foreground">
-          Real people answer — usually within business hours, often faster.
+          Real people answer, usually within business hours, often faster.
         </p>
       </div>
 
@@ -30,7 +30,7 @@ export default async function PortalHelpPage() {
       {rows.length === 0 ? (
         <EmptyState
           icon={LifeBuoy}
-          sentence="No conversations yet. Start one above — it goes straight to the team that manages your services."
+          sentence="No conversations yet. Start one above, it goes straight to the team that manages your services."
         />
       ) : (
         <div className="space-y-2">

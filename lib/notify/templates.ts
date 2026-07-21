@@ -42,7 +42,7 @@ export interface NotifyTemplate {
 function wrapHtml(body: string): string {
   return `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#18181b">
   ${body}
-  <p style="margin-top:32px;font-size:12px;color:#71717a">Needd Connect — one provider, one bill, local support.<br/>Needd Technology Solutions (Pty) Ltd</p>
+  <p style="margin-top:32px;font-size:12px;color:#71717a">Needd Connect, one provider, one bill, local support.<br/>Needd Technology Solutions (Pty) Ltd</p>
 </div>`;
 }
 
@@ -56,16 +56,16 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     salesBell: true,
     whatsappTemplate: "order_confirmed",
     render: (ctx) => ({
-      subject: `Order ${ctx.reference ?? ""} confirmed — welcome to Needd Connect`,
-      text: `Thanks — we've received your payment of ${R(ctx.amountCents)} for order ${ctx.reference}. We're getting you set up now and will keep you posted every step. Your receipt and invoice are attached.`,
+      subject: `Order ${ctx.reference ?? ""} confirmed, welcome to Needd Connect`,
+      text: `Thanks, we've received your payment of ${R(ctx.amountCents)} for order ${ctx.reference}. We're getting you set up now and will keep you posted every step. Your receipt and invoice are attached.`,
       html: wrapHtml(
-        `<h2>Payment received — you're in.</h2>
+        `<h2>Payment received, you're in.</h2>
          <p>Thanks! We've received <strong>${R(ctx.amountCents)}</strong> for order <strong>${ctx.reference}</strong>.</p>
-         <p>We're getting your service set up now and will keep you posted — you don't need to do anything.</p>
+         <p>We're getting your service set up now and will keep you posted, you don't need to do anything.</p>
          <p>Your invoice is attached for your records.</p>`
       ),
       whatsappParams: [ctx.reference ?? "", R(ctx.amountCents)],
-      bellTitle: `Order ${ctx.reference} paid — ${R(ctx.amountCents)}`,
+      bellTitle: `Order ${ctx.reference} paid, ${R(ctx.amountCents)}`,
     }),
   },
   service_provisioning: {
@@ -95,7 +95,7 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
       html: wrapHtml(
         `<h2>You're online.</h2>
          <p>Your <strong>${ctx.serviceName ?? "service"}</strong> is now active.</p>
-         <p>The month you paid at checkout starts today — your next invoice lands a month from now.</p>
+         <p>The month you paid at checkout starts today, your next invoice lands a month from now.</p>
          <p><a href="${ctx.link ?? "#"}">Open your portal</a> to see your service, invoices and support.</p>`
       ),
       whatsappParams: [ctx.serviceName ?? "service"],
@@ -109,12 +109,12 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     salesBell: false,
     whatsappTemplate: "invoice_issued",
     render: (ctx) => ({
-      subject: `Invoice ${ctx.reference} — ${R(ctx.amountCents)} due`,
+      subject: `Invoice ${ctx.reference}, ${R(ctx.amountCents)} due`,
       text: `Your Needd Connect invoice ${ctx.reference} for ${R(ctx.amountCents)} is ready. Pay online: ${ctx.link ?? ""}. The PDF is attached.`,
       html: wrapHtml(
         `<h2>Invoice ${ctx.reference}</h2>
          <p><strong>${R(ctx.amountCents)}</strong> is due within 7 days.</p>
-         <p><a href="${ctx.link ?? "#"}">Pay securely online</a> — or use the EFT details on the attached PDF.</p>`
+         <p><a href="${ctx.link ?? "#"}">Pay securely online</a>, or use the EFT details on the attached PDF.</p>`
       ),
       whatsappParams: [ctx.reference ?? "", R(ctx.amountCents), ctx.link ?? ""],
     }),
@@ -126,7 +126,7 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     salesBell: false,
     whatsappTemplate: "payment_received",
     render: (ctx) => ({
-      subject: `Payment received — thank you`,
+      subject: `Payment received, thank you`,
       text: `We've received your payment of ${R(ctx.amountCents)}${ctx.reference ? ` for ${ctx.reference}` : ""}. Receipt attached.`,
       html: wrapHtml(
         `<p>We've received your payment of <strong>${R(ctx.amountCents)}</strong>${ctx.reference ? ` for <strong>${ctx.reference}</strong>` : ""}. Thank you!</p>`
@@ -141,10 +141,10 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     salesBell: false,
     whatsappTemplate: "payment_failed",
     render: (ctx) => ({
-      subject: `Payment didn't go through — quick fix inside`,
-      text: `Your payment of ${R(ctx.amountCents)}${ctx.reference ? ` for ${ctx.reference}` : ""} didn't go through. No stress — pay online here: ${ctx.link ?? ""}`,
+      subject: `Payment didn't go through, quick fix inside`,
+      text: `Your payment of ${R(ctx.amountCents)}${ctx.reference ? ` for ${ctx.reference}` : ""} didn't go through. No stress, pay online here: ${ctx.link ?? ""}`,
       html: wrapHtml(
-        `<p>Your payment of <strong>${R(ctx.amountCents)}</strong>${ctx.reference ? ` for <strong>${ctx.reference}</strong>` : ""} didn't go through — it happens.</p>
+        `<p>Your payment of <strong>${R(ctx.amountCents)}</strong>${ctx.reference ? ` for <strong>${ctx.reference}</strong>` : ""} didn't go through, it happens.</p>
          <p><a href="${ctx.link ?? "#"}">Pay online in under a minute</a>, or reply to this email if something's off.</p>`
       ),
       whatsappParams: [R(ctx.amountCents), ctx.link ?? ""],
@@ -157,7 +157,7 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     salesBell: false,
     whatsappTemplate: "past_due_warning",
     render: (ctx) => ({
-      subject: `Invoice ${ctx.reference} is overdue — 3 days to avoid suspension`,
+      subject: `Invoice ${ctx.reference} is overdue, 3 days to avoid suspension`,
       text: `Invoice ${ctx.reference} (${R(ctx.amountCents)}) is now overdue. Pay within 3 days to avoid suspension: ${ctx.link ?? ""}`,
       html: wrapHtml(
         `<p>Invoice <strong>${ctx.reference}</strong> for <strong>${R(ctx.amountCents)}</strong> is overdue.</p>
@@ -179,7 +179,7 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
       text: `Your ${ctx.serviceName ?? "service"} was suspended because invoice ${ctx.reference} is unpaid. Pay now and it reactivates automatically: ${ctx.link ?? ""}`,
       html: wrapHtml(
         `<p>Your <strong>${ctx.serviceName ?? "service"}</strong> has been suspended because invoice <strong>${ctx.reference}</strong> is unpaid.</p>
-         <p><a href="${ctx.link ?? "#"}">Pay the outstanding amount</a> and your service reactivates automatically — no phone calls needed.</p>`
+         <p><a href="${ctx.link ?? "#"}">Pay the outstanding amount</a> and your service reactivates automatically, no phone calls needed.</p>`
       ),
       whatsappParams: [ctx.serviceName ?? "service", ctx.link ?? ""],
       bellTitle: `Suspended: ${ctx.serviceName}`,
@@ -193,9 +193,9 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     whatsappTemplate: "service_reactivated",
     render: (ctx) => ({
       subject: `Your ${ctx.serviceName ?? "service"} is back on`,
-      text: `Payment received — your ${ctx.serviceName ?? "service"} has been reactivated. Thanks for sorting it out.`,
+      text: `Payment received, your ${ctx.serviceName ?? "service"} has been reactivated. Thanks for sorting it out.`,
       html: wrapHtml(
-        `<p>Payment received — your <strong>${ctx.serviceName ?? "service"}</strong> is back on. Thanks for sorting it out.</p>`
+        `<p>Payment received, your <strong>${ctx.serviceName ?? "service"}</strong> is back on. Thanks for sorting it out.</p>`
       ),
       whatsappParams: [ctx.serviceName ?? "service"],
       bellTitle: `Reactivated: ${ctx.serviceName}`,
@@ -229,7 +229,7 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
     whatsappTemplate: "service_cancelled",
     render: (ctx) => ({
       subject: `Your ${ctx.serviceName ?? "service"} has been cancelled`,
-      text: `Your ${ctx.serviceName ?? "service"} is now cancelled. Thanks for being with us — if you ever need connectivity again, you know where we are.`,
+      text: `Your ${ctx.serviceName ?? "service"} is now cancelled. Thanks for being with us, if you ever need connectivity again, you know where we are.`,
       html: wrapHtml(
         `<p>Your <strong>${ctx.serviceName ?? "service"}</strong> is now cancelled.</p>
          <p>Thanks for being with us. If you ever need connectivity again, you know where we are.</p>`
@@ -249,7 +249,7 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
       text: `Your quote ${ctx.reference} is ready: ${ctx.link ?? ""}. It's valid for 14 days.`,
       html: wrapHtml(
         `<p>Your quote <strong>${ctx.reference}</strong> is ready.</p>
-         <p><a href="${ctx.link ?? "#"}">View your quote</a> — valid for 14 days.</p>`
+         <p><a href="${ctx.link ?? "#"}">View your quote</a>, valid for 14 days.</p>`
       ),
       whatsappParams: [ctx.reference ?? "", ctx.link ?? ""],
     }),

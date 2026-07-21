@@ -6,7 +6,7 @@ import { reconciliationWorksheet, toCsv } from "@/lib/domain/reports";
 /**
  * Reconciliation match (spec §6.4): POST the provider statement CSV
  * (external_ref,amount columns), get back the flagged worksheet as CSV.
- * Nothing is written — this is a checklist the admin resolves.
+ * Nothing is written, this is a checklist the admin resolves.
  */
 export async function POST(req: NextRequest) {
   const actor = await currentActor();

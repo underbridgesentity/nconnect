@@ -75,7 +75,7 @@ export default async function PortalAccountPage() {
           </ul>
         )}
         <p className="mt-2 text-xs text-muted-foreground">
-          Moving? Tell us in a Help conversation — service addresses affect
+          Moving? Tell us in a Help conversation, service addresses affect
           coverage, so a human double-checks the change.
         </p>
       </section>
@@ -83,8 +83,7 @@ export default async function PortalAccountPage() {
       <section className="rounded-lg border bg-card p-4">
         <h2 className="text-sm font-semibold">Notifications & marketing</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Service messages (invoices, activations, outages) always reach you —
-          they&apos;re part of running your service. Marketing is up to you:
+          Service messages (invoices, activations, outages) always reach you, they&apos;re part of running your service. Marketing is up to you:
         </p>
         <MarketingToggles
           whatsapp={latest.get("marketing_whatsapp")?.granted ?? false}
@@ -97,7 +96,7 @@ export default async function PortalAccountPage() {
         <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
           {consentRows.slice(0, 8).map((c) => (
             <li key={c.id}>
-              {c.capturedAt.toISOString().replace("T", " ").slice(0, 16)} —{" "}
+              {c.capturedAt.toISOString().replace("T", " ").slice(0, 16)}, {" "}
               {c.kind.replace(/_/g, " ")}: {c.granted ? "granted" : "declined"}
             </li>
           ))}

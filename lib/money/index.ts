@@ -153,7 +153,7 @@ export function parseZar(input: string): Cents {
   return sign * cents;
 }
 
-/** Rands (integer) to cents — convenience for seeds and settings. */
+/** Rands (integer) to cents, convenience for seeds and settings. */
 export function rands(amount: number): Cents {
   if (!Number.isSafeInteger(amount)) {
     throw new TypeError(`rands() takes whole rands, got ${amount}`);

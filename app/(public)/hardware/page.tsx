@@ -3,6 +3,7 @@ import Link from "next/link";
 import { publishedHardware } from "@/lib/domain/catalogue";
 import { fileUrl } from "@/lib/storage";
 import { MoneyText } from "@/components/shared/money-text";
+import { PageHeader } from "@/components/public/page-header";
 import { cn } from "@/lib/utils";
 
 export const revalidate = 3600;
@@ -10,7 +11,7 @@ export const revalidate = 3600;
 export const metadata: Metadata = {
   title: "Routers & Hardware",
   description:
-    "Network-approved LTE, 5G and fibre routers, mesh Wi-Fi, extenders, VoIP phones and back-up power — from R144.",
+    "Network-approved LTE, 5G and fibre routers, mesh Wi-Fi, extenders, VoIP phones and back-up power, from R144.",
   alternates: { canonical: "/hardware" },
 };
 
@@ -44,16 +45,22 @@ export default async function HardwarePage({
   );
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-semibold tracking-tight">Hardware</h1>
-      <p className="mt-2 max-w-2xl text-muted-foreground">
-        Approved routers and accessories, added to your plan at signup or
-        quoted by our team. Hardware attaches to an order — pricing here is for
-        reference.
-      </p>
+    <>
+      <PageHeader
+        image="/marketing/creators.webp"
+        imageAlt="A family using connected devices at home"
+        title="Hardware that earns its shelf space"
+      >
+        <p>
+          Approved routers and accessories, added to your plan at signup or
+          quoted by our team. Hardware attaches to an order; pricing here is
+          for reference.
+        </p>
+      </PageHeader>
+      <div className="mx-auto max-w-6xl px-4 py-12">
 
       <nav
-        className="mt-6 flex flex-wrap gap-2 text-sm"
+        className="flex flex-wrap gap-2 text-sm"
         aria-label="Hardware categories"
       >
         <Link
@@ -88,17 +95,17 @@ export default async function HardwarePage({
           <Link
             key={h.id}
             href={`/hardware/${h.sku}`}
-            className="rounded-lg border bg-card p-4 transition-shadow hover:shadow-sm"
+            className="card-hover img-zoom rounded-3xl border bg-card p-4"
           >
             {urls[i] ? (
               // eslint-disable-next-line @next/next/no-img-element -- storage URLs
               <img
                 src={urls[i]!}
                 alt={h.name}
-                className="mb-3 h-32 w-full rounded object-contain"
+                className="mb-3 h-36 w-full rounded-2xl object-contain"
               />
             ) : (
-              <div className="mb-3 flex h-32 w-full items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+              <div className="mb-3 flex h-36 w-full items-center justify-center rounded-2xl bg-muted text-xs text-muted-foreground">
                 Image coming soon
               </div>
             )}
@@ -114,6 +121,7 @@ export default async function HardwarePage({
           </Link>
         ))}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

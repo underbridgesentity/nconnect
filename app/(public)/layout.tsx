@@ -49,7 +49,7 @@ export default async function PublicLayout({
               <Link
                 key={item.href}
                 href={item.href}
-                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                className="rounded-full px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 {item.label}
               </Link>
@@ -58,13 +58,13 @@ export default async function PublicLayout({
           <div className="flex items-center gap-2">
             <Link
               href="/login"
-              className="touch-target flex items-center rounded-md px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+              className="touch-target flex items-center whitespace-nowrap rounded-full px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
             >
               Sign in
             </Link>
             <Link
               href="/signup"
-              className="touch-target flex items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              className="touch-target flex items-center whitespace-nowrap rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-colors hover:bg-[#0f5a91]"
             >
               Get connected
             </Link>
@@ -79,7 +79,7 @@ export default async function PublicLayout({
             <Link
               key={item.href}
               href={item.href}
-              className="whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent"
+              className="whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent"
             >
               {item.label}
             </Link>

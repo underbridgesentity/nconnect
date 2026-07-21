@@ -315,7 +315,7 @@ export function ServiceActions({
                       customerId,
                       "Admin manual suspension"
                     ),
-                  "Service suspended — provider task created"
+                  "Service suspended, provider task created"
                 )
               }
             >
@@ -327,7 +327,7 @@ export function ServiceActions({
               onClick={() =>
                 run(
                   () => reactivateServiceAction(serviceId, customerId),
-                  "Service reactivated — provider task created"
+                  "Service reactivated, provider task created"
                 )
               }
             >

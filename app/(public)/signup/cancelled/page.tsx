@@ -11,7 +11,7 @@ export default function SignupCancelledPage() {
     <div className="mx-auto max-w-xl px-4 py-16 text-center">
       <h1 className="text-2xl font-semibold">No payment was taken</h1>
       <p className="mt-2 text-muted-foreground">
-        You cancelled at PayFast — your order is saved and nothing was charged.
+        You cancelled at PayFast, your order is saved and nothing was charged.
         Pick up where you left off whenever you&apos;re ready.
       </p>
       <div className="mt-6 flex justify-center gap-3">

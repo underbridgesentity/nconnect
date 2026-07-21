@@ -297,7 +297,7 @@ export async function sendQuote(actor: Actor, quoteId: string): Promise<void> {
     await sendEmail({
       to: email,
       subject: `Your Needd Connect quote ${quote.number}`,
-      html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${name ?? ""},</p><p>Your quote <strong>${quote.number}</strong> is ready.</p><p><a href="${link}">View your quote</a> — valid until ${quote.expiresAt?.toISOString().slice(0, 10)}.</p><p>— Needd Connect</p></div>`,
+      html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${name ?? ""},</p><p>Your quote <strong>${quote.number}</strong> is ready.</p><p><a href="${link}">View your quote</a>, valid until ${quote.expiresAt?.toISOString().slice(0, 10)}.</p><p>, Needd Connect</p></div>`,
       text: `Your quote ${quote.number}: ${link}`,
     });
   } else if (!whatsappSent) {

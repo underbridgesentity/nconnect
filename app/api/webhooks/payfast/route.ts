@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (paymentStatus !== "COMPLETE") {
-    // CANCELLED / FAILED — nothing to mutate for checkout flows; the order
+    // CANCELLED / FAILED, nothing to mutate for checkout flows; the order
     // stays pending_payment and the customer can retry.
     console.log(`payfast itn: status ${paymentStatus} for ${mPaymentId}`);
     return new NextResponse("OK", { status: 200 });
@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   } catch (err) {
     console.error("payfast itn processing failed:", err);
-    // 500 so PayFast retries — the idempotency guard makes retries safe.
+    // 500 so PayFast retries, the idempotency guard makes retries safe.
     return new NextResponse("Processing error", { status: 500 });
   }
 }

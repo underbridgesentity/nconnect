@@ -58,7 +58,7 @@ export default async function QuotePage({
 
       <p className="mt-3 text-xs text-muted-foreground">
         {expired
-          ? "This quote has expired — message your rep for a refreshed one; prices may have changed."
+          ? "This quote has expired, message your rep for a refreshed one; prices may have changed."
           : quote.expiresAt
             ? `Valid until ${quote.expiresAt.toISOString().slice(0, 10)}. Prices are locked for you until then.`
             : ""}
@@ -67,7 +67,7 @@ export default async function QuotePage({
       {quote.status === "accepted" ? (
         <p className="mt-6 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
           <Check className="size-4" aria-hidden />
-          Accepted — your order is in. We&apos;ll take it from here.
+          Accepted, your order is in. We&apos;ll take it from here.
         </p>
       ) : expired ? null : (
         <Link
@@ -78,7 +78,7 @@ export default async function QuotePage({
         </Link>
       )}
       <p className="mt-3 text-center text-xs text-muted-foreground">
-        Questions? Reply to your rep on WhatsApp — the quote stays exactly as
+        Questions? Reply to your rep on WhatsApp, the quote stays exactly as
         shown.
       </p>
     </div>

@@ -52,7 +52,7 @@ export default async function SalesQuotesPage() {
       {rows.length === 0 ? (
         <EmptyState
           icon={FileText}
-          sentence="No quotes yet. Build one from a lead — it sends as a WhatsApp/email link and you'll see the moment it's opened."
+          sentence="No quotes yet. Build one from a lead, it sends as a WhatsApp/email link and you'll see the moment it's opened."
         />
       ) : (
         <div className="space-y-2">

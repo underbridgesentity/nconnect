@@ -160,7 +160,7 @@ export default async function AdminBillingPage({
         buckets.length === 0 ? (
           <EmptyState
             icon={Receipt}
-            sentence="Nothing outstanding — every invoice is settled."
+            sentence="Nothing outstanding, every invoice is settled."
           />
         ) : (
           <div className="overflow-x-auto rounded-lg border bg-card">
@@ -262,9 +262,9 @@ export default async function AdminBillingPage({
               ["Day 0", "Invoice issued; card charge attempt #1 if a token exists"],
               [`Day +${dunning.chargeAttemptDays[1] ?? 2}`, "Charge attempt #2 + payment-failed notice with pay link"],
               [`Day +${dunning.chargeAttemptDays[2] ?? 5}`, "Charge attempt #3 + reminder"],
-              [`Day +${dunning.pastDueDay}`, "Invoice becomes past due — “pay within 3 days to avoid suspension”"],
+              [`Day +${dunning.pastDueDay}`, "Invoice becomes past due, “pay within 3 days to avoid suspension”"],
               [`Day +${dunning.suspendDay}`, "Service suspended (reactivates automatically on settlement)"],
-              [`Day +${dunning.adminDecisionDay}`, "Admin decision required: cancel or write off — nothing automatic"],
+              [`Day +${dunning.adminDecisionDay}`, "Admin decision required: cancel or write off, nothing automatic"],
             ].map(([day, what]) => (
               <div key={day} className="flex gap-4 border-b p-3 last:border-0">
                 <span className="w-20 shrink-0 font-mono text-xs font-medium">

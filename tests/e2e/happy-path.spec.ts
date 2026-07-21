@@ -5,7 +5,7 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: [".env.local", ".env"] });
 
 /**
- * M8 happy path (spec §15): signup -> paid order (simulated ITN — PayFast
+ * M8 happy path (spec §15): signup -> paid order (simulated ITN, PayFast
  * sandbox can't reach localhost) -> admin activates through the Today
  * queue -> billing engine issues the anniversary invoice -> manual EFT
  * settles it. Mobile viewport throughout (390px).
@@ -42,7 +42,7 @@ test("stranger signs up for VoIP on a phone and reaches payment", async ({
 
   // OTPs are hashed at rest, so the test can't read the sent code. Instead,
   // once the code screen is up (the app's OTP row exists), insert a known
-  // code — verifyOtp picks the newest unconsumed row for the phone.
+  // code, verifyOtp picks the newest unconsumed row for the phone.
   await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
   const { createHash } = await import("node:crypto");
   const code = "424242";

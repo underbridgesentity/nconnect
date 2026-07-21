@@ -76,7 +76,7 @@ export function StepThree({
   if (!summary) {
     return (
       <p className="mt-6 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-        Your selection has expired —{" "}
+        Your selection has expired, {" "}
         <a href="/signup?step=1" className="text-primary hover:underline">
           choose a plan
         </a>{" "}
@@ -100,7 +100,7 @@ export function StepThree({
             <Input id="name" name="name" autoComplete="name" required
               defaultValue={contact?.name} />
             <p className="text-xs text-muted-foreground">
-              As on your ID — we use it for your account and invoices.
+              As on your ID, we use it for your account and invoices.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -128,7 +128,7 @@ export function StepThree({
               defaultValue={contact?.email}
             />
             <p className="text-xs text-muted-foreground">
-              For invoices and receipts — recommended.
+              For invoices and receipts, recommended.
             </p>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -166,7 +166,7 @@ export function StepThree({
               <Checkbox name="popiaConsent" className="mt-0.5" />
               <span>
                 I consent to Needd Connect processing my information to provide
-                and bill my services (required —{" "}
+                and bill my services (required, {" "}
                 <a
                   href="/legal/popia"
                   target="_blank"

@@ -5,7 +5,7 @@ import { allPosts } from "@/lib/blog";
 export const metadata: Metadata = {
   title: "Blog",
   description:
-    "Practical connectivity guides from Needd Connect — no hype, just what works in South Africa.",
+    "Practical connectivity guides from Needd Connect, no hype, just what works in South Africa.",
   alternates: { canonical: "/blog" },
 };
 

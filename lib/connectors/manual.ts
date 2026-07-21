@@ -134,7 +134,7 @@ export const manualConnector: ProviderConnector = {
     return createTask(ctx, "change_plan", TASK_CHECKLISTS.change_plan(ctx), 24);
   },
   async getUsage() {
-    // No usage data at launch — the portal renders no usage module (§7).
+    // No usage data at launch, the portal renders no usage module (§7).
     return null;
   },
 };

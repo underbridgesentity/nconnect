@@ -18,7 +18,7 @@ export default function PopiaPage() {
           personal information processed through Needd Connect. We process
           personal information to conclude and perform service agreements, to
           bill and collect, to meet legal obligations (including RICA and tax
-          law), and — only with your separate opt-in — for marketing.
+          law), and, only with your separate opt-in, for marketing.
         </p>
         <p>
           Processing is grounded in: performance of a contract (your service),

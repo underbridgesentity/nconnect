@@ -5,7 +5,7 @@ import { invoices } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { renderInvoicePdf } from "@/lib/pdf/invoice";
 
-/** Customer invoice PDF — scoped strictly to the session's customer (§10.1). */
+/** Customer invoice PDF, scoped strictly to the session's customer (§10.1). */
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }

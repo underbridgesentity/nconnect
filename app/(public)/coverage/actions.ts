@@ -6,7 +6,7 @@ import { createLead } from "@/lib/domain/leads";
 /**
  * Coverage check (spec §7 ManualConnector.checkCoverage):
  * - LTE/5G: instant "available" with the honest network disclaimer.
- * - Fibre: the truth — we confirm within one business day. Creates a lead;
+ * - Fibre: the truth, we confirm within one business day. Creates a lead;
  *   the feasibility provisioning task joins it in M3.
  * Progressive enhancement: plain form POST + redirect, no JS required.
  */
@@ -43,7 +43,7 @@ export async function coverageCheckAction(formData: FormData): Promise<void> {
   }
 
   // LTE/5G: available with disclaimer. Capture an optional lead if contact
-  // details were provided — never require them for an instant answer.
+  // details were provided, never require them for an instant answer.
   if (name && phone) {
     try {
       await createLead({

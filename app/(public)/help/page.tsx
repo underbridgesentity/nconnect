@@ -19,11 +19,11 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
       },
       {
         q: "Do I need a special router?",
-        a: "For MTN/Vodacom LTE and 5G, yes — the router must be network-approved, and we sell approved models. Telkom LTE works with any LTE-compatible device. Fibre routers connect to the operator's equipment; ours are pre-configured.",
+        a: "For MTN/Vodacom LTE and 5G, yes, the router must be network-approved, and we sell approved models. Telkom LTE works with any LTE-compatible device. Fibre routers connect to the operator's equipment; ours are pre-configured.",
       },
       {
         q: "How long until I'm online?",
-        a: "LTE/5G: hardware delivery within 3 business days, then instant activation — allow up to 24 hours for the data allocation to reflect. Fibre: depends on whether your address needs an installation; we tell you the timeline before you commit.",
+        a: "LTE/5G: hardware delivery within 3 business days, then instant activation, allow up to 24 hours for the data allocation to reflect. Fibre: depends on whether your address needs an installation; we tell you the timeline before you commit.",
       },
     ],
   },
@@ -32,7 +32,7 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
     faqs: [
       {
         q: "Why do you need my ID and proof of address?",
-        a: "RICA — South African law — requires it for any SIM-based service. You upload both during signup. We store them encrypted, use them only for RICA verification, and retain them only as long as the law requires.",
+        a: "RICA, South African law, requires it for any SIM-based service. You upload both during signup. We store them encrypted, use them only for RICA verification, and retain them only as long as the law requires.",
       },
       {
         q: "What counts as proof of address?",
@@ -45,15 +45,15 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
     faqs: [
       {
         q: "When do I get billed?",
-        a: "You pay your first month (plus hardware and once-off fees) at checkout. After activation, your monthly invoice lands on the same date each month — the date your service went live, not the date you ordered.",
+        a: "You pay your first month (plus hardware and once-off fees) at checkout. After activation, your monthly invoice lands on the same date each month, the date your service went live, not the date you ordered.",
       },
       {
         q: "What payment methods do you accept?",
-        a: "Card payments via PayFast, with the option to save your card for automatic monthly billing. EFT works too — your invoice carries the banking details and reference.",
+        a: "Card payments via PayFast, with the option to save your card for automatic monthly billing. EFT works too, your invoice carries the banking details and reference.",
       },
       {
         q: "What happens if a payment fails?",
-        a: "We retry your card and remind you on WhatsApp and email. If an invoice is 10 days overdue the service is suspended — pay the outstanding invoice and it reactivates automatically. We'd rather warn you early than surprise you.",
+        a: "We retry your card and remind you on WhatsApp and email. If an invoice is 10 days overdue the service is suspended, pay the outstanding invoice and it reactivates automatically. We'd rather warn you early than surprise you.",
       },
     ],
   },
@@ -66,7 +66,7 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
       },
       {
         q: "How do I cancel?",
-        a: "In your portal, under the service. Month-to-month services cancel at the end of the current billing period. We'll ask once if a cheaper plan or a support conversation would fix the issue — one screen, not a retention marathon.",
+        a: "In your portal, under the service. Month-to-month services cancel at the end of the current billing period. We'll ask once if a cheaper plan or a support conversation would fix the issue, one screen, not a retention marathon.",
       },
     ],
   },

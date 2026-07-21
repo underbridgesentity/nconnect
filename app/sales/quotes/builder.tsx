@@ -127,8 +127,7 @@ export function QuoteBuilder({
       {items.length === 0 ? (
         <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           Add lines above. Discounts are allowed down to cost +{floorPercent}%
-          margin (or {noCostMaxPercent}% off where no cost price is set) —
-          deeper needs an admin.
+          margin (or {noCostMaxPercent}% off where no cost price is set), deeper needs an admin.
         </p>
       ) : (
         <div className="space-y-2">
@@ -202,7 +201,7 @@ export function QuoteBuilder({
                       <SelectContent>
                         {options.map((o) => (
                           <SelectItem key={o.id} value={o.id}>
-                            {o.name} — {formatR(o.priceCents)}
+                            {o.name}, {formatR(o.priceCents)}
                           </SelectItem>
                         ))}
                       </SelectContent>

@@ -57,7 +57,7 @@ export function ProfileForm({
         <Label>Cellphone (your sign-in)</Label>
         <Input value={phone} disabled />
         <p className="text-xs text-muted-foreground">
-          Changing your number needs a quick identity check — ask us in Help.
+          Changing your number needs a quick identity check, ask us in Help.
         </p>
       </div>
       <Button type="submit" size="sm" disabled={pending}>
@@ -116,7 +116,7 @@ export function RequestDataButton() {
   if (done) {
     return (
       <p className="mt-2 text-sm text-emerald-700">
-        Request received — we&apos;ve confirmed by email and will send your
+        Request received, we&apos;ve confirmed by email and will send your
         export soon.
       </p>
     );

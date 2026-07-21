@@ -111,7 +111,7 @@ export async function testSendAction(
       return r.ok ? { ok: true } : { ok: false, error: r.detail };
     }
     const sms = getSmsAdapter();
-    const r = await sms.send(to, "Needd Connect test message — SMS channel works.");
+    const r = await sms.send(to, "Needd Connect test message, SMS channel works.");
     return r.ok
       ? { ok: true, detail: `via ${sms.name}` }
       : { ok: false, error: r.detail };

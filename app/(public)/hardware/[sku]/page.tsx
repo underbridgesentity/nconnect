@@ -25,7 +25,7 @@ export async function generateMetadata({
   const item = await publishedHardwareBySku(sku);
   if (!item) return { title: "Hardware not found" };
   return {
-    title: `${item.name} — R${Math.round(item.priceCents / 100)}`,
+    title: `${item.name}, R${Math.round(item.priceCents / 100)}`,
     description: item.description ?? item.name,
     alternates: { canonical: `/hardware/${item.sku}` },
   };
@@ -105,7 +105,7 @@ export default async function HardwareDetailPage({
           ) : null}
           <div className="mt-6 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
             Hardware is added to your order during signup, or quoted with a
-            plan by our team — there&apos;s no standalone checkout. Pick your
+            plan by our team, there&apos;s no standalone checkout. Pick your
             plan first and we&apos;ll suggest the right device.
           </div>
           <div className="mt-4 flex gap-3">

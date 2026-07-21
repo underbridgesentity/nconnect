@@ -204,7 +204,7 @@ export default async function AdminInboxPage({
                 >
                   {message.direction === "internal_note" ? (
                     <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide">
-                      Internal note — never sent
+                      Internal note, never sent
                     </p>
                   ) : null}
                   <p className="whitespace-pre-wrap">{message.body}</p>

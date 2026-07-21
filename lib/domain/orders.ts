@@ -28,7 +28,7 @@ import { normalizePhone } from "@/lib/auth/otp";
 /**
  * Orders (spec §4.3, §9.2): checkout charges once-off fees + hardware + the
  * first month of each subscription. Prices are always read server-side from
- * the catalogue — the client sends identifiers only. Snapshots are mandatory.
+ * the catalogue, the client sends identifiers only. Snapshots are mandatory.
  */
 
 export const SIM_CATEGORIES = ["lte_home", "telkom_lte", "sim_data"] as const;
@@ -387,7 +387,7 @@ export async function createOrder(input: {
 // ------------------------------------------------------------ mark as paid
 
 /**
- * The single paid-path for orders — called by the ITN webhook and by
+ * The single paid-path for orders, called by the ITN webhook and by
  * admin-assisted "mark paid". Idempotent on the order status; creates the
  * order invoice + payment record and emits order.paid (M3 provisions from
  * that event).
@@ -549,7 +549,7 @@ export async function createOrderFromQuote(input: {
     if (!quote) throw new Error("Quote not found");
     if (quote.acceptedOrderId) throw new Error("Quote already accepted");
     if (quote.expiresAt && quote.expiresAt.getTime() < Date.now()) {
-      throw new Error("This quote has expired — ask your rep for a fresh one");
+      throw new Error("This quote has expired, ask your rep for a fresh one");
     }
     const items = await tx
       .select()
@@ -655,7 +655,7 @@ export async function createOrderFromQuote(input: {
       await tx.insert(leadActivities).values({
         leadId: quote.leadId,
         kind: "status_change",
-        body: `Quote ${quote.number} accepted — order ${number}`,
+        body: `Quote ${quote.number} accepted, order ${number}`,
         createdBy: quote.createdBy,
       });
     }

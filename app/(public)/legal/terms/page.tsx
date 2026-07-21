@@ -39,7 +39,7 @@ export default function TermsPage() {
           <h2>3. Fair usage</h2>
           <p className="mt-2">
             Uncapped services carry the fair-usage policy stated on the plan
-            page — the exact allocations and step-down speeds you saw when you
+            page, the exact allocations and step-down speeds you saw when you
             signed up. We don&apos;t change a plan&apos;s FUP mid-cycle.
           </p>
         </section>
@@ -75,7 +75,7 @@ export default function TermsPage() {
             Wireless speeds depend on coverage and congestion at your location;
             fibre speeds on the operator&apos;s line. We state honest
             expectations before you buy and help troubleshoot when reality
-            falls short — but radio physics is not negotiable, and we
+            falls short, but radio physics is not negotiable, and we
             don&apos;t promise what we can&apos;t control.
           </p>
         </section>

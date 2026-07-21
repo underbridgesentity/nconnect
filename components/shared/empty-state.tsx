@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * EmptyState (spec §11): icon + one true sentence + one action.
- * Honest UI — states what is true and what happens next; never fake data.
+ * Honest UI, states what is true and what happens next; never fake data.
  */
 export function EmptyState({
   icon: Icon,

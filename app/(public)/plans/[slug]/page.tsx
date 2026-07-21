@@ -27,7 +27,7 @@ export async function generateMetadata({
   const plan = await publishedPlanBySlug(slug);
   if (!plan) return { title: "Plan not found" };
   return {
-    title: `${plan.name} — R${Math.round(plan.priceCents / 100)}/month`,
+    title: `${plan.name}, R${Math.round(plan.priceCents / 100)}/month`,
     description:
       plan.description ??
       `${plan.name} from Needd Connect: ${plan.dataAllocation ?? ""}`.trim(),
@@ -70,13 +70,13 @@ export default async function PlanDetailPage({
           "We confirm fibre availability at your address within one business day, on WhatsApp.",
           "Once confirmed, the fibre operator schedules any installation needed.",
           "We activate your line and message you the moment it's live.",
-          "Your first invoice is only for the month after activation — the month you paid at checkout starts when the service works.",
+          "Your first invoice is only for the month after activation, the month you paid at checkout starts when the service works.",
         ]
       : [
           "We verify your RICA documents (SIM services are required to by law).",
-          "Your SIM and router (if ordered) are prepared and dispatched — delivery within 3 business days.",
+          "Your SIM and router (if ordered) are prepared and dispatched, delivery within 3 business days.",
           "Insert the SIM, plug in, and you're online. Allow up to 24 hours for the data allocation to reflect.",
-          "Your first invoice is only for the month after activation — the month you paid at checkout starts when the service works.",
+          "Your first invoice is only for the month after activation, the month you paid at checkout starts when the service works.",
         ];
 
   return (
@@ -152,7 +152,7 @@ export default async function PlanDetailPage({
             </p>
           ) : (
             <p className="mt-1 text-sm text-muted-foreground">
-              No once-off fee seeded — installation confirmed at signup
+              No once-off fee seeded, installation confirmed at signup
             </p>
           )}
           {plan.contractMonths ? (
@@ -191,7 +191,7 @@ export default async function PlanDetailPage({
             ) : null}
             <li className="flex gap-2">
               <Check className="mt-0.5 size-4 text-primary" aria-hidden />
-              One bill from Needd Connect — we handle the network
+              One bill from Needd Connect, we handle the network
             </li>
             <li className="flex gap-2">
               <Check className="mt-0.5 size-4 text-primary" aria-hidden />

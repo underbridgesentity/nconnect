@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CheckCircle2, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/public/page-header";
 import { coverageCheckAction } from "./actions";
 
 export const metadata: Metadata = {
@@ -20,25 +21,29 @@ export default async function CoveragePage({
   const { result, kind = "lte" } = await searchParams;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        Check coverage at your address
-      </h1>
-      <p className="mt-2 text-muted-foreground">
-        No fake maps here. LTE and 5G get an instant answer; for fibre we check
-        with the network operators and confirm within one business day.
-      </p>
+    <>
+      <PageHeader
+        image="/marketing/support.webp"
+        imageAlt="A support agent ready to help with a coverage check"
+        title="Check coverage at your address"
+      >
+        <p>
+          No fake maps here. LTE and 5G get an instant answer; for fibre we
+          check with the network operators and confirm within one business
+          day.
+        </p>
+      </PageHeader>
+      <div className="mx-auto max-w-2xl px-4 py-12">
 
       {result === "lte-available" ? (
         <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-5">
           <p className="flex items-center gap-2 font-medium text-emerald-800">
             <CheckCircle2 className="size-5" aria-hidden />
-            Good news — LTE/5G is available in your area.
+            Good news, LTE/5G is available in your area.
           </p>
           <p className="mt-2 text-sm text-emerald-800/80">
             MTN, Vodacom and Telkom LTE cover most of South Africa. Exact
-            speeds depend on signal strength at your address and network load —
-            that&apos;s true for every provider, and we&apos;d rather tell you
+            speeds depend on signal strength at your address and network load, that&apos;s true for every provider, and we&apos;d rather tell you
             upfront. 5G needs 5G coverage in your suburb; your router falls
             back to 4G where it&apos;s limited.
           </p>
@@ -67,13 +72,12 @@ export default async function CoveragePage({
 
       {result === "missing" ? (
         <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          For a fibre check we need your name, cellphone number and address —
-          that&apos;s who we send the confirmation to.
+          For a fibre check we need your name, cellphone number and address, that&apos;s who we send the confirmation to.
         </p>
       ) : null}
       {result === "invalid-phone" ? (
         <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          That cellphone number doesn&apos;t look right — please check it and
+          That cellphone number doesn&apos;t look right, please check it and
           try again.
         </p>
       ) : null}
@@ -85,8 +89,8 @@ export default async function CoveragePage({
           aria-selected={kind === "lte"}
           className={
             kind === "lte"
-              ? "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-              : "rounded-md border px-4 py-2 text-sm text-muted-foreground hover:bg-accent"
+              ? "rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
+              : "rounded-full border px-5 py-2 text-sm text-muted-foreground hover:bg-accent"
           }
         >
           LTE / 5G
@@ -97,8 +101,8 @@ export default async function CoveragePage({
           aria-selected={kind === "fibre"}
           className={
             kind === "fibre"
-              ? "rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-              : "rounded-md border px-4 py-2 text-sm text-muted-foreground hover:bg-accent"
+              ? "rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
+              : "rounded-full border px-5 py-2 text-sm text-muted-foreground hover:bg-accent"
           }
         >
           Fibre
@@ -135,7 +139,7 @@ export default async function CoveragePage({
               required={kind === "fibre"}
             />
             <p className="text-xs text-muted-foreground">
-              We confirm on WhatsApp — no marketing without your say-so.
+              We confirm on WhatsApp, no marketing without your say-so.
             </p>
           </div>
         </div>
@@ -170,11 +174,12 @@ export default async function CoveragePage({
         </div>
         <button
           type="submit"
-          className="flex w-full touch-target items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90 sm:w-auto"
+          className="flex w-full touch-target items-center justify-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91] sm:w-auto"
         >
           {kind === "fibre" ? "Check fibre at my address" : "Check LTE/5G coverage"}
         </button>
       </form>
-    </div>
+      </div>
+    </>
   );
 }

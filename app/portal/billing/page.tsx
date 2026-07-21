@@ -72,7 +72,7 @@ export default async function PortalBillingPage() {
         </div>
       ) : (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          Nothing outstanding — you&apos;re all settled.
+          Nothing outstanding, you&apos;re all settled.
         </p>
       )}
 
@@ -83,15 +83,14 @@ export default async function PortalBillingPage() {
         </h2>
         {method ? (
           <p className="mt-1 text-sm text-muted-foreground">
-            Card on file{method.cardLast4 ? ` ending ${method.cardLast4}` : ""} —
-            monthly invoices are charged automatically. Paying any invoice
+            Card on file{method.cardLast4 ? ` ending ${method.cardLast4}` : ""}, monthly invoices are charged automatically. Paying any invoice
             online with a different card replaces it.
           </p>
         ) : (
           <p className="mt-1 text-sm text-muted-foreground">
             No card saved yet. Tick &ldquo;save my card&rdquo; when you next
             pay an invoice online and future invoices are charged
-            automatically — no more pay links.
+            automatically, no more pay links.
           </p>
         )}
       </section>

@@ -9,7 +9,7 @@ import { todayInJohannesburg } from "@/lib/domain/services";
 
 /**
  * The daily billing run (spec §6.1): 02:00 Africa/Johannesburg (= 00:00 UTC).
- * Invoice generation, then dunning, then the cancellation sweep — in that
+ * Invoice generation, then dunning, then the cancellation sweep, in that
  * order so a just-issued invoice never dunned on day 0 twice and services
  * cancel only after their final period is settled.
  */
