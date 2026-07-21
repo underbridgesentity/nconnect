@@ -44,3 +44,7 @@ next-env.d.ts
 # claude local settings
 .claude/settings.local.json
 .uploads/
+
+# playwright
+test-results/
+playwright-report/

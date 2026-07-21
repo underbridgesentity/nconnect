@@ -350,8 +350,52 @@ rep blocked at R200 discount on a no-cost line, admin override allowed.
 Second rep (rep2) gets a 404 on rep1's lead URL. Typecheck/lint/29 tests
 green.
 
-## M8 — Reports, reconciliation, hardening (next)
+## M8 — Reports, reconciliation, hardening ✅ (2026-07-18)
 
-- [ ] Reports + CSV exports, reconciliation worksheet, settings/staff/
-      integrations/audit viewer, rate limits, Playwright e2e, security
-      pass, LAUNCH-CHECKLIST.md.
+Done:
+- Reports (§6.4/§9.4.6): active services by category, margin by provider
+  with missing-cost counts, activations vs cancellations (12 months),
+  collections summary, "set cost prices" checklist linking to Catalogue;
+  CSV export per report (/admin/reports/export) incl. age analysis.
+- Reconciliation worksheet: provider selector, expected wholesale from
+  active/suspended services, statement CSV upload
+  (external_ref,amount) matched by external_ref, flags
+  ok / missing_from_statement / amount_delta / no_cost_price plus leakage
+  rows (on statement, not on platform); output is a CSV checklist —
+  nothing auto-adjusts.
+- Settings: company + EFT banking editors (audited via updateSetting),
+  read-only dunning timeline.
+- Staff management: invite by email (Resend setup link, 7-day one-time
+  token), /setup page (name + password + auto sign-in), role change and
+  disable (self-protects; disabled users hard-blocked in proxy.ts).
+- Integrations panel: PayFast / WhatsApp / Resend / SMS / Supabase /
+  Inngest states from env (configured / sandbox / live / dev fallback),
+  email + SMS test-send buttons.
+- Notification template viewer (per-event rendered samples + Meta template
+  names); audit log viewer with entity filters + before/after JSON.
+- Trigram search migration (pg_trgm + GIN indexes on customer names/
+  phone/company, invoice numbers, conversation subjects).
+- design/IMAGE-MANIFEST.md (§11): every marketing slot with dimensions and
+  art briefs — no stock photos in the build.
+- Security pass: greps confirm no service keys/secrets or
+  localStorage/sessionStorage in client code, and no service status writes
+  outside the state machine (billing engine touches only plan/pointer
+  columns). Webhooks signature-verified + idempotent (verified in M2/M5);
+  OTP rate limits enforced (5/phone/hr, 15/IP/hr); signed URLs on all
+  private files with audited RICA access.
+- Playwright e2e (`tests/e2e/happy-path.spec.ts`, 390px viewport): signup
+  wizard → OTP → order → simulated ITN → provisioning → admin completes
+  the Today activation checklist → service active with billing dates →
+  time-travelled billing run issues the anniversary invoice (R382, open)
+  → manual EFT settles it. **4/4 passing** against the dev stack
+  (`pnpm test:e2e`, needs E2E_ADMIN_PASSWORD from seed output).
+- LAUNCH-CHECKLIST.md: honest client/dev split — pricing conflict, cost
+  prices, PayFast own-account sandbox + live ITN test, Meta verification +
+  template approval, SMS creds, Supabase project, Resend domain, Inngest
+  keys, imagery, legal review, staging → DNS cutover with the Lovable site
+  live until the switch, plus the documented deferrals.
+
+State at M8 close: all milestones M0–M8 complete; typecheck, lint, 29
+vitest tests, 4 Playwright tests green; production build verified in M1.
+The platform is code-complete pending the launch checklist's real-world
+credentials and client decisions.
