@@ -14,7 +14,7 @@ import { getSettingOr } from "@/lib/domain/settings";
 import { quoteDetail } from "@/lib/domain/quotes";
 import { BackLink } from "../../back-link";
 import { QuoteBuilder } from "../builder";
-import type { QuoteDraftItem } from "../actions";
+import { amountToInput, type QuoteDraftItem } from "../pricing";
 
 export const metadata: Metadata = { title: "New quote" };
 
@@ -42,9 +42,11 @@ export default async function NewQuotePage({
         hardwareId: i.hardwareId ?? undefined,
         bundleId: i.bundleId ?? undefined,
         customName: i.itemType === "custom" ? i.nameSnapshot : undefined,
-        customPriceRands:
-          i.itemType === "custom" ? i.unitPriceCentsSnapshot / 100 : undefined,
-        discountRands: i.discountCents ? i.discountCents / 100 : undefined,
+        customPrice:
+          i.itemType === "custom"
+            ? amountToInput(i.unitPriceCentsSnapshot)
+            : undefined,
+        discount: i.discountCents ? amountToInput(i.discountCents) : undefined,
         qty: i.qty,
       }))
     : undefined;

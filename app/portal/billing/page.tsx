@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, desc, eq, inArray } from "drizzle-orm";
-import { CheckCircle2, Clock, CreditCard, Receipt, FileDown } from "lucide-react";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  CreditCard,
+  Receipt,
+  FileDown,
+} from "lucide-react";
 import { db } from "@/lib/db/client";
 import { invoices, payments, paymentMethods } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
@@ -36,15 +44,40 @@ function portalPayLink(invoiceId: string): string {
   return `${payLinkFor(invoiceId)}&from=portal`;
 }
 
+/**
+ * One page of invoices. The list used to stop at the newest 24 and say
+ * nothing, so a customer hunting a March invoice concluded we had never sent
+ * one. Every page now states which slice it is showing out of how many, and
+ * the rest are one link away.
+ */
+const PAGE_SIZE = 24;
+
+/** Payment history is a recent-activity list, not the ledger the invoices are. */
+const PAYMENTS_SHOWN = 12;
+
 export default async function PortalBillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ paid?: string; checked?: string }>;
+  searchParams: Promise<{ paid?: string; checked?: string; page?: string }>;
 }) {
   const actor = await currentActor();
   if (!actor?.customerId) redirect("/login");
   const customerId = actor.customerId;
-  const { paid, checked } = await searchParams;
+  const { paid, checked, page } = await searchParams;
+
+  const countRows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(invoices)
+    .where(eq(invoices.customerId, customerId));
+  const invoiceCount = countRows[0]?.n ?? 0;
+  const pageCount = Math.max(1, Math.ceil(invoiceCount / PAGE_SIZE));
+  // Clamped rather than empty: a typed or stale page number lands on the last
+  // real page instead of an invoice list that looks like it has been wiped.
+  const currentPage = Math.min(
+    Math.max(1, Math.floor(Number(page)) || 1),
+    pageCount
+  );
+  const offset = (currentPage - 1) * PAGE_SIZE;
 
   const [invoiceRows, openRows, method, paymentRows, paidByInvoice, dunning] =
     await Promise.all([
@@ -52,10 +85,13 @@ export default async function PortalBillingPage({
         .select()
         .from(invoices)
         .where(eq(invoices.customerId, customerId))
-        .orderBy(desc(invoices.issueDate))
-        .limit(24),
-      // The banner must count every unpaid invoice, not just the last 24, so
-      // the figure here can never disagree with the one on the home screen.
+        // Issue dates tie, and an unstable sort under an offset drops rows
+        // between pages. The number is unique and runs with the calendar.
+        .orderBy(desc(invoices.issueDate), desc(invoices.number))
+        .limit(PAGE_SIZE)
+        .offset(offset),
+      // The banner must count every unpaid invoice, not just the page shown
+      // above, so the figure here can never disagree with the home screen.
       db
         .select()
         .from(invoices)
@@ -87,7 +123,9 @@ export default async function PortalBillingPage({
           )
         )
         .orderBy(desc(payments.createdAt))
-        .limit(12),
+        // One more than we show, purely so the page can tell the customer
+        // there are older payments rather than letting the list end silently.
+        .limit(PAYMENTS_SHOWN + 1),
       paidCentsByInvoice(customerId),
       getSettingOr<DunningConfig>("dunning", DEFAULT_DUNNING),
     ]);
@@ -242,8 +280,14 @@ export default async function PortalBillingPage({
         )}
       </section>
 
-      <section className="space-y-2">
+      <section className="space-y-2" id="invoices">
         <h2 className="text-sm font-semibold">Invoices</h2>
+        {invoiceCount > PAGE_SIZE ? (
+          <p className="text-xs text-muted-foreground">
+            Showing {offset + 1} to {offset + rows.length} of {invoiceCount},
+            newest first.
+          </p>
+        ) : null}
         {rows.length === 0 ? (
           <EmptyState
             icon={Receipt}
@@ -310,13 +354,49 @@ export default async function PortalBillingPage({
             )
           )
         )}
+        {pageCount > 1 ? (
+          <nav
+            className="flex items-center justify-between gap-2 pt-1"
+            aria-label="Invoice pages"
+          >
+            {currentPage > 1 ? (
+              <Link
+                href={`/portal/billing?page=${currentPage - 1}#invoices`}
+                className="touch-target inline-flex items-center gap-1 rounded-full border px-4 text-xs font-medium hover:bg-accent"
+              >
+                <ChevronLeft className="size-3.5" aria-hidden /> Newer
+              </Link>
+            ) : (
+              <span />
+            )}
+            <span className="text-xs text-muted-foreground">
+              Page {currentPage} of {pageCount}
+            </span>
+            {currentPage < pageCount ? (
+              <Link
+                href={`/portal/billing?page=${currentPage + 1}#invoices`}
+                className="touch-target inline-flex items-center gap-1 rounded-full border px-4 text-xs font-medium hover:bg-accent"
+              >
+                Older <ChevronRight className="size-3.5" aria-hidden />
+              </Link>
+            ) : (
+              <span />
+            )}
+          </nav>
+        ) : null}
+        {pageCount > 1 && currentPage === pageCount ? (
+          <p className="text-xs text-muted-foreground">
+            That is every invoice we have ever issued you. Ask us in Help if one
+            you expected is not here.
+          </p>
+        ) : null}
       </section>
 
       {paymentRows.length > 0 ? (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Payment history</h2>
           <div className="rounded-2xl border bg-card">
-            {paymentRows.map(({ payment, invoice }) => (
+            {paymentRows.slice(0, PAYMENTS_SHOWN).map(({ payment, invoice }) => (
               <div
                 key={payment.id}
                 className="flex items-center justify-between border-b p-3 text-sm last:border-0"
@@ -329,6 +409,13 @@ export default async function PortalBillingPage({
               </div>
             ))}
           </div>
+          {paymentRows.length > PAYMENTS_SHOWN ? (
+            <p className="text-xs text-muted-foreground">
+              Your {PAYMENTS_SHOWN} most recent payments. Older ones are on the
+              invoices they settled, and we will send you a full statement if
+              you ask in Help.
+            </p>
+          ) : null}
         </section>
       ) : null}
     </div>

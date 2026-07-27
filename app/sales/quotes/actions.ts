@@ -9,6 +9,7 @@ import {
   DiscountFloorError,
   QuoteDeliveryError,
 } from "@/lib/domain/quotes";
+import { draftItemsToInput, type QuoteDraftItem } from "./pricing";
 
 /**
  * `delivered` is the honest bit: a quote can be saved and still not reach the
@@ -37,17 +38,6 @@ const fail = (err: unknown): Result => ({
         : "Failed",
 });
 
-export interface QuoteDraftItem {
-  itemType: "plan" | "hardware" | "bundle" | "custom";
-  planId?: string;
-  hardwareId?: string;
-  bundleId?: string;
-  customName?: string;
-  customPriceRands?: number;
-  discountRands?: number;
-  qty: number;
-}
-
 function contactLabel(recipient: {
   name: string | null;
   phone: string | null;
@@ -65,22 +55,13 @@ export async function saveQuoteAction(input: {
   let quoteId: string | undefined;
   try {
     const actor = await requireActor();
+    // Integer cents, read from the text the rep typed by the same helper the
+    // builder prices with. An amount neither of them can read stops the save
+    // here rather than being written to the quote as zero.
     const created = await createQuote(actor, {
       leadId: input.leadId ?? null,
       customerId: input.customerId ?? null,
-      items: input.items.map((i) => ({
-        itemType: i.itemType,
-        planId: i.planId ?? null,
-        hardwareId: i.hardwareId ?? null,
-        bundleId: i.bundleId ?? null,
-        customName: i.customName ?? null,
-        customPriceCents:
-          i.customPriceRands != null
-            ? Math.round(i.customPriceRands * 100)
-            : null,
-        discountCents: Math.round((i.discountRands ?? 0) * 100),
-        qty: i.qty,
-      })),
+      items: draftItemsToInput(input.items),
     });
     quoteId = created.quoteId;
 

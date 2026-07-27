@@ -15,29 +15,21 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatCents } from "@/lib/money";
-import { saveQuoteAction, type QuoteDraftItem } from "./actions";
+import { saveQuoteAction } from "./actions";
+import {
+  MAX_QTY,
+  priceLine,
+  quoteTotals,
+  readQty,
+  type Option,
+  type QuoteDraftItem,
+} from "./pricing";
 
-export type Option = {
-  id: string;
-  name: string;
-  /** "Telkom · 20 Mbps · Uncapped", shown under the name in the picker. */
-  detail?: string | null;
-  priceCents: number;
-  costCents: number | null;
-};
+export type { Option, QuoteDraftItem };
 
-/** Percentage of an integer-cent amount, in basis points, rounded half-up. */
-function percentOfCents(amount: number, percent: number): number {
-  const basisPoints = Math.round(percent * 100);
-  return Math.round((amount * basisPoints) / 10_000);
-}
-
-/** Rands typed into a number input to integer cents. */
-function toCents(rands: number | undefined): number {
-  return Math.round((rands ?? 0) * 100);
-}
-
-const DRAFT_KEY = "nc:quote-draft";
+// The draft shape changed when amounts stopped being rands in a float, so
+// version the key: half-reading an old draft would drop its discounts.
+const DRAFT_KEY = "nc:quote-draft/v2";
 
 /**
  * Quote builder (spec §9.5): plans/bundles/hardware with quantities and
@@ -133,59 +125,20 @@ export function QuoteBuilder({
     return optionsFor(item.itemType).find((o) => o.id === id) ?? null;
   };
 
-  /** The §10.4 floor, mirrored client-side. Empty string means the line is fine. */
-  const floorBreach = (item: QuoteDraftItem, opt: Option | null): string => {
-    const discount = toCents(item.discountRands);
-    if (discount <= 0) return "";
-    const price =
-      item.itemType === "custom" ? toCents(item.customPriceRands) : (opt?.priceCents ?? 0);
-    if (discount > price) return "The discount is bigger than the price.";
-    const cost = item.itemType === "custom" ? null : (opt?.costCents ?? null);
-    if (cost != null) {
-      const floor = cost + percentOfCents(cost, floorPercent);
-      if (price - discount < floor) {
-        return `Below the floor: this line may not go under ${formatCents(floor)} (cost plus ${floorPercent}%).`;
-      }
-      return "";
-    }
-    const maxDiscount = percentOfCents(price, noCostMaxPercent);
-    if (discount > maxDiscount) {
-      return `No cost price is set, so the most you can take off is ${formatCents(maxDiscount)} (${noCostMaxPercent}%).`;
-    }
-    return "";
-  };
-
-  const totals = useMemo(() => {
-    let total = 0;
-    let cost = 0;
-    let costKnown = true;
-    let breaches = 0;
-    let incomplete = 0;
-    for (const item of items) {
-      const opt = optionFor(item);
-      if (item.itemType === "custom") {
-        if (!item.customName?.trim() || toCents(item.customPriceRands) <= 0) incomplete++;
-      } else if (!opt) {
-        incomplete++;
-      }
-      const price =
-        item.itemType === "custom" ? toCents(item.customPriceRands) : (opt?.priceCents ?? 0);
-      const discount = toCents(item.discountRands);
-      total += (price - discount) * item.qty;
-      if (item.itemType === "custom") {
-        // custom lines carry no cost
-      } else if (opt?.costCents == null) {
-        costKnown = false;
-      } else {
-        cost += opt.costCents * item.qty;
-      }
-      if (floorBreach(item, opt)) breaches++;
-    }
-    return { total, margin: costKnown ? total - cost : null, breaches, incomplete };
+  // One priced line per draft line, in integer cents, from the module the save
+  // action also uses. The rep and the server therefore never disagree about a
+  // total, a margin or whether a line breaches the §10.4 floor.
+  const lines = useMemo(
+    () =>
+      items.map((item) =>
+        priceLine(item, optionFor(item), { floorPercent, noCostMaxPercent })
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, planOptions, hardwareOptions, bundleOptions, floorPercent, noCostMaxPercent]);
+    [items, planOptions, hardwareOptions, bundleOptions, floorPercent, noCostMaxPercent]
+  );
+  const totals = useMemo(() => quoteTotals(lines), [lines]);
 
-  const blocked = totals.breaches > 0 || totals.incomplete > 0;
+  const blocked = totals.problems > 0 || totals.incomplete > 0;
 
   const add = (itemType: QuoteDraftItem["itemType"]) =>
     setItems((prev) => [...prev, { itemType, qty: 1 }]);
@@ -260,16 +213,13 @@ export function QuoteBuilder({
         <div className="space-y-2">
           {items.map((item, i) => {
             const opt = optionFor(item);
-            const price =
-              item.itemType === "custom" ? toCents(item.customPriceRands) : (opt?.priceCents ?? 0);
-            const discount = toCents(item.discountRands);
-            const lineTotal = (price - discount) * item.qty;
+            const line = lines[i];
+            // A custom line has no cost by nature, so it shows no margin at
+            // all rather than a misleading R0.00.
             const lineMargin =
-              item.itemType !== "custom" && opt?.costCents != null
-                ? (price - discount - opt.costCents) * item.qty
-                : null;
-            const breach = floorBreach(item, opt);
-            const breachId = `line-${i}-floor`;
+              item.itemType === "custom" ? null : line.marginCents;
+            const problem = line.problem;
+            const problemId = `line-${i}-problem`;
             return (
               <div key={i} className="space-y-2 rounded-2xl border bg-card p-3">
                 <div className="flex items-center gap-2">
@@ -281,16 +231,19 @@ export function QuoteBuilder({
                         value={item.customName ?? ""}
                         onChange={(e) => patch(i, { customName: e.target.value })}
                       />
+                      {/*
+                        Text, not number: the amount is kept exactly as typed
+                        and read into cents by `parseZar`, so "1 250,50" copied
+                        off a supplier quote lands as 125050 and no rounding
+                        happens on the way in.
+                      */}
                       <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
+                        type="text"
+                        inputMode="decimal"
                         placeholder="R"
                         className="tnum w-24"
-                        value={item.customPriceRands ?? ""}
-                        onChange={(e) =>
-                          patch(i, { customPriceRands: Number(e.target.value) || 0 })
-                        }
+                        value={item.customPrice ?? ""}
+                        onChange={(e) => patch(i, { customPrice: e.target.value })}
                         aria-label="Price (R)"
                       />
                     </>
@@ -326,30 +279,28 @@ export function QuoteBuilder({
                     <Input
                       type="number"
                       min="1"
+                      max={MAX_QTY}
                       className="tnum w-16"
                       value={item.qty}
-                      onChange={(e) =>
-                        patch(i, { qty: Math.max(1, Number(e.target.value)) })
-                      }
+                      onChange={(e) => patch(i, { qty: readQty(e.target.value) })}
                     />
                   </label>
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     Discount (R)
                     <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       className="tnum w-24"
-                      value={item.discountRands ?? ""}
-                      aria-invalid={breach ? true : undefined}
-                      aria-describedby={breach ? breachId : undefined}
-                      onChange={(e) =>
-                        patch(i, { discountRands: Number(e.target.value) || 0 })
-                      }
+                      value={item.discount ?? ""}
+                      aria-invalid={problem ? true : undefined}
+                      aria-describedby={problem ? problemId : undefined}
+                      onChange={(e) => patch(i, { discount: e.target.value })}
                     />
                   </label>
                   <span className="ml-auto text-sm">
-                    <span className="tnum font-medium">{formatCents(lineTotal)}</span>
+                    <span className="tnum font-medium">
+                      {formatCents(line.totalCents)}
+                    </span>
                     {lineMargin != null ? (
                       <span
                         className={`tnum ml-2 text-xs ${lineMargin < 0 ? "text-destructive" : "text-muted-foreground"}`}
@@ -361,9 +312,9 @@ export function QuoteBuilder({
                     ) : null}
                   </span>
                 </div>
-                {breach ? (
-                  <p id={breachId} role="alert" className="text-xs font-medium text-destructive">
-                    {breach}
+                {problem ? (
+                  <p id={problemId} role="alert" className="text-xs font-medium text-destructive">
+                    {problem}
                   </p>
                 ) : null}
               </div>
@@ -377,19 +328,21 @@ export function QuoteBuilder({
           <div className="rounded-2xl border bg-muted/40 p-3 text-sm">
             <div className="flex justify-between font-semibold">
               <span>Quote total</span>
-              <span className="tnum">{formatCents(totals.total)}</span>
+              <span className="tnum">{formatCents(totals.totalCents)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Your visible margin</span>
               <span className="tnum">
-                {totals.margin != null ? formatCents(totals.margin) : "cost prices missing"}
+                {totals.marginCents != null
+                  ? formatCents(totals.marginCents)
+                  : "cost prices missing"}
               </span>
             </div>
           </div>
           {blocked ? (
             <p role="alert" className="text-sm font-medium text-destructive">
-              {totals.breaches > 0
-                ? `${totals.breaches} line${totals.breaches > 1 ? "s" : ""} breach the discount floor. Reduce the discount, or ask an admin to approve it.`
+              {totals.problems > 0
+                ? `${totals.problems} line${totals.problems > 1 ? "s" : ""} need${totals.problems > 1 ? "" : "s"} fixing before this can go out. See the notes above.`
                 : `Finish ${totals.incomplete} line${totals.incomplete > 1 ? "s" : ""} before sending.`}
             </p>
           ) : null}

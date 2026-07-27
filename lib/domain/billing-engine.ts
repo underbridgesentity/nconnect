@@ -35,6 +35,7 @@ import {
 import {
   maybeReactivateAfterSettlement,
   outstandingCents,
+  paidCentsByInvoice,
   paidCentsFor,
   paidCentsForInvoice,
 } from "./billing";
@@ -746,6 +747,145 @@ async function recordChargeException(
   for (const id of eventIds) await forwardDomainEvent(id);
 }
 
+/**
+ * Stop the dunning sweep from ever charging this invoice automatically again.
+ *
+ * The sweep decides slot by slot: a charge day with no `collection_attempts`
+ * row is a day it will charge on. Filling the remaining slots is therefore the
+ * whole stop condition, and it leaves the reason on the invoice where an
+ * operator will find it. Used wherever the card may already have been debited
+ * for money we cannot see, because the one thing that must not happen while a
+ * person works out what took place is another guess with the same customer's
+ * money.
+ */
+async function haltAutomaticCharging(
+  invoiceId: string,
+  afterAttemptNo: number,
+  reason: string
+): Promise<void> {
+  const dunning = await getSettingOr<DunningConfig>("dunning", DEFAULT_DUNNING);
+  const existing = await db
+    .select({ attemptNo: collectionAttempts.attemptNo })
+    .from(collectionAttempts)
+    .where(eq(collectionAttempts.invoiceId, invoiceId));
+  const taken = new Set(existing.map((row) => row.attemptNo));
+
+  const now = new Date();
+  const rows = [];
+  for (
+    let attemptNo = afterAttemptNo + 1;
+    attemptNo <= dunning.chargeAttemptDays.length;
+    attemptNo++
+  ) {
+    if (taken.has(attemptNo)) continue;
+    rows.push({
+      invoiceId,
+      attemptNo,
+      scheduledFor: now,
+      executedAt: now,
+      result: "skipped" as const,
+      detail: `not charged automatically: ${reason}`,
+    });
+  }
+  if (rows.length === 0) return;
+  await db.insert(collectionAttempts).values(rows);
+}
+
+/** What the gateway answered, or the fact that asking it threw. */
+export type ChargeAnswer =
+  | { kind: "errored"; message: string }
+  | { kind: "replied"; ok: boolean; gatewayRef?: string; detail?: string };
+
+export interface ChargeDisposition {
+  /**
+   * What the caller is told. A debit that happened is never reported as a
+   * failure: a failure means "try again", and trying again takes the same
+   * money a second time.
+   */
+  result: "success" | "failed";
+  /** Reference to bank the money under, null when nothing may be banked. */
+  bankUnder: string | null;
+  attemptResult: "success" | "failed";
+  /** Goes on the collection attempt, and to the operator. */
+  detail: string;
+  /** Headline for the operator's bell, null when nobody needs to look. */
+  exception: string | null;
+  /** False forbids every later dunning slot from charging this invoice. */
+  mayRecharge: boolean;
+}
+
+/**
+ * What to do about one answer from the card gateway. Pure, so the rule can be
+ * read and tested without a database or a PayFast account.
+ *
+ * The pivot is whether the customer's money moved. PayFast replying `ok`
+ * means it did, and that stays true whether or not the reply carried a
+ * reference we can read. Recording such a charge as a failure lost the money
+ * twice over: nothing was banked against the invoice, so it stayed open, and
+ * the next dunning slot debited the customer again for what had already been
+ * taken. So a successful debit is always recorded, under the gateway's own
+ * reference where there is one and otherwise under the `m_payment_id` we sent
+ * with the request, which is the identifier PayFast has on its side and the
+ * one an operator reconciles against. Anything ambiguous also raises a bell
+ * and takes the invoice off automatic charging until a person has looked.
+ */
+export function tokenChargeDisposition(input: {
+  answer: ChargeAnswer;
+  /** The `m_payment_id` sent with the charge, our side of the reconciliation. */
+  paymentId: string;
+}): ChargeDisposition {
+  const { answer, paymentId } = input;
+
+  if (answer.kind === "errored") {
+    // The call itself threw, so whether the card was debited is unknown.
+    // Never guess with somebody's money.
+    return {
+      result: "failed",
+      bankUnder: null,
+      attemptResult: "failed",
+      detail: `charge errored, outcome unknown: ${answer.message}`,
+      exception: "Card charge outcome unknown",
+      mayRecharge: false,
+    };
+  }
+
+  if (!answer.ok) {
+    // A clean decline: no money moved, so the timeline retries as designed.
+    return {
+      result: "failed",
+      bankUnder: null,
+      attemptResult: "failed",
+      detail: answer.detail ?? "charge failed",
+      exception: null,
+      mayRecharge: true,
+    };
+  }
+
+  const gatewayRef = answer.gatewayRef?.trim();
+  if (gatewayRef) {
+    return {
+      result: "success",
+      bankUnder: gatewayRef,
+      attemptResult: "success",
+      detail: gatewayRef,
+      exception: null,
+      mayRecharge: true,
+    };
+  }
+
+  return {
+    result: "success",
+    bankUnder: paymentId,
+    attemptResult: "success",
+    detail:
+      `the gateway reported success without a reference of its own, so the ` +
+      `payment is recorded under the m_payment_id it was charged with, ` +
+      `${paymentId}`,
+    exception: "Card charge without a gateway reference",
+    mayRecharge: false,
+  };
+}
+
 /** Attempt a token charge for an open invoice (§6.2/§6.3). */
 export async function attemptTokenCharge(
   invoiceId: string,
@@ -801,64 +941,62 @@ export async function attemptTokenCharge(
     return attempt.id;
   });
 
-  let charge: Awaited<ReturnType<Charger>>;
+  const paymentId = `inv:${invoice.id}:${attemptNo}`;
+  let answer: ChargeAnswer;
   try {
-    charge = await charger({
+    const charge = await charger({
       token: method.payfastToken,
       amountCents: dueCents,
       itemName: `Needd Connect invoice ${invoice.number}`,
-      paymentId: `inv:${invoice.id}:${attemptNo}`,
+      paymentId,
     });
+    answer = { ...charge, kind: "replied" };
   } catch (err) {
-    // The gateway call itself threw, so we do not know whether the card was
-    // debited. Never guess with somebody's money: record the attempt and put
-    // it in front of a person to check against PayFast.
-    const detail = `charge errored, outcome unknown: ${errorText(err)}`;
     console.error(
       `token charge errored: invoice=${invoice.id} number=${invoice.number} amountCents=${dueCents}:`,
       err
     );
-    await safely("collection attempt update", () =>
-      db
-        .update(collectionAttempts)
-        .set({ result: "failed", detail })
-        .where(eq(collectionAttempts.id, attemptId))
-    );
-    await safely("charge exception record", () =>
-      recordChargeException(
-        invoice,
-        dueCents,
-        "Card charge outcome unknown",
-        `${detail}. Check PayFast for ${`inv:${invoice.id}:${attemptNo}`} before charging again.`
-      )
-    );
-    return { result: "failed", detail };
+    answer = { kind: "errored", message: errorText(err) };
   }
 
-  if (charge.ok && charge.gatewayRef) {
-    const gatewayRef = charge.gatewayRef;
+  const decision = tokenChargeDisposition({ answer, paymentId });
+  if (decision.exception) {
+    console.error(
+      `${decision.exception.toUpperCase()}: invoice=${invoice.id} ` +
+        `number=${invoice.number} customer=${invoice.customerId} ` +
+        `amountCents=${dueCents} paymentId=${paymentId}: ${decision.detail}`
+    );
+  }
+  // Everything below this point is best effort. The customer's card has
+  // already been touched, so nothing here may throw its way back out and be
+  // read as "the charge did not happen".
+
+  await safely("collection attempt update", () =>
+    db
+      .update(collectionAttempts)
+      .set({ result: decision.attemptResult, detail: decision.detail })
+      .where(eq(collectionAttempts.id, attemptId))
+  );
+
+  if (decision.bankUnder) {
     try {
-      await db
-        .update(collectionAttempts)
-        .set({ result: "success", detail: gatewayRef })
-        .where(eq(collectionAttempts.id, attemptId));
       await markInvoicePaidFromGateway({
         invoiceId,
-        gatewayRef,
+        gatewayRef: decision.bankUnder,
         amountCents: dueCents,
         method: "payfast_token",
       });
-      return { result: "success" };
     } catch (err) {
-      // The card has been debited. A record we fail to write here is money
-      // the customer paid and we cannot see, so it is logged loudly and left
-      // as an operator task rather than swallowed.
+      // The card has been debited. A record we fail to write here is money the
+      // customer paid and we cannot see, so it is logged loudly, left as an
+      // operator task, and never handed back to the retry loop.
       const detail =
-        `charged ${formatCents(dueCents)} on gateway ref ${gatewayRef}, ` +
+        `charged ${formatCents(dueCents)} on gateway ref ${decision.bankUnder}, ` +
         `but the payment could not be recorded: ${errorText(err)}`;
       console.error(
         `UNBANKED CARD DEBIT: invoice=${invoice.id} number=${invoice.number} ` +
-          `customer=${invoice.customerId} gatewayRef=${gatewayRef} amountCents=${dueCents}:`,
+          `customer=${invoice.customerId} gatewayRef=${decision.bankUnder} ` +
+          `amountCents=${dueCents}:`,
         err
       );
       await safely("collection attempt update", () =>
@@ -872,8 +1010,11 @@ export async function attemptTokenCharge(
           invoice,
           dueCents,
           "Card debited but not recorded",
-          `${detail}. Capture it against ${invoice.number} using gateway ref ${gatewayRef}.`
+          `${detail}. Capture it against ${invoice.number} using gateway ref ${decision.bankUnder}.`
         )
+      );
+      await safely("halt automatic charging", () =>
+        haltAutomaticCharging(invoice.id, attemptNo, detail)
       );
       // The money did leave the customer's account, so this was a successful
       // charge. Calling it a failure would have the next dunning slot debit
@@ -882,46 +1023,35 @@ export async function attemptTokenCharge(
     }
   }
 
-  if (charge.ok) {
-    // Reported successful with no reference to bank it against. The customer
-    // may well have been debited and we have nothing to reconcile with, so
-    // this goes to a person rather than round the retry loop.
-    const detail =
-      "gateway reported success without a reference, so nothing could be banked";
-    console.error(
-      `CHARGE WITHOUT REFERENCE: invoice=${invoice.id} number=${invoice.number} amountCents=${dueCents}`
-    );
-    await safely("collection attempt update", () =>
-      db
-        .update(collectionAttempts)
-        .set({ result: "success", detail })
-        .where(eq(collectionAttempts.id, attemptId))
-    );
+  const exception = decision.exception;
+  if (exception) {
     await safely("charge exception record", () =>
       recordChargeException(
         invoice,
         dueCents,
-        "Card charge without a reference",
-        `${detail}. Check PayFast for inv:${invoice.id}:${attemptNo} before charging again.`
+        exception,
+        `${decision.detail}. Check PayFast for ${paymentId} and confirm it against ${invoice.number}. This invoice will not be charged automatically again.`
       )
     );
-    return { result: "success", detail };
   }
-
-  await db
-    .update(collectionAttempts)
-    .set({ result: "failed", detail: charge.detail ?? "charge failed" })
-    .where(eq(collectionAttempts.id, attemptId));
-  // A notification outage is not a reason to lose the recorded decline.
-  await safely("payment_failed notification", () =>
-    notify("payment_failed", {
-      customerId: invoice.customerId,
-      amountCents: dueCents,
-      reference: invoice.number,
-      link: payLinkFor(invoiceId),
-    })
-  );
-  return { result: "failed", detail: charge.detail };
+  if (!decision.mayRecharge) {
+    await safely("halt automatic charging", () =>
+      haltAutomaticCharging(invoice.id, attemptNo, decision.detail)
+    );
+  }
+  if (decision.result === "failed" && exception === null) {
+    // A clean decline, the only outcome the customer can act on. A
+    // notification outage is not a reason to lose the recorded decline.
+    await safely("payment_failed notification", () =>
+      notify("payment_failed", {
+        customerId: invoice.customerId,
+        amountCents: dueCents,
+        reference: invoice.number,
+        link: payLinkFor(invoiceId),
+      })
+    );
+  }
+  return { result: decision.result, detail: decision.detail };
 }
 
 // ---------------------------------------------------------------- dunning
@@ -1378,14 +1508,69 @@ function addDaysToAnchor(nextAnchor: string, anchorDay: number): string {
 
 // ------------------------------------------------------------- age analysis
 
+/** Every figure here is what is still owed, never what was invoiced. */
 export interface AgeBucket {
   customerId: string;
   customerName: string;
-  currentCents: number;
-  d30Cents: number;
-  d60Cents: number;
-  d90Cents: number;
-  totalCents: number;
+  currentCents: Cents;
+  d30Cents: Cents;
+  d60Cents: Cents;
+  d90Cents: Cents;
+  totalCents: Cents;
+}
+
+/** One open invoice and the money already banked against it. */
+export interface AgedInvoice {
+  customerId: string;
+  customerName: string;
+  /** Calendar date, YYYY-MM-DD; the bucket is measured from here. */
+  issueDate: string;
+  totalCents: Cents;
+  paidCents: Cents;
+}
+
+/**
+ * Sort what customers owe into 30-day buckets.
+ *
+ * A part payment deliberately leaves an invoice open (§6.2), so the invoice
+ * total is not the debt: an R800 invoice with R600 banked against it belongs
+ * in its bucket as R200. Bucketing on the total told a collections call the
+ * customer owed money they had already paid, and made the whole book look
+ * bigger than it was. Outstanding comes from `outstandingCents`, the same rule
+ * the invoice screens and the portal show the customer, so the report and the
+ * customer's own statement can never disagree.
+ *
+ * An invoice with nothing left outstanding is left out entirely rather than
+ * carried as a zero: it is settled, whatever its status column still says.
+ */
+export function bucketAgeAnalysis(
+  rows: AgedInvoice[],
+  today: string
+): AgeBucket[] {
+  const map = new Map<string, AgeBucket>();
+  for (const row of rows) {
+    const owedCents = outstandingCents(row.totalCents, row.paidCents);
+    if (owedCents === 0) continue;
+    const bucket =
+      map.get(row.customerId) ??
+      ({
+        customerId: row.customerId,
+        customerName: row.customerName,
+        currentCents: 0,
+        d30Cents: 0,
+        d60Cents: 0,
+        d90Cents: 0,
+        totalCents: 0,
+      } satisfies AgeBucket);
+    const age = daysBetween(row.issueDate, today);
+    if (age < 30) bucket.currentCents = add(bucket.currentCents, owedCents);
+    else if (age < 60) bucket.d30Cents = add(bucket.d30Cents, owedCents);
+    else if (age < 90) bucket.d60Cents = add(bucket.d60Cents, owedCents);
+    else bucket.d90Cents = add(bucket.d90Cents, owedCents);
+    bucket.totalCents = add(bucket.totalCents, owedCents);
+    map.set(row.customerId, bucket);
+  }
+  return [...map.values()].sort((a, b) => b.totalCents - a.totalCents);
 }
 
 export async function ageAnalysis(
@@ -1397,29 +1582,18 @@ export async function ageAnalysis(
     .innerJoin(customers, eq(invoices.customerId, customers.id))
     .where(inArray(invoices.status, ["open", "past_due"]));
 
-  const map = new Map<string, AgeBucket>();
-  for (const { invoice, customer } of rows) {
-    const name =
-      customer.companyName ??
-      [customer.firstName, customer.lastName].filter(Boolean).join(" ");
-    const bucket =
-      map.get(customer.id) ??
-      ({
-        customerId: customer.id,
-        customerName: name,
-        currentCents: 0,
-        d30Cents: 0,
-        d60Cents: 0,
-        d90Cents: 0,
-        totalCents: 0,
-      } satisfies AgeBucket);
-    const age = daysBetween(invoice.issueDate, today);
-    if (age < 30) bucket.currentCents += invoice.totalCents;
-    else if (age < 60) bucket.d30Cents += invoice.totalCents;
-    else if (age < 90) bucket.d60Cents += invoice.totalCents;
-    else bucket.d90Cents += invoice.totalCents;
-    bucket.totalCents += invoice.totalCents;
-    map.set(customer.id, bucket);
-  }
-  return [...map.values()].sort((a, b) => b.totalCents - a.totalCents);
+  const paid = await paidCentsByInvoice(rows.map((r) => r.invoice.id));
+
+  return bucketAgeAnalysis(
+    rows.map(({ invoice, customer }) => ({
+      customerId: customer.id,
+      customerName:
+        customer.companyName ??
+        [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+      issueDate: invoice.issueDate,
+      totalCents: invoice.totalCents,
+      paidCents: paid.get(invoice.id) ?? 0,
+    })),
+    today
+  );
 }

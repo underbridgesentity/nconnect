@@ -11,7 +11,17 @@ import {
   classifyLeadError,
   type SignupDraftState,
 } from "@/lib/domain/signup";
-import { requestOtp, verifyOtp, OtpRateLimitError } from "@/lib/auth/otp";
+import {
+  requestOtp,
+  verifyOtp,
+  otpThrottleState,
+  otpFailureMessage,
+  OtpRateLimitError,
+  PhoneFormatError,
+  OTP_TTL_SECONDS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  type OtpThrottleState,
+} from "@/lib/auth/otp";
 import {
   findOrCreateCustomer,
   createOrder,
@@ -205,10 +215,6 @@ const contactSchema = z.object({
   email: z.string().email().optional(),
 });
 
-/** OTP lifetime in lib/auth/otp.ts, mirrored here for the countdown. */
-const OTP_TTL_SECONDS = 5 * 60;
-const RESEND_COOLDOWN_SECONDS = 60;
-
 export type OtpSendResult = WizardResult & {
   /** Seconds until the code on its way expires. */
   expiresIn?: number;
@@ -216,72 +222,75 @@ export type OtpSendResult = WizardResult & {
   resendIn?: number;
 };
 
-/** Mirrors MAX_PER_PHONE_PER_HOUR in lib/auth/otp.ts. */
-const OTP_MAX_PER_PHONE_PER_HOUR = 5;
+/** A checkout has a person waiting on it, so every refusal offers a way out. */
+const WHATSAPP_OFFER = " WhatsApp us and we will finish the order with you.";
 
 /**
- * How long until the per-phone hourly ceiling frees a slot, so we can tell
- * the customer when to try again instead of "wait a while". A slot opens when
- * enough of the codes sent in the last hour have aged out to drop the count
- * below the ceiling.
+ * Send a code, or explain why not.
+ *
+ * The throttle is read before a code is spent: two taps on "Verify my number"
+ * must not burn two of the five codes an hour this number gets, and the
+ * countdown the customer sees has to belong to the code that is actually live,
+ * not restart at five minutes because they tapped again.
  */
-async function otpRetryAfterMinutes(phone: string): Promise<number | null> {
-  try {
-    const { normalizePhone } = await import("@/lib/auth/otp");
-    const { db } = await import("@/lib/db/client");
-    const { otpCodes } = await import("@/lib/db/schema");
-    const { and, eq, gt, sql } = await import("drizzle-orm");
-    const normalised = normalizePhone(phone);
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const rows = await db
-      .select({ createdAt: otpCodes.createdAt })
-      .from(otpCodes)
-      .where(
-        and(eq(otpCodes.phone, normalised), gt(otpCodes.createdAt, oneHourAgo))
-      )
-      .orderBy(sql`${otpCodes.createdAt} asc`)
-      .limit(50);
-    const index = rows.length - OTP_MAX_PER_PHONE_PER_HOUR;
-    const blocking = rows[index >= 0 ? index : 0];
-    if (!blocking) return null;
-    const freesAt = blocking.createdAt.getTime() + 60 * 60 * 1000;
-    return Math.max(1, Math.ceil((freesAt - Date.now()) / 60000));
-  } catch {
-    return null;
-  }
-}
-
 async function sendOtp(
   contact: { name: string; phone: string; email?: string },
-  ip: string | null
+  ip: string | null,
+  options: { resend?: boolean } = {}
 ): Promise<OtpSendResult> {
+  let throttle: OtpThrottleState;
+  try {
+    throttle = await otpThrottleState(contact.phone);
+  } catch (err) {
+    if (err instanceof PhoneFormatError) return { ok: false, error: err.message };
+    throw err;
+  }
+
+  if (throttle.resendInSeconds > 0) {
+    const ago = throttle.liveCodeSentSecondsAgo ?? 0;
+    if (options.resend) {
+      return {
+        ok: false,
+        error: `Give that code a moment to arrive. You can ask for a new one in ${throttle.resendInSeconds} seconds.`,
+        resendIn: throttle.resendInSeconds,
+      };
+    }
+    // A code for this number went out seconds ago and is still good: carry on
+    // to the code screen rather than spending another one, with the countdown
+    // set from when that code was actually sent.
+    await writeDraft({
+      contact,
+      otpPending: true,
+      otpSentAt: new Date(Date.now() - ago * 1000).toISOString(),
+    });
+    return {
+      ok: true,
+      expiresIn: Math.max(0, OTP_TTL_SECONDS - ago),
+      resendIn: throttle.resendInSeconds,
+    };
+  }
+
   try {
     await requestOtp(contact.phone, ip);
   } catch (err) {
     if (err instanceof OtpRateLimitError) {
-      const minutes = await otpRetryAfterMinutes(contact.phone);
-      return {
-        ok: false,
-        error: minutes
-          ? `That is as many codes as we can send to this number for now. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}, or WhatsApp us and we will finish the order with you.`
-          : "That is as many codes as we can send to this number for now. WhatsApp us and we will finish the order with you.",
-      };
+      // The library already works out how long until a slot frees up.
+      return { ok: false, error: `${err.message}${WHATSAPP_OFFER}` };
     }
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Could not send the code",
     };
   }
-  const sentAt = new Date();
   await writeDraft({
     contact,
     otpPending: true,
-    otpSentAt: sentAt.toISOString(),
+    otpSentAt: new Date().toISOString(),
   });
   return {
     ok: true,
     expiresIn: OTP_TTL_SECONDS,
-    resendIn: RESEND_COOLDOWN_SECONDS,
+    resendIn: OTP_RESEND_COOLDOWN_SECONDS,
   };
 }
 
@@ -309,61 +318,21 @@ export async function requestSignupOtpAction(
   return sendOtp(parsed.data, ip);
 }
 
-/** "Send a new code", rate-limited on our side before PayFast-level limits. */
+/** "Send a new code". The cooldown is the library's, not a copy of it. */
 export async function resendSignupOtpAction(): Promise<OtpSendResult> {
   const draft = await readDraft();
   if (!draft.contact) {
     return { ok: false, error: "Start with your details" };
   }
-  if (draft.otpSentAt) {
-    const elapsed = (Date.now() - new Date(draft.otpSentAt).getTime()) / 1000;
-    if (elapsed < RESEND_COOLDOWN_SECONDS) {
-      return {
-        ok: false,
-        error: "Give the first code a moment to arrive.",
-        resendIn: Math.ceil(RESEND_COOLDOWN_SECONDS - elapsed),
-      };
-    }
-  }
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
-  return sendOtp(draft.contact, ip);
+  return sendOtp(draft.contact, ip, { resend: true });
 }
 
-/**
- * Why did a code fail? lib/auth/otp.ts answers with a bare false for three
- * very different situations, so we read the code's own record to tell the
- * customer the truth: expired, locked out, or simply mistyped.
- */
-async function otpFailureMessage(phone: string): Promise<string> {
-  try {
-    const { normalizePhone } = await import("@/lib/auth/otp");
-    const { db } = await import("@/lib/db/client");
-    const { otpCodes } = await import("@/lib/db/schema");
-    const { eq, sql } = await import("drizzle-orm");
-    const [latest] = await db
-      .select()
-      .from(otpCodes)
-      .where(eq(otpCodes.phone, normalizePhone(phone)))
-      .orderBy(sql`${otpCodes.createdAt} desc`)
-      .limit(1);
-    if (!latest) {
-      return "We have no code waiting for that number. Send a new one below.";
-    }
-    if (latest.consumedAt) {
-      return "That code has already been used. Send a new one below.";
-    }
-    if (latest.expiresAt.getTime() <= Date.now()) {
-      return "That code has expired, codes last 5 minutes. Send a new one below.";
-    }
-    const left = 5 - latest.attempts;
-    if (left <= 0) {
-      return "Too many tries on that code. Send a new one below.";
-    }
-    return `That code is not right, ${left} ${left === 1 ? "try" : "tries"} left. Check the SMS or send a new code.`;
-  } catch {
-    return "That code didn't match, try again or send a new code.";
-  }
-}
+/** Six digits. Checked before the code is spent, so a slip costs no tries. */
+const codeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, "Codes are 6 digits. Check the message and try again.");
 
 export async function verifySignupOtpAction(
   form: FormData
@@ -384,9 +353,17 @@ export async function verifySignupOtpAction(
   const draft = await readDraft();
   if (!draft.contact) return { ok: false, error: "Start with your details" };
 
-  const result = await verifyOtp(draft.contact.phone, code);
-  if (!result.ok) {
-    return { ok: false, error: await otpFailureMessage(draft.contact.phone) };
+  const parsedCode = codeSchema.safeParse(code);
+  if (!parsedCode.success) {
+    return { ok: false, error: parsedCode.error.issues[0]!.message };
+  }
+
+  // The library owns the diagnosis and the wording, so a customer who abandons
+  // checkout and tries to sign in instead hears the same thing about the same
+  // code: expired, locked, already used, or mistyped with N tries left.
+  const verdict = await verifyOtp(draft.contact.phone, parsedCode.data);
+  if (!verdict.ok) {
+    return { ok: false, error: otpFailureMessage(verdict) };
   }
 
   const hdrs = await headers();

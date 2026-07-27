@@ -6,9 +6,10 @@ import {
   plans,
   providers,
   invoices,
+  payments,
   customers,
 } from "@/lib/db/schema";
-import { parseZar } from "@/lib/money";
+import { add, parseZar } from "@/lib/money";
 import { todayInJohannesburg } from "./services";
 
 /**
@@ -322,23 +323,61 @@ export async function reconciliationWorksheet(input: {
     : [];
 
   const expectedTotalCents = rows.reduce(
-    (sum, r) => sum + (r.expectedCostCents ?? 0),
+    (sum, r) => add(sum, r.expectedCostCents ?? 0),
     0
   );
   return { rows, leakage, expectedTotalCents };
 }
 
+/**
+ * The collections tile: what is owed now, and what has actually come in.
+ *
+ * The money figures are outstanding balances, never invoice totals. A part
+ * payment leaves the invoice open on purpose (§6.2), so summing totals told an
+ * operator the book was worth more than it was and put customers who had
+ * already paid most of their bill at the top of the chase list. `greatest(...,
+ * 0)` is the `outstandingCents` rule in SQL: an over-allocated invoice is a
+ * data problem to investigate, never a credit that cancels another invoice's
+ * debt.
+ *
+ * The counts stay document counts, so they still reconcile line for line with
+ * the invoice list they link to.
+ *
+ * "Collected this month" counts payments, not invoices. Reading it off
+ * `paid_at` credited the whole invoice to whichever month it finally settled
+ * in, and ignored every rand collected against invoices that are still open.
+ */
 export async function collectionsSummary(today = todayInJohannesburg()) {
+  const paidPerInvoice = sql<number>`coalesce((
+    select sum(${payments.amountCents})
+    from ${payments}
+    where ${payments.invoiceId} = ${invoices.id}
+      and ${payments.status} = 'complete'
+  ), 0)`;
+  const outstanding = sql<number>`greatest(${invoices.totalCents} - ${paidPerInvoice}, 0)`;
+
   const [row] = await db
     .select({
       openCount: sql<number>`count(*) filter (where ${invoices.status} = 'open')::int`,
-      openCents: sql<number>`coalesce(sum(${invoices.totalCents}) filter (where ${invoices.status} = 'open'), 0)::int`,
+      openCents: sql<number>`coalesce(sum(${outstanding}) filter (where ${invoices.status} = 'open'), 0)::int`,
       pastDueCount: sql<number>`count(*) filter (where ${invoices.status} = 'past_due')::int`,
-      pastDueCents: sql<number>`coalesce(sum(${invoices.totalCents}) filter (where ${invoices.status} = 'past_due'), 0)::int`,
-      paidThisMonthCents: sql<number>`coalesce(sum(${invoices.totalCents}) filter (where ${invoices.status} = 'paid' and to_char(${invoices.paidAt}, 'YYYY-MM') = ${today.slice(0, 7)}), 0)::int`,
+      pastDueCents: sql<number>`coalesce(sum(${outstanding}) filter (where ${invoices.status} = 'past_due'), 0)::int`,
     })
     .from(invoices);
-  return row;
+
+  // Timestamps are stored UTC and the month is a Johannesburg month, so the
+  // conversion is explicit: without it a payment banked at 00:30 on the first
+  // lands in the month before.
+  const [collected] = await db
+    .select({
+      paidThisMonthCents: sql<number>`coalesce(sum(${payments.amountCents}) filter (
+        where ${payments.status} = 'complete'
+          and to_char(${payments.createdAt} at time zone 'Africa/Johannesburg', 'YYYY-MM') = ${today.slice(0, 7)}
+      ), 0)::int`,
+    })
+    .from(payments);
+
+  return { ...row, paidThisMonthCents: collected.paidThisMonthCents };
 }
 
 export function toCsv(headers: string[], rows: (string | number | null)[][]): string {

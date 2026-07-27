@@ -13,12 +13,30 @@ import {
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/admin", label: "Today", icon: ListTodo },
-  { href: "/admin/customers", label: "Customers", icon: Users },
-  { href: "/admin/catalogue", label: "Catalogue", icon: Package },
-  { href: "/admin/billing", label: "Billing", icon: Receipt },
-  { href: "/admin/inbox", label: "Inbox", icon: Inbox },
-  { href: "/admin/reports", label: "Reports & Settings", icon: BarChart3 },
+  { href: "/admin", label: "Today", short: "Today", icon: ListTodo },
+  {
+    href: "/admin/customers",
+    label: "Customers",
+    short: "Customers",
+    icon: Users,
+  },
+  {
+    href: "/admin/catalogue",
+    label: "Catalogue",
+    short: "Catalogue",
+    icon: Package,
+  },
+  { href: "/admin/billing", label: "Billing", short: "Billing", icon: Receipt },
+  { href: "/admin/inbox", label: "Inbox", short: "Inbox", icon: Inbox },
+  {
+    href: "/admin/reports",
+    label: "Reports & Settings",
+    // The tab bar shows "Reports" so six labels fit at 390px. The visible
+    // text is the accessible name on both surfaces, and it is a prefix of
+    // the sidebar's, so the two never contradict each other.
+    short: "Reports",
+    icon: BarChart3,
+  },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -59,36 +77,62 @@ export function AdminSidebarNav() {
 }
 
 /**
- * Icon-only top nav for the 390px admin experience.
+ * Labelled bottom tab bar for the 390px admin experience, the same shape the
+ * customer portal ships.
  *
- * The name lives on the link, not on the svg: a bare `<svg aria-label>` has
- * no reliably nameable role, so every mobile nav link announced as an
- * unnamed link. `sr-only` keeps the text in the accessibility tree while
- * the icon carries the visual meaning.
+ * It used to be six unlabelled icons in a scrolling top strip: a receipt and
+ * a bar chart tell you nothing about "Billing" and "Reports & Settings", the
+ * names were `sr-only` so only a screen reader ever got them, and the sixth
+ * icon sat off the right edge behind a horizontal scroll nobody discovers.
+ *
+ * Six labels do fit once the bar spans the full width instead of sharing a
+ * 390px row with the bell and the sign-out button: 62px a tab, and the widest
+ * label ("Customers") measures 53px at 10px in Plus Jakarta Sans, so it still
+ * clears a 360px phone. The labels truncate rather than widen, and the 44px
+ * touch floor is a min-width rather than a width, so the row can never scroll
+ * sideways however large the user has set their text.
+ *
+ * The 56px height comes from padding, not from `min-h-[56px]`. `.touch-target`
+ * is declared last in the utilities layer, so its `min-height: 44px` wins over
+ * any min-height utility on the same element and a min-height here would
+ * silently render 44px instead. Padding is added to the content box, so it
+ * lands where it is meant to.
  */
 export function AdminMobileNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex items-center gap-1" aria-label="Admin sections">
-      {NAV.map((item) => {
-        const active = isActive(pathname, item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex touch-target items-center rounded-full px-2 text-xs font-medium transition-colors",
-              active
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            )}
-          >
-            <item.icon className="size-4" aria-hidden />
-            <span className="sr-only">{item.label}</span>
-          </Link>
-        );
-      })}
+    <nav
+      className="fixed inset-x-0 bottom-0 z-10 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] md:hidden"
+      aria-label="Admin sections"
+    >
+      <div className="mx-auto flex max-w-lg items-stretch justify-around rounded-2xl border bg-card/95 shadow-lg shadow-black/10 backdrop-blur">
+        {NAV.map((item) => {
+          const active = isActive(pathname, item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex flex-1 touch-target flex-col items-center justify-center gap-0.5 rounded-2xl py-2.5 text-[10px] font-medium transition-colors",
+                active
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-primary"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-6 w-9 items-center justify-center rounded-full transition-colors",
+                  active && "bg-primary/10"
+                )}
+              >
+                <item.icon className="size-5" aria-hidden />
+              </span>
+              <span className="w-full truncate leading-none">{item.short}</span>
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

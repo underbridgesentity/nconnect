@@ -13,6 +13,39 @@
 export const ROLES = ["admin", "sales", "customer"] as const;
 export type Role = (typeof ROLES)[number];
 
+/**
+ * The three gated surfaces and who may open them. proxy.ts enforces this on
+ * every request; anything that needs to *explain* the gate (the sign-in screens
+ * above all) reads it from here rather than keeping a second list, because a
+ * second list drifts and then the explanation contradicts the enforcement.
+ */
+export const ROLE_AREAS = [
+  { prefix: "/admin", roles: ["admin"] },
+  { prefix: "/sales", roles: ["sales", "admin"] },
+  { prefix: "/portal", roles: ["customer"] },
+] as const satisfies readonly { prefix: string; roles: readonly Role[] }[];
+
+/**
+ * May this role open this same-origin relative path? Paths outside the gated
+ * areas are open to everyone, signed in or not.
+ *
+ * Matching stops at a segment boundary, which is what the gate actually does:
+ * its route matcher is "/admin/:path*", so "/administrators" never reaches it.
+ * A plain prefix test here would call that path admin-only and have the screen
+ * tell someone they cannot open a page they can.
+ */
+export function roleCanOpen(path: string, role: Role): boolean {
+  const area = ROLE_AREAS.find(
+    (a) =>
+      path === a.prefix ||
+      a.prefix.length < path.length &&
+        path.startsWith(a.prefix) &&
+        "/?#".includes(path[a.prefix.length]!)
+  );
+  if (!area) return true;
+  return (area.roles as readonly Role[]).includes(role);
+}
+
 export type Scope = "all" | "own" | "self" | "none";
 
 export const CAPABILITIES = [

@@ -18,7 +18,7 @@ import { leads, quotes, orders, orderItems } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { getSettingOr } from "@/lib/domain/settings";
 import { quotesExpiringSoon } from "@/lib/domain/quotes";
-import { add, multiply } from "@/lib/money";
+import { add, multiply, percentOf } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
@@ -136,7 +136,11 @@ export default async function SalesHomePage() {
       multiply(item.unitPriceCentsSnapshot - item.unitCostCentsSnapshot, item.qty)
     );
   }
-  const commissionCents = Math.round((marginCents * commissionPercent) / 100);
+  // percentOf, not float division: this is the last money calculation in the
+  // sales workspace that went through a JavaScript number. The two also
+  // disagree on negative half-cents, so a rep whose margin went negative saw a
+  // commission that did not match the same figure computed anywhere else.
+  const commissionCents = percentOf(marginCents, commissionPercent);
 
   const count = (status: string) =>
     pipeline.find((p) => p.status === status)?.n ?? 0;

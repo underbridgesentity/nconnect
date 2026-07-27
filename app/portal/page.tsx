@@ -31,6 +31,17 @@ import { outstandingLine } from "./_lib/invoice-copy";
 
 export const metadata: Metadata = { title: "My services" };
 
+/**
+ * Identical to the billing screen's pay link, and it has to stay identical.
+ * `from=portal` is what tells the pay page to send the customer back into the
+ * portal afterwards; without it, paying from this screen dropped them on the
+ * public pay-link outcome page, which is the page written for somebody who
+ * arrived from an SMS and has nowhere to go next.
+ */
+function portalPayLink(invoiceId: string): string {
+  return `${payLinkFor(invoiceId)}&from=portal`;
+}
+
 const CATEGORY_ICONS = {
   lte_home: Wifi,
   telkom_lte: Wifi,
@@ -211,7 +222,7 @@ export default async function PortalHomePage() {
               </Button>
             ) : (
               <a
-                href={payLinkFor(oldest.invoice.id)}
+                href={portalPayLink(oldest.invoice.id)}
                 className="flex touch-target items-center justify-center rounded-full bg-red-600 px-5 text-sm font-medium text-white transition-colors hover:bg-red-700"
               >
                 Pay <MoneyText cents={oldest.balanceCents} /> now

@@ -6,7 +6,12 @@ import { z } from "zod";
 import sharp from "sharp";
 import { db } from "@/lib/db/client";
 import { quotes, quoteItems, plans } from "@/lib/db/schema";
-import { requestOtp, verifyOtp, OtpRateLimitError } from "@/lib/auth/otp";
+import {
+  requestOtp,
+  verifyOtp,
+  otpFailureMessage,
+  OtpRateLimitError,
+} from "@/lib/auth/otp";
 import {
   findOrCreateCustomer,
   createOrderFromQuote,
@@ -64,6 +69,12 @@ const contactSchema = z.object({
   email: z.string().email().optional(),
 });
 
+/** Six digits. Checked before the code is spent, so a slip costs no tries. */
+const codeSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, "Codes are 6 digits. Check the message and try again.");
+
 export async function acceptOtpRequestAction(
   token: string,
   form: FormData
@@ -103,8 +114,16 @@ export async function acceptVerifyAction(
         error: "We need your consent to process your information.",
       };
     }
-    const otp = await verifyOtp(phone, code);
-    if (!otp.ok) return { ok: false, error: "That code didn't match" };
+    const parsedCode = codeSchema.safeParse(code);
+    if (!parsedCode.success) {
+      return { ok: false, error: parsedCode.error.issues[0]!.message };
+    }
+
+    // "That code didn't match" was the answer to four different problems.
+    // The library's verdict tells the customer which one they have: expired,
+    // out of tries, already used, or mistyped with N tries left.
+    const otp = await verifyOtp(phone, parsedCode.data);
+    if (!otp.ok) return { ok: false, error: otpFailureMessage(otp) };
 
     const hdrs = await headers();
     const { customerId } = await findOrCreateCustomer({

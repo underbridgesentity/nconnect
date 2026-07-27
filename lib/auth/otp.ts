@@ -86,6 +86,38 @@ export type OtpVerifyResult =
 
 export type OtpVerifyStatus = OtpVerifyResult["status"];
 
+/** The refused half of a verdict: everything a refusal message needs. */
+export type OtpVerifyFailure = Extract<OtpVerifyResult, { ok: false }>;
+
+/**
+ * The one wording for a refused code.
+ *
+ * Sign-in, signup and quote acceptance reject codes for the same four reasons,
+ * and someone who gives up on one screen and tries another must not be told two
+ * different stories about the same code. Each caller reads the verdict and
+ * hands it here rather than re-deriving the diagnosis from the database with
+ * its own copy of the limits, which is how the three screens drifted apart in
+ * the first place. Change a limit above and every screen follows.
+ */
+export function otpFailureMessage(verdict: OtpVerifyFailure): string {
+  switch (verdict.status) {
+    case "mismatch": {
+      const left = verdict.attemptsRemaining;
+      return `That code is not right. ${left} ${left === 1 ? "try" : "tries"} left before you need a new code.`;
+    }
+    case "locked":
+      return "That was the last try on that code. Send a new code and you can start again.";
+    case "expired": {
+      const minutes = Math.max(1, Math.round(OTP_TTL_SECONDS / 60));
+      return `That code has expired, codes last ${minutes} minute${minutes === 1 ? "" : "s"}. Send a new code.`;
+    }
+    case "none":
+      return verdict.alreadyUsed
+        ? "That code has already been used. Send a new code and try again."
+        : "We have no code waiting for that number. Send a new code and try again.";
+  }
+}
+
 /** South African numbers to E.164. Accepts 0821234567, 27821234567, +27821234567. */
 export function normalizePhone(input: string): string {
   const digits = input.replace(/[\s()-]/g, "");

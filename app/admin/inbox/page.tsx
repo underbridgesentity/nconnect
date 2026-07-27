@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { eq, or } from "drizzle-orm";
-import { Inbox, MessageCircle, Globe } from "lucide-react";
+import { eq, or, sql } from "drizzle-orm";
+import { Inbox, MessageCircle, Globe, SearchX } from "lucide-react";
 import { db } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
+import { conversations, users } from "@/lib/db/schema";
 import {
   listConversations,
   threadMessages,
@@ -54,6 +54,21 @@ export default async function AdminInboxPage({
   // Pinned once per render so the server HTML and the hydrated client agree.
   const now = new Date();
 
+  // An empty list means two completely different things, and an operator on a
+  // quiet Monday should not be sent hunting for a filter that is not stuck.
+  // The count is only asked for when the list came back empty under a filter,
+  // which is the one moment the answer changes what we say.
+  const filtered = Boolean(status || channel || assignee || search);
+  const inboxTotal =
+    rows.length === 0 && filtered
+      ? ((
+          await db
+            .select({ n: sql<number>`count(*)::int` })
+            .from(conversations)
+        )[0]?.n ?? 0)
+      : 0;
+  const nothingYet = rows.length === 0 && (!filtered || inboxTotal === 0);
+
   const name = (customer: (typeof rows)[number]["customer"]) =>
     customer
       ? (customer.companyName ??
@@ -97,6 +112,14 @@ export default async function AdminInboxPage({
     </div>
   );
 
+  /** Back to the whole queue, without losing the thread being read. */
+  const clearFiltersHref = hrefWith({
+    status: undefined,
+    channel: undefined,
+    assignee: undefined,
+    q: undefined,
+  });
+
   return (
     <div className="mx-auto flex h-[calc(100dvh-6rem)] max-w-6xl flex-col gap-4 md:flex-row">
       {/* Conversation list */}
@@ -115,7 +138,14 @@ export default async function AdminInboxPage({
           {assignee ? (
             <input type="hidden" name="assignee" value={assignee} />
           ) : null}
+          {/*
+            Keyed on the term itself. The box is uncontrolled, so without this
+            React leaves the old text sitting in the DOM after Clear filters
+            navigates, and the operator reads a search box that disagrees with
+            the list under it.
+          */}
           <Input
+            key={search ?? ""}
             name="q"
             defaultValue={search}
             placeholder="Search subject, customer or message…"
@@ -142,14 +172,37 @@ export default async function AdminInboxPage({
         </div>
         <div className="mt-4 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {rows.length === 0 ? (
-            <EmptyState
-              icon={Inbox}
-              sentence={
-                search
-                  ? `No conversations match "${search}".`
-                  : "No conversations match. Portal messages and inbound WhatsApp land here the moment they arrive."
-              }
-            />
+            nothingYet ? (
+              <EmptyState
+                icon={Inbox}
+                sentence="Nothing here yet. Portal messages and inbound WhatsApp land in this queue the moment they arrive."
+              />
+            ) : (
+              <EmptyState
+                icon={SearchX}
+                sentence={
+                  search
+                    ? `Nothing matches "${search}"${
+                        status || channel || assignee
+                          ? " with these filters on"
+                          : ""
+                      }. The inbox holds ${inboxTotal} conversation${
+                        inboxTotal === 1 ? "" : "s"
+                      } in total.`
+                    : `Nothing matches these filters. The inbox holds ${inboxTotal} conversation${
+                        inboxTotal === 1 ? "" : "s"
+                      } in total.`
+                }
+                action={
+                  <Link
+                    href={clearFiltersHref}
+                    className="touch-target inline-flex items-center rounded-full border px-5 text-sm font-medium hover:bg-accent"
+                  >
+                    Clear filters
+                  </Link>
+                }
+              />
+            )
           ) : (
             rows.map(({ conversation, customer, lastBody, lastDirection }) => {
               // An inbound last message means the customer is waiting on us.

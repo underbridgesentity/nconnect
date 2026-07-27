@@ -25,6 +25,11 @@ export async function staffLoginAction(
   }
   // Deep link first, role router second: proxy.ts records the page that
   // bounced you here, and /after-login sorts by role when it did not.
+  //
+  // The value came back through the browser as a hidden field, so it is
+  // validated again here rather than trusted from the page render: same-origin
+  // only, reduced to a relative path, never onto an auth route. Anything else
+  // is dropped and the role router decides.
   const destination = safeCallbackUrl(formData.get("callbackUrl"));
   try {
     await signIn("staff", {

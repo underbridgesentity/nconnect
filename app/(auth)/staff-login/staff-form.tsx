@@ -51,7 +51,11 @@ export function StaffLoginForm({ callbackUrl }: { callbackUrl?: string }) {
         ) : null}
       </div>
       <Button type="submit" className="w-full touch-target" disabled={pending}>
-        {pending ? "Signing in..." : "Sign in"}
+        {pending
+          ? "Signing in..."
+          : callbackUrl
+            ? "Sign in and continue"
+            : "Sign in"}
       </Button>
     </form>
   );

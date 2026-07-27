@@ -6,7 +6,7 @@ import { CalendarClock, Copy, Repeat } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { auditLog, orders } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
-import { quoteDetail } from "@/lib/domain/quotes";
+import { quoteDetail, type OrderStatus } from "@/lib/domain/quotes";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
@@ -19,9 +19,57 @@ const ACTION_LABEL: Record<string, string> = {
   "quote.create": "Built",
   "quote.send": "Sent to the customer",
   "quote.send_failed": "Delivery failed",
-  "quote.accept": "Accepted by the customer",
+  "quote.order_created": "Customer accepted, order raised",
+  "quote.accept": "Paid, quote won",
   "quote.expire": "Expired",
 };
+
+type OrderRow = {
+  id: string;
+  number: string;
+  status: OrderStatus;
+  paidAt: Date | null;
+};
+
+/**
+ * What the order behind the quote actually means, with every status of the
+ * enum spelled out. `mid_checkout` is the one this screen used to lose: a
+ * customer sitting at PayFast has accepted the quote, so nothing about it has
+ * lapsed even if the validity date rolled over while they were on the payment
+ * page. The nightly `expireQuotes` sweep already leaves those alone, and this
+ * is the screen agreeing with it instead of calling the quote dead.
+ */
+type QuoteOrderView =
+  | { kind: "mid_checkout"; number: string }
+  | { kind: "settled"; number: string; line: string }
+  | { kind: "cancelled"; number: string };
+
+function describeQuoteOrder(order: OrderRow): QuoteOrderView {
+  switch (order.status) {
+    case "pending_payment":
+      return { kind: "mid_checkout", number: order.number };
+    case "paid":
+      return {
+        kind: "settled",
+        number: order.number,
+        line: order.paidAt ? `Paid ${formatDate(order.paidAt)}.` : "Paid.",
+      };
+    case "processing":
+      return {
+        kind: "settled",
+        number: order.number,
+        line: "Paid, and being prepared now.",
+      };
+    case "fulfilled":
+      return {
+        kind: "settled",
+        number: order.number,
+        line: "Paid and fulfilled.",
+      };
+    case "cancelled":
+      return { kind: "cancelled", number: order.number };
+  }
+}
 
 export default async function QuoteDetailPage({
   params,
@@ -60,8 +108,18 @@ export default async function QuoteDetailPage({
     .where(and(eq(auditLog.entity, "quote"), eq(auditLog.entityId, quote.id)))
     .orderBy(asc(auditLog.createdAt));
 
-  const effectiveStatus =
-    quote.status !== "accepted" && expired ? "expired" : quote.status;
+  const view = order ? describeQuoteOrder(order) : null;
+  const midCheckout = view?.kind === "mid_checkout";
+
+  // Expiry is a date, acceptance is an event, and the date must not overrule
+  // the event. A quote the customer has taken to PayFast is in checkout, not
+  // lapsed, whatever the calendar says.
+  const lapsed = expired && !midCheckout && quote.status !== "accepted";
+  const effectiveStatus = midCheckout
+    ? "pending_payment"
+    : lapsed
+      ? "expired"
+      : quote.status;
   const contactName =
     lead?.name ??
     customer?.companyName ??
@@ -92,38 +150,48 @@ export default async function QuoteDetailPage({
         </div>
       </div>
 
-      {expired && quote.status !== "accepted" ? (
+      {/*
+        Deadline talk only while the deadline is still the story. Once an order
+        exists the banner below says what is actually happening, and stacking
+        "lapsed" on top of it would be two notices arguing about one quote.
+      */}
+      {order ? null : lapsed ? (
         <p className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
           This quote lapsed on {formatDate(quote.expiresAt)}. The customer can no
           longer accept it. Duplicate it to send a fresh one at current prices.
         </p>
-      ) : expiresInDays != null && expiresInDays <= 3 && quote.status !== "accepted" ? (
+      ) : expiresInDays != null &&
+        expiresInDays <= 3 &&
+        quote.status !== "accepted" ? (
         <p className="flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
           <CalendarClock className="size-4 shrink-0" aria-hidden />
           Expires {formatDate(quote.expiresAt)}. Worth a call today.
         </p>
       ) : null}
 
-      {order ? (
-        <p
-          className={`rounded-2xl border p-4 text-sm ${
-            order.status === "pending_payment"
-              ? "border-amber-300 bg-amber-50 text-amber-900"
-              : "border-emerald-200 bg-emerald-50 text-emerald-900"
-          }`}
-        >
-          {order.status === "pending_payment" ? (
-            <>
-              Order {order.number} was created but the payment has not landed. The
-              customer can still finish it from their quote link.
-            </>
-          ) : (
-            <>
-              Accepted and paid: order {order.number}
-              {order.paidAt ? ` on ${formatDate(order.paidAt)}` : ""}.
-            </>
-          )}
-        </p>
+      {view ? (
+        view.kind === "mid_checkout" ? (
+          <p className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            The customer accepted this quote and order {view.number} is waiting
+            on their payment. Their quote link takes them straight back to it,
+            and the price is held while they finish, so there is nothing to
+            resend
+            {expired && quote.expiresAt
+              ? ` even though the validity date passed on ${formatDate(quote.expiresAt)}`
+              : ""}
+            . A nudge on WhatsApp is the useful move.
+          </p>
+        ) : view.kind === "settled" ? (
+          <p className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            Accepted and paid: order {view.number}. {view.line}
+          </p>
+        ) : (
+          <p className="rounded-2xl border bg-muted/40 p-4 text-sm text-muted-foreground">
+            Order {view.number} was raised from this quote and then cancelled,
+            so nothing was charged. The quote stays reserved against it and
+            cannot be sent again. Duplicate it to quote current prices.
+          </p>
+        )
       ) : null}
 
       <section className="space-y-2">
@@ -223,7 +291,13 @@ export default async function QuoteDetailPage({
         </p>
         <div className="flex flex-wrap gap-2">
           <CopyLinkButton link={link} />
-          {!expired && quote.status !== "accepted" ? (
+          {/*
+            No order and still in date. `sendQuote` refuses outright once an
+            order is reserved against the quote, whatever state that order is
+            in, so a Resend button there is a button that only ever returns an
+            error. Duplicate is the real next step and it is right beside this.
+          */}
+          {!expired && !order && quote.status !== "accepted" ? (
             <SendQuoteButton
               quoteId={quote.id}
               variant="outline"

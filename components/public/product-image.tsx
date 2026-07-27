@@ -65,6 +65,18 @@ export function ProductImage({
   // down over one bad row. A missing photograph is the placeholder's job.
   const source = src && src.trim() ? src : null;
 
+  /*
+   * In production these are public Supabase storage URLs and the optimiser
+   * resizes them (see remotePatterns in next.config.ts). Outside production the
+   * storage adapter serves the same files from `/api/files/...` behind an
+   * expiring HMAC signature, and those must not go through the optimiser:
+   * next/image would need every signed query string allowlisted, and an
+   * optimised copy is cached under a signature that has already expired, which
+   * quietly outlives the access control it was meant to enforce. Serving them
+   * unoptimised keeps the signature meaningful and the build honest.
+   */
+  const isSignedLocalFile = source?.startsWith("/api/files/") ?? false;
+
   return (
     <div
       className={cn(
@@ -87,6 +99,7 @@ export function ProductImage({
             fill
             sizes={sizes ?? PLATE_SIZES[ratio]}
             priority={priority}
+            unoptimized={isSignedLocalFile}
             className="object-contain"
           />
         </div>
