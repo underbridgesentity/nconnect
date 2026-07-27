@@ -9,11 +9,15 @@ import { appUrl } from "@/lib/config";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = appUrl();
+  // A database outage must not fail the build or serve a broken sitemap: the
+  // static routes below are always correct, so degrade to those rather than
+  // throwing. An empty catalogue section is recoverable on the next
+  // revalidation; a failed deploy is not.
   const [plans, hardware, bundles, posts] = await Promise.all([
-    publishedPlans(),
-    publishedHardware(),
-    bundlesWithItems({ publishedOnly: true }),
-    allPosts(),
+    publishedPlans().catch(() => []),
+    publishedHardware().catch(() => []),
+    bundlesWithItems({ publishedOnly: true }).catch(() => []),
+    allPosts().catch(() => []),
   ]);
 
   const staticPages = [

@@ -23,9 +23,23 @@ import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
+/**
+ * Prerender the catalogue when the database is reachable, and degrade to
+ * on-demand rendering when it is not.
+ *
+ * A build-time query that throws fails the whole deployment, so a database
+ * outage would block an unrelated hotfix from shipping. dynamicParams defaults
+ * to true, so returning an empty list still serves every bundle correctly, just
+ * rendered on request instead of at build.
+ */
 export async function generateStaticParams() {
-  const bundles = await bundlesWithItems({ publishedOnly: true });
-  return bundles.map((b) => ({ slug: b.slug }));
+  try {
+    const bundles = await bundlesWithItems({ publishedOnly: true });
+    return bundles.map((b) => ({ slug: b.slug }));
+  } catch (err) {
+    console.error("bundles: could not prerender, falling back to on-demand:", err);
+    return [];
+  }
 }
 
 export async function generateMetadata({

@@ -22,9 +22,23 @@ import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
+/**
+ * Prerender the catalogue when the database is reachable, and degrade to
+ * on-demand rendering when it is not.
+ *
+ * A build-time query that throws fails the whole deployment, so a database
+ * outage would block an unrelated hotfix from shipping. dynamicParams defaults
+ * to true, so returning an empty list still serves every plan correctly, just
+ * rendered on request instead of at build.
+ */
 export async function generateStaticParams() {
-  const plans = await publishedPlans();
-  return plans.map((p) => ({ slug: p.slug }));
+  try {
+    const plans = await publishedPlans();
+    return plans.map((p) => ({ slug: p.slug }));
+  } catch (err) {
+    console.error("plans: could not prerender, falling back to on-demand:", err);
+    return [];
+  }
 }
 
 /** Where a plan sits in the site, for the breadcrumb, band photo and schema. */

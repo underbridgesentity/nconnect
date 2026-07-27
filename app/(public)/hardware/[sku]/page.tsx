@@ -19,9 +19,23 @@ import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
+/**
+ * Prerender the catalogue when the database is reachable, and degrade to
+ * on-demand rendering when it is not.
+ *
+ * A build-time query that throws fails the whole deployment, so a database
+ * outage would block an unrelated hotfix from shipping. dynamicParams defaults
+ * to true, so returning an empty list still serves every product correctly, just
+ * rendered on request instead of at build.
+ */
 export async function generateStaticParams() {
-  const items = await publishedHardware();
-  return items.map((h) => ({ sku: h.sku }));
+  try {
+    const items = await publishedHardware();
+    return items.map((h) => ({ sku: h.sku }));
+  } catch (err) {
+    console.error("hardware: could not prerender, falling back to on-demand:", err);
+    return [];
+  }
 }
 
 /**
