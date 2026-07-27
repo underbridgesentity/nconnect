@@ -32,6 +32,21 @@ describe("payfast signature", () => {
     );
   });
 
+  it("percent-encodes passphrases containing reserved characters", () => {
+    // Real passphrases may contain '/', '+' and other reserved bytes. PHP's
+    // urlencode escapes them (uppercase hex); a raw passphrase would silently
+    // produce a signature PayFast rejects with "signature does not match".
+    const withSlash: [string, string][] = [
+      ["merchant_id", "16240038"],
+      ["return_url", "https://needdconnect.co.za/signup/success?ref=abc-123"],
+      ["item_name", "Needd Connect LTE + router"],
+      ["amount", "764.00"],
+    ];
+    expect(signPayload(withSlash, "_/A1b2-test")).toBe(
+      "2fa475b563f624af96f1e6d57b629d61"
+    );
+  });
+
   it("verifies an ITN payload round-trip", () => {
     process.env.PAYFAST_MERCHANT_ID = "10000100";
     process.env.PAYFAST_MERCHANT_KEY = "46f0cd694581a";

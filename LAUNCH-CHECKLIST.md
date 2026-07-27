@@ -22,14 +22,28 @@ marked **dev** are configuration/deploy work.
 
 ## Payments (PayFast)
 
-- [ ] **client — Register a PayFast sandbox account** and supply merchant
-      id/key/passphrase. The shared public sandbox no longer accepts
-      third-party signatures; everything up to the hosted page is
-      exercised (signature algorithm unit-tested against the PHP
-      reference), but one full sandbox checkout must be completed.
-- [ ] **client — Live PayFast credentials** + passphrase.
+- [x] **client — PayFast account credentials supplied** (merchant id, merchant
+      key, security passphrase from Developer Settings). Held in `.env.local`
+      for local work; never committed (`.env*` is gitignored).
+- [ ] **dev — Set the same three values in Vercel** for the production
+      environment, then redeploy. The passphrase is required: without it the
+      signature PayFast expects differs and every checkout is rejected with
+      "signature does not match".
+
+      ```bash
+      vercel env add PAYFAST_MERCHANT_ID production
+      vercel env add PAYFAST_MERCHANT_KEY production
+      vercel env add PAYFAST_PASSPHRASE production
+      vercel env add PAYFAST_MODE production   # value: live
+      ```
+
+- [ ] **client — Confirm the PayFast account is live-enabled** and that the
+      notify URL `https://needdconnect.co.za/api/webhooks/payfast` is
+      whitelisted if the account restricts ITN destinations.
+- [ ] **dev — Flip `PAYFAST_MODE` to `live`** only once DNS resolves and one
+      real low-value checkout has been completed and refunded.
 - [ ] **dev — Live-mode ITN test** after DNS cutover (ITN needs a public
-      URL; sandbox cannot reach localhost — `scripts/simulate-itn.ts`
+      URL; sandbox cannot reach localhost, `scripts/simulate-itn.ts`
       covers dev).
 - [ ] **dev — Confirm tokenisation** (card charge on file) against the
       client's account settings; the ad-hoc token endpoint requires the
