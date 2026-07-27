@@ -3,12 +3,26 @@ import { ArrowRight } from "lucide-react";
 import { MoneyText } from "@/components/shared/money-text";
 import type { PlanWithProvider } from "@/lib/domain/catalogue";
 
-/** Public plan card. Server component, no JS required. */
-export function PlanCard({ plan }: { plan: PlanWithProvider }) {
+/**
+ * Public plan card. Server component, no JS required.
+ *
+ * This is the only plan card on the site: the home page renders it too, so
+ * the featured accent rule means the same thing everywhere and the journey
+ * from home to category to detail stays one product.
+ */
+export function PlanCard({
+  plan,
+  headingLevel = "h3",
+}: {
+  plan: PlanWithProvider;
+  /** Kept in step with the surrounding outline: h4 under a provider group. */
+  headingLevel?: "h3" | "h4";
+}) {
+  const Heading = headingLevel;
   return (
     <Link
       href={`/plans/${plan.slug}`}
-      className="card-hover group relative flex flex-col overflow-hidden rounded-3xl border bg-card p-6"
+      className="card-hover group relative flex h-full flex-col overflow-hidden rounded-3xl border bg-card p-6"
     >
       {plan.featured ? (
         <span
@@ -21,10 +35,10 @@ export function PlanCard({ plan }: { plan: PlanWithProvider }) {
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {plan.provider.name}
           </p>
-          <h3 className="mt-0.5 font-semibold">{plan.name}</h3>
+          <Heading className="mt-0.5 font-semibold">{plan.name}</Heading>
         </div>
         {plan.featured ? (
-          <span className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground">
+          <span className="shrink-0 rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground">
             Popular
           </span>
         ) : null}

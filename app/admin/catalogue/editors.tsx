@@ -28,15 +28,69 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   savePlanAction,
   saveHardwareAction,
   setPlanStatusAction,
   setHardwareStatusAction,
   setBundleStatusAction,
+  saveCostPricesAction,
   type ActionResult,
 } from "./actions";
+
+/**
+ * The slug is the plan's public URL. Rewriting it on a published plan 404s
+ * /plans/[slug] and every quote, email and marketing link pointing at it,
+ * so on a live record it takes a deliberate unlock first.
+ */
+function SlugField({ slug, published }: { slug: string; published: boolean }) {
+  const [unlocked, setUnlocked] = useState(!published);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="slug">Slug (public URL)</Label>
+        {published ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setUnlocked((v) => !v)}
+            aria-pressed={unlocked}
+          >
+            {unlocked ? "Lock" : "Change public URL"}
+          </Button>
+        ) : null}
+      </div>
+      <Input
+        id="slug"
+        name="slug"
+        defaultValue={slug}
+        required
+        pattern="[a-z0-9-]+"
+        readOnly={!unlocked}
+        aria-describedby={published ? "slug-warning" : undefined}
+        className={!unlocked ? "bg-muted text-muted-foreground" : undefined}
+      />
+      {published ? (
+        <p id="slug-warning" className="text-xs text-muted-foreground">
+          {unlocked
+            ? `Changing this breaks every existing link to /plans/${slug}.`
+            : `Live at /plans/${slug}.`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /** Serializable shapes passed from the server page. */
 export type PlanRow = {
@@ -196,16 +250,10 @@ export function PlanEditor({
             <Label htmlFor="name">Name</Label>
             <Input id="name" name="name" defaultValue={plan?.name} required />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="slug">Slug</Label>
-            <Input
-              id="slug"
-              name="slug"
-              defaultValue={plan?.slug}
-              required
-              pattern="[a-z0-9-]+"
-            />
-          </div>
+          <SlugField
+            slug={plan?.slug ?? ""}
+            published={plan?.status === "published"}
+          />
           <div className="space-y-1.5">
             <Label htmlFor="description">Description</Label>
             <Textarea
@@ -460,16 +508,29 @@ export function HardwareEditor({
   );
 }
 
+/**
+ * Publish, unpublish and archive used to fire straight off the dropdown.
+ * Taking a live product off the public site is not an undoable menu click,
+ * so unpublish and archive now say what happens, and how many customers are
+ * still being billed on the record, before they run.
+ */
 export function StatusMenu({
   kind,
   id,
   status,
+  name,
+  activeServices = 0,
 }: {
   kind: "plan" | "hardware" | "bundle";
   id: string;
   status: string;
+  name: string;
+  /** Live services still billing on this record, plans only. */
+  activeServices?: number;
 }) {
   const { pending, run } = useActionRunner();
+  const [confirming, setConfirming] = useState<"draft" | "archived" | null>(null);
+
   const setStatus = (next: "draft" | "published" | "archived") => {
     const fn =
       kind === "plan"
@@ -478,39 +539,83 @@ export function StatusMenu({
           ? () => setHardwareStatusAction(id, next)
           : () => setBundleStatusAction(id, next);
     run(fn);
+    setConfirming(null);
   };
+
+  const noun = kind === "plan" ? "plan" : kind === "hardware" ? "product" : "bundle";
+  const stillBilling =
+    activeServices > 0
+      ? ` ${activeServices} active service${activeServices === 1 ? "" : "s"} keep billing on it, nothing changes for those customers.`
+      : "";
+  const consequence =
+    confirming === "archived"
+      ? `Archiving removes ${name} from the public site, signup and every quote immediately, and it stops appearing in the catalogue PDF.${stillBilling}`
+      : `Unpublishing takes ${name} off the public site and out of signup right away. Links from live quotes and marketing will stop working.${stillBilling}`;
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={pending}
-            aria-label="Change status"
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end">
-        {status !== "published" ? (
-          <DropdownMenuItem onClick={() => setStatus("published")}>
-            Publish
-          </DropdownMenuItem>
-        ) : null}
-        {status !== "draft" ? (
-          <DropdownMenuItem onClick={() => setStatus("draft")}>
-            Unpublish (draft)
-          </DropdownMenuItem>
-        ) : null}
-        {status !== "archived" ? (
-          <DropdownMenuItem onClick={() => setStatus("archived")}>
-            Archive
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={pending}
+              aria-label={`Change status of ${name}`}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end">
+          {status !== "published" ? (
+            <DropdownMenuItem onClick={() => setStatus("published")}>
+              Publish
+            </DropdownMenuItem>
+          ) : null}
+          {status !== "draft" ? (
+            <DropdownMenuItem
+              onClick={() =>
+                status === "published" ? setConfirming("draft") : setStatus("draft")
+              }
+            >
+              Unpublish (draft){status === "published" ? "…" : ""}
+            </DropdownMenuItem>
+          ) : null}
+          {status !== "archived" ? (
+            <DropdownMenuItem onClick={() => setConfirming("archived")}>
+              Archive…
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog
+        open={confirming !== null}
+        onOpenChange={(open) => (open ? null : setConfirming(null))}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {confirming === "archived" ? "Archive" : "Unpublish"} this {noun}?
+            </DialogTitle>
+            <DialogDescription>{consequence}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(null)}>
+              Leave it published
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending}
+              onClick={() => confirming && setStatus(confirming)}
+            >
+              {confirming === "archived" ? "Archive" : "Unpublish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -542,5 +647,134 @@ export function NewHardwareButton() {
         </Button>
       }
     />
+  );
+}
+
+export type CostRow = {
+  kind: "plan" | "hardware";
+  id: string;
+  name: string;
+  group: string;
+  priceCents: number;
+  costCents: number | null;
+};
+
+/**
+ * Every plan and SKU on one screen with an inline cost input and a single
+ * Save. Filling wholesale costs in through the per-record sheet is 46 open,
+ * scroll, type, save, wait cycles, and margin reporting is blind until it
+ * is done.
+ */
+export function CostPriceTable({ rows }: { rows: CostRow[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [missingOnly, setMissingOnly] = useState(
+    rows.some((r) => r.costCents == null)
+  );
+  const missingCount = rows.filter((r) => r.costCents == null).length;
+  const visible = missingOnly ? rows.filter((r) => r.costCents == null) : rows;
+
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        Nothing in the catalogue yet.
+      </p>
+    );
+  }
+
+  return (
+    <form
+      className="space-y-3"
+      action={(form) =>
+        startTransition(async () => {
+          const result = await saveCostPricesAction(form);
+          if (!result.ok) {
+            toast.error(result.error ?? "Failed");
+            return;
+          }
+          toast.success(
+            result.saved
+              ? `${result.saved} cost price${result.saved === 1 ? "" : "s"} saved`
+              : "Nothing changed"
+          );
+          router.refresh();
+        })
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        {[
+          [true, `Missing cost (${missingCount})`],
+          [false, `Everything (${rows.length})`],
+        ].map(([value, label]) => (
+          <button
+            key={String(label)}
+            type="button"
+            onClick={() => setMissingOnly(Boolean(value))}
+            aria-pressed={missingOnly === value}
+            className={cn(
+              "rounded-full px-3 py-1 text-sm",
+              missingOnly === value
+                ? "bg-primary font-medium text-primary-foreground"
+                : "border text-muted-foreground hover:bg-accent"
+            )}
+          >
+            {String(label)}
+          </button>
+        ))}
+        <Button type="submit" size="sm" disabled={pending} className="ml-auto">
+          {pending ? "Saving…" : "Save all cost prices"}
+        </Button>
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          Every plan and product has a wholesale cost. Margin reporting is
+          complete.
+        </p>
+      ) : (
+        <div className="max-h-[70vh] overflow-auto rounded-lg border bg-card">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="sticky top-0 z-10 border-b bg-card text-left text-xs text-muted-foreground">
+                <th className="p-3 font-medium">Item</th>
+                <th className="p-3 font-medium">Group</th>
+                <th className="p-3 text-right font-medium">Sell</th>
+                <th className="p-3 text-right font-medium">Cost (R)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row) => (
+                <tr key={`${row.kind}:${row.id}`} className="border-b last:border-0">
+                  <td className="p-3 font-medium">{row.name}</td>
+                  <td className="p-3 text-muted-foreground">{row.group}</td>
+                  <td className="tnum p-3 text-right">
+                    {(row.priceCents / 100).toFixed(2)}
+                  </td>
+                  <td className="p-3 text-right">
+                    <Input
+                      name={`cost:${row.kind}:${row.id}`}
+                      inputMode="decimal"
+                      defaultValue={
+                        row.costCents != null
+                          ? (row.costCents / 100).toFixed(2)
+                          : ""
+                      }
+                      placeholder="not set"
+                      aria-label={`Wholesale cost for ${row.name}`}
+                      className="tnum ml-auto w-28 text-right"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Cost is what the provider charges Needd. Leave a field blank to keep it
+        unknown; margin then shows as &ldquo;cost missing&rdquo; rather than
+        guessing.
+      </p>
+    </form>
   );
 }

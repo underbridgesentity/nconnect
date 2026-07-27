@@ -5,11 +5,17 @@ import sharp from "sharp";
 import { requireActor } from "@/lib/auth";
 import { startConversation, postMessage } from "@/lib/domain/inbox";
 import { uploadFile, randomFileName } from "@/lib/storage";
+import { customerFacingError } from "@/app/portal/_lib/errors";
 
 export type Result = { ok: boolean; error?: string; conversationId?: string };
+/**
+ * Never hand a customer a raw domain or driver message: map the ones they can
+ * trigger to plain language and collapse the rest to a single honest line
+ * (the original is logged server-side).
+ */
 const fail = (err: unknown): Result => ({
   ok: false,
-  error: err instanceof Error ? err.message : "Failed",
+  error: customerFacingError(err),
 });
 
 async function processAttachment(

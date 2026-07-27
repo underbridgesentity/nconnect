@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   services,
@@ -9,12 +9,18 @@ import {
   provisioningTasks,
   ricaRecords,
   invoices,
+  collectionAttempts,
   conversations,
   leads,
   hardwareProducts,
 } from "@/lib/db/schema";
 import { MoneyText } from "@/components/shared/money-text";
 import { maskedIdNumber } from "@/lib/domain/rica";
+import { invoicesAwaitingDecision } from "@/lib/domain/billing";
+import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
+import { getSettingOr } from "@/lib/domain/settings";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import {
   TaskCard,
   FeasibilityCard,
@@ -31,6 +37,11 @@ function customerDisplayName(c: typeof customers.$inferSelect): string {
 }
 
 const SIM_CATEGORIES = ["lte_home", "telkom_lte", "sim_data"];
+
+/** Stable anchor id for the section jump list. */
+function sectionId(title: string): string {
+  return `queue-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
 
 /** Today (spec §9.4.1): a queue, not a dashboard. */
 export default async function AdminTodayPage() {
@@ -62,13 +73,23 @@ export default async function AdminTodayPage() {
     .where(inArray(provisioningTasks.status, ["open", "in_progress", "blocked"]))
     .orderBy(provisioningTasks.dueAt);
 
+  // Only the customers on the queue, not every verified RICA row in the
+  // database, just to badge a handful of cards.
+  const taskCustomerIds = [...new Set(taskRows.map((r) => r.customer.id))];
   const verifiedRicaCustomerIds = new Set(
-    (
-      await db
-        .select({ customerId: ricaRecords.customerId })
-        .from(ricaRecords)
-        .where(eq(ricaRecords.status, "verified"))
-    ).map((r) => r.customerId)
+    taskCustomerIds.length === 0
+      ? []
+      : (
+          await db
+            .select({ customerId: ricaRecords.customerId })
+            .from(ricaRecords)
+            .where(
+              and(
+                eq(ricaRecords.status, "verified"),
+                inArray(ricaRecords.customerId, taskCustomerIds)
+              )
+            )
+        ).map((r) => r.customerId)
   );
 
   const tasks: TaskCardData[] = taskRows.map((row) => ({
@@ -85,13 +106,45 @@ export default async function AdminTodayPage() {
   }));
 
   // 2. Payments failing / past due
-  const pastDue = await db
+  const pastDueRows = await db
     .select({ invoice: invoices, customer: customers })
     .from(invoices)
     .innerJoin(customers, eq(invoices.customerId, customers.id))
     .where(inArray(invoices.status, ["past_due"]))
     .orderBy(invoices.dueDate)
+    .limit(40);
+
+  // 2b. Card charges the bank refused. collection_attempts has recorded
+  // these since M4 and nothing has ever read them, so the first a human
+  // heard of a failing card was the suspension call.
+  const failedCharges = await db
+    .select({
+      attempt: collectionAttempts,
+      invoice: invoices,
+      customer: customers,
+    })
+    .from(collectionAttempts)
+    .innerJoin(invoices, eq(collectionAttempts.invoiceId, invoices.id))
+    .innerJoin(customers, eq(invoices.customerId, customers.id))
+    .where(
+      and(
+        eq(collectionAttempts.result, "failed"),
+        inArray(invoices.status, ["open", "past_due"])
+      )
+    )
+    .orderBy(desc(collectionAttempts.executedAt))
     .limit(20);
+
+  // 2c. The §6.3 day-40 call: cancel the service or write the invoice off.
+  // The dunning sweep only rings a bell, which vanishes once it is read.
+  const dunning = await getSettingOr("dunning", DEFAULT_DUNNING);
+  const decisions = await invoicesAwaitingDecision(dunning.adminDecisionDay);
+  // Anything at the decision point gets its own section, so it does not fill
+  // the past-due list twice: oldest-first ordering would put it at the top.
+  const decisionIds = new Set(decisions.map((d) => d.invoice.id));
+  const pastDue = pastDueRows
+    .filter((row) => !decisionIds.has(row.invoice.id))
+    .slice(0, 20);
 
   // 3. Unassigned or waiting conversations
   const waitingConvs = await db
@@ -183,7 +236,70 @@ export default async function AdminTodayPage() {
               <span>
                 <span className="font-medium">{customerDisplayName(customer)}</span>
                 <span className="block text-sm text-muted-foreground">
-                  {invoice.number}, due {invoice.dueDate}
+                  {invoice.number}, due {formatDate(invoice.dueDate)}
+                </span>
+              </span>
+              <MoneyText cents={invoice.totalCents} className="font-medium" />
+            </Link>
+          ))}
+        </div>
+      ),
+    },
+    {
+      title: "Card charges failing",
+      count: failedCharges.length,
+      emptyText: "No card charge has been refused on an unpaid invoice.",
+      body: (
+        <div className="space-y-2">
+          {failedCharges.map(({ attempt, invoice, customer }) => (
+            <Link
+              key={attempt.id}
+              href={`/admin/customers/${customer.id}?tab=billing`}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-4 hover:border-primary/40"
+            >
+              <span>
+                <span className="font-medium">
+                  {customerDisplayName(customer)}
+                </span>
+                <span className="block text-sm text-muted-foreground">
+                  {invoice.number}, attempt {attempt.attemptNo}
+                  {attempt.executedAt
+                    ? ` on ${formatDateTime(attempt.executedAt)}`
+                    : ""}
+                </span>
+                <span className="block text-sm text-red-600">
+                  {attempt.detail ?? "the bank gave no reason"}
+                </span>
+              </span>
+              <MoneyText cents={invoice.totalCents} className="font-medium" />
+            </Link>
+          ))}
+        </div>
+      ),
+    },
+    {
+      title: "Decisions needed: cancel or write off",
+      count: decisions.length,
+      emptyText: `Nothing has been unpaid for ${dunning.adminDecisionDay} days.`,
+      body: (
+        <div className="space-y-2">
+          {decisions.map(({ invoice, customer, service }) => (
+            <Link
+              key={invoice.id}
+              href={`/admin/customers/${customer.id}?tab=billing`}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-card p-4 hover:border-primary/40"
+            >
+              <span>
+                <span className="font-medium">
+                  {customerDisplayName(customer)}
+                </span>
+                <span className="block text-sm text-muted-foreground">
+                  {invoice.number}, issued {formatDate(invoice.issueDate)}
+                  {service ? `, service ${service.status}` : ""}
+                </span>
+                <span className="block text-sm text-amber-700">
+                  Cancel the service or write the invoice off, nothing happens
+                  automatically.
                 </span>
               </span>
               <MoneyText cents={invoice.totalCents} className="font-medium" />
@@ -291,9 +407,29 @@ export default async function AdminTodayPage() {
         </div>
       </div>
 
+      {/* Jump list: a busy morning is otherwise one long scroll with no way
+          to see at a glance where the work is. */}
+      <nav aria-label="Queue sections" className="flex flex-wrap gap-1.5">
+        {sections.map((section) => (
+          <a
+            key={section.title}
+            href={`#${sectionId(section.title)}`}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs",
+              section.count > 0
+                ? "font-medium text-foreground hover:bg-accent"
+                : "text-muted-foreground hover:bg-accent"
+            )}
+          >
+            {section.title}
+            <span className="tnum ml-1.5">{section.count}</span>
+          </a>
+        ))}
+      </nav>
+
       {sections.map((section) => (
-        <section key={section.title}>
-          <h2 className="mb-2 text-sm font-semibold">
+        <section key={section.title} id={sectionId(section.title)}>
+          <h2 className="mb-2 scroll-mt-20 text-sm font-semibold">
             {section.title}
             {section.count > 0 ? (
               <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">

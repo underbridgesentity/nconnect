@@ -9,9 +9,15 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { publishedPlans, bundlesWithItems } from "@/lib/domain/catalogue";
+import { getSetting } from "@/lib/domain/settings";
 import { MoneyText } from "@/components/shared/money-text";
 import { Reveal } from "@/components/shared/reveal";
 import { JsonLd, organizationJsonLd } from "@/components/public/json-ld";
+import { PlanCard } from "@/components/public/plan-card";
+import { PillLink } from "@/components/public/pill";
+import { bundleSavingCents } from "@/components/public/bundle-pricing";
+import { WhatsAppPill } from "@/components/public/whatsapp-link";
+import { whatsappHref, type CompanySettings } from "@/components/public/whatsapp";
 
 export const revalidate = 3600;
 
@@ -24,9 +30,10 @@ export const metadata: Metadata = {
     title: "Needd Connect | One provider, one bill, local support",
     description:
       "Uncapped LTE, 5G and fibre, business VoIP and SIM data deals across South Africa.",
+    url: "/",
     type: "website",
-    images: ["/marketing/hero.webp"],
   },
+  twitter: { card: "summary_large_image" },
 };
 
 const CATEGORIES = [
@@ -102,16 +109,32 @@ const FAQS = [
 
 export default async function HomePage() {
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  const [featured, bundles] = await Promise.all([
-    publishedPlans().then((plans) => plans.filter((p) => p.featured).slice(0, 3)),
+  const [allPlans, bundles, company] = await Promise.all([
+    publishedPlans(),
     bundlesWithItems({ publishedOnly: true }).then((b) =>
       b.filter((x) => x.featured)
     ),
+    getSetting<CompanySettings>("company"),
   ]);
+
+  const featured = allPlans.filter((p) => p.featured).slice(0, 3);
+  // Hero figures are derived from the live catalogue, never typed into copy,
+  // so a price change in admin can never leave a stale claim on the home page.
+  const fromCents =
+    allPlans.length > 0
+      ? Math.min(...allPlans.map((p) => p.priceCents))
+      : null;
+  const fibreNetworks = new Set(
+    allPlans.filter((p) => p.category === "fibre").map((p) => p.provider.name)
+  ).size;
+  const wa = whatsappHref(
+    company,
+    "Hi Needd Connect, I would like to know which plan suits my address."
+  );
 
   return (
     <>
-      <JsonLd data={organizationJsonLd(appUrl)} />
+      <JsonLd data={organizationJsonLd(appUrl, company)} />
       <JsonLd
         data={{
           "@context": "https://schema.org",
@@ -124,8 +147,15 @@ export default async function HomePage() {
         }}
       />
 
-      {/* Hero: full-bleed photography over brand ink */}
-      <section className="relative isolate overflow-hidden bg-[#121829]">
+      {/*
+        Hero: full-bleed photography over brand ink. Nothing above the fold is
+        wrapped in Reveal, so the headline and both calls to action paint from
+        the server HTML instead of waiting for hydration.
+      */}
+      <section
+        data-surface="ink"
+        className="relative isolate overflow-hidden bg-[#121829]"
+      >
         <Image
           src="/marketing/hero.webp"
           alt="A couple relaxing at home, streaming on fast internet"
@@ -136,65 +166,58 @@ export default async function HomePage() {
         />
         <div className="hero-scrim absolute inset-0" aria-hidden />
         <div className="relative mx-auto flex min-h-[560px] max-w-6xl flex-col justify-center px-4 py-24 md:min-h-[640px]">
-          <Reveal>
-            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-medium text-white backdrop-blur">
-              <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
-              Accredited reseller of MTN, Vodacom and Telkom
-            </span>
-          </Reveal>
-          <Reveal delay={0.08}>
-            <h1 className="mt-6 max-w-2xl text-4xl font-semibold leading-tight tracking-tight text-white md:text-6xl">
-              Internet without the run-around.
-            </h1>
-          </Reveal>
-          <Reveal delay={0.16}>
-            <p className="mt-5 max-w-xl text-lg text-white/75">
-              One provider, one bill, local support. Uncapped LTE, 5G and fibre
-              across South Africa, with real people answering on WhatsApp.
-            </p>
-          </Reveal>
-          <Reveal delay={0.24}>
-            <div className="mt-9 flex flex-wrap gap-3">
-              <Link
-                href="/coverage"
-                className="group flex touch-target items-center gap-2 rounded-full bg-primary px-7 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition-colors hover:bg-[#0f5a91]"
-              >
-                Check coverage at my address
-                <ArrowRight
-                  className="size-4 transition-transform group-hover:translate-x-0.5"
-                  aria-hidden
-                />
-              </Link>
-              <Link
-                href="/internet"
-                className="flex touch-target items-center rounded-full border border-white/25 bg-white/10 px-7 text-sm font-semibold text-white backdrop-blur transition-colors hover:bg-white/20"
-              >
-                Browse plans
-              </Link>
-            </div>
-          </Reveal>
-          <Reveal delay={0.32}>
-            <dl className="mt-12 flex flex-wrap gap-x-10 gap-y-4 text-white/85">
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-medium text-white backdrop-blur">
+            <span className="size-1.5 rounded-full bg-emerald-400" aria-hidden />
+            Accredited reseller of MTN, Vodacom and Telkom
+          </span>
+          <h1 className="mt-6 max-w-2xl text-4xl font-semibold leading-tight tracking-tight text-white md:text-6xl">
+            Internet without the run-around.
+          </h1>
+          <p className="mt-5 max-w-xl text-lg text-white/75">
+            One provider, one bill, local support. Uncapped LTE, 5G and fibre
+            across South Africa, with real people answering on WhatsApp.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <PillLink href="/coverage" className="px-7">
+              Check coverage at my address
+              <ArrowRight
+                className="size-4 transition-transform group-hover:translate-x-0.5"
+                aria-hidden
+              />
+            </PillLink>
+            <PillLink href="/internet" variant="ink" className="px-7">
+              Browse plans
+            </PillLink>
+          </div>
+          <dl className="mt-12 flex flex-wrap gap-x-10 gap-y-4 text-white/85">
+            {fromCents ? (
               <div>
                 <dt className="text-xs uppercase tracking-wider text-white/50">
                   Plans from
                 </dt>
-                <dd className="tnum text-2xl font-semibold">R331/mo</dd>
+                <dd className="text-2xl font-semibold">
+                  <MoneyText cents={fromCents} whole />
+                  <span className="text-base font-medium text-white/60">
+                    /mo
+                  </span>
+                </dd>
               </div>
+            ) : null}
+            {fibreNetworks > 0 ? (
               <div>
                 <dt className="text-xs uppercase tracking-wider text-white/50">
                   Fibre networks
                 </dt>
-                <dd className="tnum text-2xl font-semibold">4</dd>
+                <dd className="tnum text-2xl font-semibold">{fibreNetworks}</dd>
               </div>
-              <div>
-                <dt className="text-xs uppercase tracking-wider text-white/50">
-                  Support
-                </dt>
-                <dd className="text-2xl font-semibold">WhatsApp-first</dd>
-              </div>
-            </dl>
-          </Reveal>
+            ) : null}
+            <div>
+              <dt className="text-xs uppercase tracking-wider text-white/50">
+                Support
+              </dt>
+              <dd className="text-2xl font-semibold">WhatsApp-first</dd>
+            </div>
+          </dl>
         </div>
       </section>
 
@@ -210,19 +233,27 @@ export default async function HomePage() {
         </Reveal>
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {CATEGORIES.map((cat, index) => (
-            <Reveal key={cat.href} delay={index * 0.07}>
+            <Reveal
+              key={cat.href}
+              delay={index * 0.07}
+              className={
+                index === 0 ? "h-full sm:col-span-2 lg:col-span-1" : "h-full"
+              }
+            >
               <Link
                 href={cat.href}
-                className={`card-hover img-zoom group block overflow-hidden rounded-3xl border bg-card ${
-                  index === 0 ? "sm:col-span-2 lg:col-span-1" : ""
-                }`}
+                className="card-hover img-zoom group flex h-full flex-col overflow-hidden rounded-3xl border bg-card"
               >
                 <div className="relative h-44 overflow-hidden">
                   <Image
                     src={cat.image}
                     alt=""
                     fill
-                    sizes="(max-width: 640px) 100vw, 33vw"
+                    sizes={
+                      index === 0
+                        ? "(min-width: 1024px) 360px, 100vw"
+                        : "(min-width: 1024px) 360px, (min-width: 640px) 50vw, 100vw"
+                    }
                     className="object-cover"
                   />
                   <div
@@ -233,7 +264,7 @@ export default async function HomePage() {
                     {cat.title}
                   </h3>
                 </div>
-                <div className="flex items-center justify-between gap-3 p-5">
+                <div className="flex flex-1 items-center justify-between gap-3 p-5">
                   <p className="text-sm text-muted-foreground">{cat.blurb}</p>
                   <span
                     className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground transition-colors group-hover:bg-primary group-hover:text-white"
@@ -248,7 +279,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Featured plans */}
+      {/* Featured plans: the same PlanCard the category pages use */}
       {featured.length > 0 ? (
         <section className="border-y bg-card">
           <div className="mx-auto max-w-6xl px-4 py-20">
@@ -256,42 +287,14 @@ export default async function HomePage() {
               <h2 className="text-3xl font-semibold tracking-tight">
                 Popular right now
               </h2>
+              <p className="mt-2 text-muted-foreground">
+                The plans people pick most, at the price you actually pay.
+              </p>
             </Reveal>
             <div className="mt-8 grid gap-5 sm:grid-cols-3">
               {featured.map((plan, index) => (
-                <Reveal key={plan.id} delay={index * 0.08}>
-                  <Link
-                    href={`/plans/${plan.slug}`}
-                    className="card-hover relative block overflow-hidden rounded-3xl border bg-background p-6"
-                  >
-                    <span
-                      className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary to-sky-400"
-                      aria-hidden
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      {plan.provider.name}
-                    </p>
-                    <h3 className="mt-0.5 text-lg font-semibold">{plan.name}</h3>
-                    <p className="mt-4">
-                      <MoneyText
-                        cents={plan.priceCents}
-                        whole
-                        className="text-3xl font-semibold"
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {" "}
-                        /month
-                      </span>
-                    </p>
-                    {plan.dataAllocation ? (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {plan.dataAllocation}
-                      </p>
-                    ) : null}
-                    <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
-                      View plan <ArrowRight className="size-3.5" aria-hidden />
-                    </span>
-                  </Link>
+                <Reveal key={plan.id} delay={index * 0.08} className="h-full">
+                  <PlanCard plan={plan} />
                 </Reveal>
               ))}
             </div>
@@ -306,34 +309,50 @@ export default async function HomePage() {
             <h2 className="text-3xl font-semibold tracking-tight">
               Grab this deal
             </h2>
+            <p className="mt-2 text-muted-foreground">
+              A plan and the hardware that fits it, at one price.
+            </p>
           </Reveal>
           <div className="mt-8 grid gap-5 sm:grid-cols-2">
-            {bundles.map((b, index) => (
-              <Reveal key={b.id} delay={index * 0.08}>
-                <Link
-                  href={`/bundles/${b.slug}`}
-                  className="card-hover block rounded-3xl border bg-card p-6"
-                >
-                  <h3 className="text-lg font-semibold">{b.name}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {b.description}
-                  </p>
-                  <p className="mt-4">
-                    <MoneyText
-                      cents={b.priceCents}
-                      whole
-                      className="text-2xl font-semibold"
-                    />
-                  </p>
-                </Link>
-              </Reveal>
-            ))}
+            {bundles.map((b, index) => {
+              const saving = bundleSavingCents(b);
+              return (
+                <Reveal key={b.id} delay={index * 0.08} className="h-full">
+                  <Link
+                    href={`/bundles/${b.slug}`}
+                    className="card-hover flex h-full flex-col rounded-3xl border bg-card p-6"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-lg font-semibold">{b.name}</h3>
+                      {saving ? (
+                        <span className="shrink-0 rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground">
+                          Save <MoneyText cents={saving} whole />
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {b.description}
+                    </p>
+                    <p className="mt-4 flex flex-1 items-end">
+                      <MoneyText
+                        cents={b.priceCents}
+                        whole
+                        className="text-2xl font-semibold"
+                      />
+                    </p>
+                  </Link>
+                </Reveal>
+              );
+            })}
           </div>
         </section>
       ) : null}
 
       {/* Image band: the promise */}
-      <section className="relative isolate overflow-hidden bg-[#121829]">
+      <section
+        data-surface="ink"
+        className="relative isolate overflow-hidden bg-[#121829]"
+      >
         <Image
           src="/marketing/family.webp"
           alt="A family at home enjoying time online together"
@@ -385,7 +404,7 @@ export default async function HomePage() {
         </Reveal>
         <div className="mt-8 grid gap-6 sm:grid-cols-3">
           {STEPS.map((step, index) => (
-            <Reveal key={step.title} delay={index * 0.1}>
+            <Reveal key={step.title} delay={index * 0.1} className="h-full">
               <div className="card-hover h-full rounded-3xl border bg-card p-6">
                 <span className="flex size-10 items-center justify-center rounded-full bg-primary text-sm font-bold text-white">
                   {index + 1}
@@ -435,7 +454,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* FAQ. Reveal renders the card itself so the dl stays dl > div > dt/dd. */}
       <section className="mx-auto max-w-3xl px-4 py-20">
         <Reveal>
           <h2 className="text-3xl font-semibold tracking-tight">
@@ -444,11 +463,15 @@ export default async function HomePage() {
         </Reveal>
         <dl className="mt-8 space-y-3">
           {FAQS.map((f, index) => (
-            <Reveal key={f.q} delay={index * 0.05}>
-              <div className="rounded-2xl border bg-card p-5">
-                <dt className="font-semibold">{f.q}</dt>
-                <dd className="mt-1.5 text-sm text-muted-foreground">{f.a}</dd>
-              </div>
+            <Reveal
+              key={f.q}
+              delay={index * 0.05}
+              className="rounded-2xl border bg-card p-5"
+            >
+              <dt className="font-semibold">{f.q}</dt>
+              <dd className="mt-1.5 text-sm leading-6 text-foreground/80">
+                {f.a}
+              </dd>
             </Reveal>
           ))}
         </dl>
@@ -471,7 +494,7 @@ export default async function HomePage() {
       </section>
 
       {/* Closing CTA band */}
-      <section className="bg-[#121829]">
+      <section data-surface="ink" className="bg-[#121829]">
         <div className="mx-auto flex max-w-6xl flex-col items-start gap-6 px-4 py-16 md:flex-row md:items-center md:justify-between">
           <Reveal>
             <div>
@@ -485,16 +508,18 @@ export default async function HomePage() {
             </div>
           </Reveal>
           <Reveal delay={0.1}>
-            <Link
-              href="/coverage"
-              className="group flex touch-target items-center gap-2 whitespace-nowrap rounded-full bg-primary px-8 text-sm font-semibold text-white shadow-lg shadow-primary/30 transition-colors hover:bg-[#0f5a91]"
-            >
-              Check my coverage
-              <ArrowRight
-                className="size-4 transition-transform group-hover:translate-x-0.5"
-                aria-hidden
-              />
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <PillLink href="/coverage" className="px-8">
+                Check my coverage
+                <ArrowRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                  aria-hidden
+                />
+              </PillLink>
+              {wa ? (
+                <WhatsAppPill href={wa} variant="ink" className="px-8" />
+              ) : null}
+            </div>
           </Reveal>
         </div>
       </section>

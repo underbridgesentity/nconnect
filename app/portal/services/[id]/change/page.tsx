@@ -2,15 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
+import { CalendarClock } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { services, plans } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
-import {
-  computeUpgradeAdjustment,
-} from "@/lib/domain/billing-engine";
+import { computeUpgradeAdjustment } from "@/lib/domain/billing-engine";
 import { todayInJohannesburg, nextMonthOnAnchor } from "@/lib/domain/services";
+import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
-import { changePlanAction } from "../actions";
+import { isUuid } from "@/app/portal/_lib/uuid";
+import { CancelScheduledChangeButton } from "../service-actions";
+import { ConfirmPlanChange } from "./confirm-form";
 
 export const metadata: Metadata = { title: "Change plan" };
 
@@ -28,6 +30,7 @@ export default async function ChangePlanPage({
 }) {
   const { id } = await params;
   const { to } = await searchParams;
+  if (!isUuid(id)) notFound();
   const actor = await currentActor();
   if (!actor?.customerId) redirect("/login");
 
@@ -40,6 +43,50 @@ export default async function ChangePlanPage({
   if (!row || row.service.customerId !== actor.customerId) notFound();
   const { service, plan } = row;
   if (service.status !== "active") redirect(`/portal/services/${id}`);
+
+  // A change already queued blocks another one: stacking them would leave the
+  // customer unable to tell what they are actually moving to, and picking
+  // their current plan back would hit a raw domain guard.
+  const [pendingPlan] = service.pendingPlanId
+    ? await db
+        .select()
+        .from(plans)
+        .where(eq(plans.id, service.pendingPlanId))
+        .limit(1)
+    : [];
+
+  if (pendingPlan) {
+    return (
+      <div className="space-y-5">
+        <Link
+          href={`/portal/services/${id}`}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          ← Back to service
+        </Link>
+        <h1 className="text-xl font-semibold tracking-tight">Change plan</h1>
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+            <CalendarClock className="size-4 shrink-0" aria-hidden />
+            A change is already scheduled
+          </h2>
+          <p className="mt-1 text-sm text-blue-900">
+            You move to <span className="font-medium">{pendingPlan.name}</span>{" "}
+            on{" "}
+            <span className="font-medium">
+              {formatDate(service.planChangeEffectiveDate)}
+            </span>
+            , and pay <MoneyText cents={pendingPlan.priceCents} whole />
+            /month from then. Until that date nothing changes.
+          </p>
+          <p className="mt-2 text-sm text-blue-900">
+            To pick a different plan, cancel this change first.
+          </p>
+          <CancelScheduledChangeButton serviceId={id} />
+        </div>
+      </div>
+    );
+  }
 
   const options = (
     await db
@@ -89,7 +136,7 @@ export default async function ChangePlanPage({
           {isUpgrade ? "Confirm your upgrade" : "Confirm your downgrade"}
         </h1>
 
-        <div className="rounded-lg border bg-card p-4 text-sm">
+        <div className="rounded-2xl border bg-card p-4 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Current plan</span>
             <span>
@@ -107,11 +154,11 @@ export default async function ChangePlanPage({
         </div>
 
         {isUpgrade && adjustment ? (
-          <div className="rounded-lg border bg-card p-4 text-sm">
+          <div className="rounded-2xl border bg-card p-4 text-sm">
             <h2 className="font-semibold">What you pay now</h2>
             <p className="mt-1 text-muted-foreground">
               The upgrade is live immediately. For the {adjustment.daysRemaining}{" "}
-              days left in your current period (to {periodEnd}):
+              days left in your current period (to {formatDate(periodEnd)}):
             </p>
             <div className="mt-2 space-y-1">
               <div className="flex justify-between">
@@ -129,18 +176,20 @@ export default async function ChangePlanPage({
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               Charged to your saved card if you have one; otherwise we send a
-              pay link. From {periodEnd} you pay{" "}
+              pay link. From {formatDate(periodEnd)} you pay{" "}
               <MoneyText cents={chosen.priceCents} whole />
               /month.
             </p>
           </div>
         ) : (
-          <div className="rounded-lg border bg-card p-4 text-sm">
+          <div className="rounded-2xl border bg-card p-4 text-sm">
             <h2 className="font-semibold">When it happens</h2>
             <p className="mt-1 text-muted-foreground">
               Your downgrade takes effect on{" "}
-              <span className="font-medium text-foreground">{periodEnd}</span>{" "}
-             , the start of your next billing cycle. Until then you keep{" "}
+              <span className="font-medium text-foreground">
+                {formatDate(periodEnd)}
+              </span>
+              , the start of your next billing cycle. Until then you keep{" "}
               {plan.name} exactly as it is, with no partial charges. From that
               date you pay <MoneyText cents={chosen.priceCents} whole />
               /month.
@@ -148,20 +197,20 @@ export default async function ChangePlanPage({
           </div>
         )}
 
-        <form action={changePlanAction}>
-          <input type="hidden" name="serviceId" value={id} />
-          <input type="hidden" name="newPlanId" value={chosen.id} />
-          <button
-            type="submit"
-            className="flex w-full touch-target items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            {isUpgrade
+        <ConfirmPlanChange
+          serviceId={id}
+          newPlanId={chosen.id}
+          label={
+            isUpgrade
               ? adjustment && adjustment.netCents > 0
                 ? "Confirm upgrade"
                 : "Confirm upgrade (nothing due now)"
-              : "Confirm downgrade"}
-          </button>
-        </form>
+              : "Confirm downgrade"
+          }
+          pendingLabel={
+            isUpgrade ? "Applying your upgrade…" : "Scheduling your downgrade…"
+          }
+        />
       </div>
     );
   }
@@ -180,7 +229,7 @@ export default async function ChangePlanPage({
         start at your next billing date.
       </p>
       {options.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        <p className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">
           There&apos;s no other published plan in this category right now.
         </p>
       ) : (
@@ -189,7 +238,7 @@ export default async function ChangePlanPage({
             <Link
               key={p.id}
               href={`/portal/services/${id}/change?to=${p.slug}`}
-              className="flex touch-target items-center justify-between rounded-lg border bg-card p-4 hover:border-primary/40"
+              className="flex touch-target items-center justify-between rounded-2xl border bg-card p-4 hover:border-primary/40"
             >
               <span>
                 <span className="block font-medium">{p.name}</span>
@@ -200,7 +249,11 @@ export default async function ChangePlanPage({
                 ) : null}
               </span>
               <span className="text-right">
-                <MoneyText cents={p.priceCents} whole className="font-semibold" />
+                <MoneyText
+                  cents={p.priceCents}
+                  whole
+                  className="font-semibold"
+                />
                 <span className="block text-xs text-muted-foreground">
                   {p.priceCents >= plan.priceCents ? "upgrade" : "downgrade"}
                 </span>

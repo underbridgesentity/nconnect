@@ -5,6 +5,8 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { leads, leadActivities, quotes } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
+import { isQuoteExpired } from "@/lib/domain/quotes";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
 import { ActivityForm, LeadStatusButtons } from "../client";
@@ -77,7 +79,7 @@ export default async function LeadDetailPage({
       <div className="flex flex-wrap items-center gap-2">
         <Link
           href={`/sales/quotes/new?lead=${lead.id}`}
-          className="flex touch-target items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="inline-flex touch-target items-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
         >
           Build a quote
         </Link>
@@ -88,16 +90,30 @@ export default async function LeadDetailPage({
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Quotes</h2>
           {leadQuotes.map((q) => (
-            <div
+            <Link
               key={q.id}
-              className="flex items-center justify-between rounded-lg border bg-card p-3 text-sm"
+              href={`/sales/quotes/${q.id}`}
+              className="flex items-center justify-between rounded-2xl border bg-card p-3 text-sm hover:border-primary/40"
             >
-              <span className="font-mono">{q.number}</span>
+              <span>
+                <span className="font-mono">{q.number}</span>
+                {q.expiresAt ? (
+                  <span className="block text-xs text-muted-foreground">
+                    {isQuoteExpired(q)
+                      ? `Expired ${formatDate(q.expiresAt)}`
+                      : `Valid until ${formatDate(q.expiresAt)}`}
+                  </span>
+                ) : null}
+              </span>
               <span className="flex items-center gap-2">
                 <MoneyText cents={q.totalCents} />
-                <StatusPill status={q.status} />
+                <StatusPill
+                  status={
+                    q.status !== "accepted" && isQuoteExpired(q) ? "expired" : q.status
+                  }
+                />
               </span>
-            </div>
+            </Link>
           ))}
         </section>
       ) : null}
@@ -107,12 +123,12 @@ export default async function LeadDetailPage({
         <ActivityForm leadId={lead.id} />
         <div className="space-y-2">
           {activities.map((a) => (
-            <div key={a.id} className="rounded-lg border bg-card p-3 text-sm">
-              <p className="flex items-center justify-between text-xs text-muted-foreground">
+            <div key={a.id} className="rounded-2xl border bg-card p-3 text-sm">
+              <p className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span className="font-medium uppercase tracking-wide">
                   {a.kind.replace("_", " ")}
                 </span>
-                {a.createdAt.toISOString().replace("T", " ").slice(0, 16)}
+                <span className="tnum">{formatDateTime(a.createdAt)}</span>
               </p>
               {a.body ? <p className="mt-1">{a.body}</p> : null}
             </div>

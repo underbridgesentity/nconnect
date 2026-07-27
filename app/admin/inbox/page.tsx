@@ -11,8 +11,11 @@ import {
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusPill } from "@/components/shared/status-pill";
 import { AutoRefresh } from "@/components/shared/auto-refresh";
+import { Input } from "@/components/ui/input";
+import { currentActor } from "@/lib/auth";
+import { formatAge, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ReplyBox, AssignSelect, StatusButtons } from "./client";
+import { ReplyBox, AssignSelect, StatusButtons, ScrollToNewest } from "./client";
 
 export const metadata: Metadata = { title: "Inbox" };
 
@@ -24,15 +27,19 @@ export default async function AdminInboxPage({
     status?: string;
     channel?: string;
     assignee?: string;
+    q?: string;
   }>;
 }) {
-  const { c, status, channel, assignee } = await searchParams;
+  const { c, status, channel, assignee, q } = await searchParams;
+  const search = q?.trim();
 
-  const [rows, staff] = await Promise.all([
+  const [actor, rows, staff] = await Promise.all([
+    currentActor(),
     listConversations({
       status: status as "open" | undefined,
       channel: channel as "portal" | undefined,
       assignee: assignee as string | undefined,
+      search,
     }),
     db
       .select({ id: users.id, name: users.name })
@@ -42,6 +49,8 @@ export default async function AdminInboxPage({
 
   const selected = c ? rows.find((r) => r.conversation.id === c) : null;
   const thread = c ? await threadMessages(c) : [];
+  // Pinned once per render so the server HTML and the hydrated client agree.
+  const now = new Date();
 
   const name = (customer: (typeof rows)[number]["customer"]) =>
     customer
@@ -49,21 +58,36 @@ export default async function AdminInboxPage({
         [customer.firstName, customer.lastName].filter(Boolean).join(" "))
       : "Unidentified";
 
-  const filters = (key: string, value: string | undefined, options: [string, string][]) => (
-    <div className="flex gap-1">
+  /** Keep every active filter, plus the open thread, on every link. */
+  const hrefWith = (patch: Record<string, string | undefined>) => {
+    const params = new URLSearchParams();
+    const base: Record<string, string | undefined> = {
+      status,
+      channel,
+      assignee,
+      c,
+      q: search,
+      ...patch,
+    };
+    for (const [key, value] of Object.entries(base)) {
+      if (value) params.set(key, value);
+    }
+    const query = params.toString();
+    return query ? `/admin/inbox?${query}` : "/admin/inbox";
+  };
+
+  const filters = (
+    key: string,
+    value: string | undefined,
+    options: [string, string][]
+  ) => (
+    <div className="flex flex-wrap gap-1">
       {options.map(([v, label]) => {
-        const params = new URLSearchParams();
-        if (status) params.set("status", status);
-        if (channel) params.set("channel", channel);
-        if (assignee) params.set("assignee", assignee);
-        if (c) params.set("c", c);
-        if (v) params.set(key, v);
-        else params.delete(key);
         const active = (value ?? "") === v;
         return (
           <Link
             key={label}
-            href={`/admin/inbox?${params.toString()}`}
+            href={hrefWith({ [key]: v || undefined })}
             className={cn(
               "rounded-full px-2.5 py-0.5 text-xs",
               active
@@ -80,10 +104,25 @@ export default async function AdminInboxPage({
 
   return (
     <div className="mx-auto flex h-[calc(100dvh-6rem)] max-w-6xl flex-col gap-4 md:flex-row">
-      <AutoRefresh seconds={5} />
+      {/* 15s, not 5s: two queries per tab every five seconds is a lot of
+          load for a queue that also updates over realtime. */}
+      <AutoRefresh seconds={15} />
       {/* Conversation list */}
       <div className={cn("flex w-full flex-col md:w-96", c && "hidden md:flex")}>
         <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+        <form method="get" action="/admin/inbox" className="mt-3">
+          {status ? <input type="hidden" name="status" value={status} /> : null}
+          {channel ? <input type="hidden" name="channel" value={channel} /> : null}
+          {assignee ? (
+            <input type="hidden" name="assignee" value={assignee} />
+          ) : null}
+          <Input
+            name="q"
+            defaultValue={search}
+            placeholder="Search subject, customer or message…"
+            aria-label="Search conversations"
+          />
+        </form>
         <div className="mt-3 space-y-2">
           {filters("status", status, [
             ["", "All"],
@@ -98,6 +137,7 @@ export default async function AdminInboxPage({
           ])}
           {filters("assignee", assignee, [
             ["", "Anyone"],
+            ...(actor ? ([[actor.userId, "Assigned to me"]] as [string, string][]) : []),
             ["unassigned", "Unassigned"],
           ])}
         </div>
@@ -105,38 +145,76 @@ export default async function AdminInboxPage({
           {rows.length === 0 ? (
             <EmptyState
               icon={Inbox}
-              sentence="No conversations match. Portal messages and inbound WhatsApp land here the moment they arrive."
+              sentence={
+                search
+                  ? `No conversations match "${search}".`
+                  : "No conversations match. Portal messages and inbound WhatsApp land here the moment they arrive."
+              }
             />
           ) : (
-            rows.map(({ conversation, customer }) => (
-              <Link
-                key={conversation.id}
-                href={`/admin/inbox?c=${conversation.id}${status ? `&status=${status}` : ""}`}
-                className={cn(
-                  "block rounded-lg border p-3",
-                  conversation.id === c
-                    ? "border-primary bg-accent"
-                    : "bg-card hover:border-primary/40"
-                )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    {conversation.channel === "whatsapp" ? (
-                      <MessageCircle className="size-3.5 text-emerald-600" aria-label="WhatsApp" />
-                    ) : (
-                      <Globe className="size-3.5 text-primary" aria-label="Portal" />
-                    )}
-                    {name(customer)}
-                  </span>
-                  <StatusPill status={conversation.status} />
-                </div>
-                {conversation.subject ? (
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {conversation.subject}
-                  </p>
-                ) : null}
-              </Link>
-            ))
+            rows.map(({ conversation, customer, lastBody, lastDirection }) => {
+              // An inbound last message means the customer is waiting on us.
+              const waitingOnUs =
+                lastDirection === "inbound" && conversation.status !== "resolved";
+              return (
+                <Link
+                  key={conversation.id}
+                  href={hrefWith({ c: conversation.id })}
+                  className={cn(
+                    "block rounded-lg border p-3",
+                    conversation.id === c
+                      ? "border-primary bg-accent"
+                      : "bg-card hover:border-primary/40"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                      {conversation.channel === "whatsapp" ? (
+                        <MessageCircle
+                          className="size-3.5 shrink-0 text-emerald-600"
+                          aria-label="WhatsApp"
+                        />
+                      ) : (
+                        <Globe
+                          className="size-3.5 shrink-0 text-primary"
+                          aria-label="Portal"
+                        />
+                      )}
+                      <span className="truncate">{name(customer)}</span>
+                      {waitingOnUs ? (
+                        <span
+                          className="size-2 shrink-0 rounded-full bg-amber-500"
+                          title="Waiting on us"
+                        />
+                      ) : null}
+                    </span>
+                    <StatusPill status={conversation.status} />
+                  </div>
+                  {conversation.subject ? (
+                    <p className="mt-0.5 truncate text-xs font-medium">
+                      {conversation.subject}
+                    </p>
+                  ) : null}
+                  <div className="mt-0.5 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">
+                      {lastDirection === "outbound" ? "You: " : ""}
+                      {lastBody ?? "No messages yet"}
+                    </span>
+                    {conversation.lastMessageAt ? (
+                      <span
+                        className={cn(
+                          "tnum shrink-0",
+                          waitingOnUs && "font-medium text-amber-700"
+                        )}
+                        title={formatDateTime(conversation.lastMessageAt)}
+                      >
+                        {formatAge(conversation.lastMessageAt, now)}
+                      </span>
+                    ) : null}
+                  </div>
+                </Link>
+              );
+            })
           )}
         </div>
       </div>
@@ -154,7 +232,7 @@ export default async function AdminInboxPage({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
               <div className="min-w-0">
                 <Link
-                  href="/admin/inbox"
+                  href={hrefWith({ c: undefined })}
                   className="text-xs text-muted-foreground hover:text-foreground md:hidden"
                 >
                   ← All conversations
@@ -216,10 +294,12 @@ export default async function AdminInboxPage({
                         : "text-muted-foreground"
                     )}
                   >
-                    {message.createdAt.toISOString().replace("T", " ").slice(0, 16)}
+                    {formatDateTime(message.createdAt)}
                   </p>
                 </div>
               ))}
+              {/* Long threads used to open on the oldest message. */}
+              <ScrollToNewest key={selected.conversation.id} />
             </div>
 
             <ReplyBox conversationId={selected.conversation.id} />

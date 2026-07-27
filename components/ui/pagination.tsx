@@ -107,7 +107,9 @@ function PaginationEllipsis({
       aria-hidden
       data-slot="pagination-ellipsis"
       className={cn(
-        "flex size-8 items-center justify-center [&_svg:not([class*='size-'])]:size-4",
+        // Matches the coarse-pointer growth of PaginationLink so the row stays
+        // aligned on a phone.
+        "flex size-8 items-center justify-center pointer-coarse:min-h-11 pointer-coarse:min-w-11 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

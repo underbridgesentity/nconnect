@@ -5,8 +5,11 @@ import { and, eq, lt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { services, plans } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
+import { Button } from "@/components/ui/button";
 import { MoneyText } from "@/components/shared/money-text";
-import { cancelServiceAction } from "../actions";
+import { isUuid } from "@/app/portal/_lib/uuid";
+import { ConfirmCancellation } from "./confirm-form";
 
 export const metadata: Metadata = { title: "Cancel service" };
 
@@ -24,6 +27,7 @@ export default async function CancelServicePage({
 }) {
   const { id } = await params;
   const { confirm } = await searchParams;
+  if (!isUuid(id)) notFound();
   const actor = await currentActor();
   if (!actor?.customerId) redirect("/login");
 
@@ -37,7 +41,9 @@ export default async function CancelServicePage({
   const { service, plan } = row;
   if (service.status !== "active") redirect(`/portal/services/${id}`);
 
-  const effectiveDate = service.nextInvoiceDate ?? "the end of your billing period";
+  const effectiveDateLabel = service.nextInvoiceDate
+    ? formatDate(service.nextInvoiceDate)
+    : "the end of your billing period";
 
   if (confirm === "1") {
     return (
@@ -45,42 +51,23 @@ export default async function CancelServicePage({
         <h1 className="text-xl font-semibold tracking-tight">
           Confirm cancellation
         </h1>
-        <div className="rounded-lg border bg-card p-4 text-sm">
+        <div className="rounded-2xl border bg-card p-4 text-sm">
           <p>
             <span className="font-medium">{plan.name}</span> will cancel on{" "}
-            <span className="font-medium">{effectiveDate}</span>.
+            <span className="font-medium">{effectiveDateLabel}</span>.
           </p>
           <ul className="mt-2 space-y-1 text-muted-foreground">
-            <li>• It stays fully active until that date, you&apos;ve paid for it.</li>
+            <li>
+              • It stays fully active until that date, you&apos;ve paid for it.
+            </li>
             <li>• No further invoices after that.</li>
             <li>• You can withdraw the cancellation any time before then.</li>
           </ul>
         </div>
-        <form action={cancelServiceAction} className="space-y-3">
-          <input type="hidden" name="serviceId" value={id} />
-          <label className="block text-sm">
-            <span className="text-muted-foreground">
-              Mind telling us why? (helps us fix things, optional)
-            </span>
-            <textarea
-              name="reason"
-              rows={2}
-              className="mt-1 w-full rounded-md border bg-background p-2 text-sm"
-            />
-          </label>
-          <button
-            type="submit"
-            className="flex w-full touch-target items-center justify-center rounded-md bg-destructive px-5 text-sm font-medium text-white hover:bg-destructive/90"
-          >
-            Cancel my service on {effectiveDate}
-          </button>
-          <Link
-            href={`/portal/services/${id}`}
-            className="flex touch-target items-center justify-center text-sm text-muted-foreground hover:text-foreground"
-          >
-            Never mind, keep my service
-          </Link>
-        </form>
+        <ConfirmCancellation
+          serviceId={id}
+          effectiveDateLabel={effectiveDateLabel}
+        />
       </div>
     );
   }
@@ -113,7 +100,7 @@ export default async function CancelServicePage({
       </p>
 
       {cheaper.length > 0 ? (
-        <div className="rounded-lg border bg-card p-4">
+        <div className="rounded-2xl border bg-card p-4">
           <h2 className="text-sm font-semibold">Paying too much?</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Drop to a cheaper plan instead, from{" "}
@@ -123,32 +110,34 @@ export default async function CancelServicePage({
             />
             /month, effective at your next billing date.
           </p>
-          <Link
-            href={`/portal/services/${id}/change`}
-            className="mt-3 flex touch-target items-center justify-center rounded-md border px-5 text-sm font-medium hover:bg-accent"
+          <Button
+            variant="outline"
+            className="mt-3 w-full touch-target"
+            render={<Link href={`/portal/services/${id}/change`} />}
           >
             See cheaper plans
-          </Link>
+          </Button>
         </div>
       ) : null}
 
-      <div className="rounded-lg border bg-card p-4">
+      <div className="rounded-2xl border bg-card p-4">
         <h2 className="text-sm font-semibold">Something not working?</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Slow evenings, drops, billing confusion, most issues are fixable in
           one conversation with someone who knows your setup.
         </p>
-        <Link
-          href="/portal/help"
-          className="mt-3 flex touch-target items-center justify-center rounded-md border px-5 text-sm font-medium hover:bg-accent"
+        <Button
+          variant="outline"
+          className="mt-3 w-full touch-target"
+          render={<Link href="/portal/help" />}
         >
           Talk to us first
-        </Link>
+        </Button>
       </div>
 
       <Link
         href={`/portal/services/${id}/cancel?confirm=1`}
-        className="flex touch-target items-center justify-center rounded-md px-5 text-sm font-medium text-destructive hover:underline"
+        className="flex touch-target items-center justify-center rounded-full px-5 text-sm font-medium text-destructive hover:underline"
       >
         No thanks, continue to cancel
       </Link>

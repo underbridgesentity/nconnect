@@ -1,12 +1,24 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check } from "lucide-react";
 import {
   publishedBundleBySlug,
   bundlesWithItems,
 } from "@/lib/domain/catalogue";
+import { formatCents } from "@/lib/money";
+import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
+import {
+  JsonLd,
+  breadcrumbJsonLd,
+  offerJsonLd,
+} from "@/components/public/json-ld";
+import { PageHeader, type HeaderStat } from "@/components/public/page-header";
+import { PillLink } from "@/components/public/pill";
+import {
+  bundleComponentTotalCents,
+  bundleSavingCents,
+} from "@/components/public/bundle-pricing";
 
 export const revalidate = 3600;
 
@@ -23,10 +35,20 @@ export async function generateMetadata({
   const { slug } = await params;
   const bundle = await publishedBundleBySlug(slug);
   if (!bundle) return { title: "Bundle not found" };
+  const title = `${bundle.name}, ${formatCents(bundle.priceCents, {
+    whole: true,
+  })}`;
+  const description = bundle.description ?? bundle.name;
   return {
-    title: `${bundle.name}, R${Math.round(bundle.priceCents / 100)}`,
-    description: bundle.description ?? bundle.name,
+    title,
+    description,
     alternates: { canonical: `/bundles/${bundle.slug}` },
+    openGraph: {
+      title: `${title} | Needd Connect`,
+      description,
+      url: `/bundles/${bundle.slug}`,
+      type: "website",
+    },
   };
 }
 
@@ -39,63 +61,151 @@ export default async function BundleDetailPage({
   const bundle = await publishedBundleBySlug(slug);
   if (!bundle) notFound();
 
-  return (
-    <div className="mx-auto max-w-3xl px-4 py-10">
-      <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
-        <Link href="/" className="hover:text-foreground">
-          Home
-        </Link>{" "}
-        /{" "}
-        <Link href="/bundles" className="hover:text-foreground">
-          Bundles
-        </Link>{" "}
-        / {bundle.name}
-      </nav>
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-        {bundle.name}
-      </h1>
-      {bundle.description ? (
-        <p className="mt-2 text-muted-foreground">{bundle.description}</p>
-      ) : null}
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const separately = bundleComponentTotalCents(bundle);
+  const saving = bundleSavingCents(bundle);
 
-      <div className="mt-6 rounded-lg border bg-card p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground">
-          What&apos;s in the bundle
-        </h2>
-        <ul className="mt-3 space-y-2">
-          {bundle.items.map((item) => (
-            <li key={item.id} className="flex items-center gap-2 text-sm">
-              <Check className="size-4 text-primary" aria-hidden />
-              {item.qty > 1 ? `${item.qty}× ` : ""}
-              {item.plan?.name ?? item.hardware?.name ?? item.customName}
-              {item.plan ? (
-                <span className="text-muted-foreground">
-                  (<MoneyText cents={item.plan.priceCents} whole />
-                  /month on its own)
+  const stats: HeaderStat[] = [
+    { label: "Bundle price", value: <MoneyText cents={bundle.priceCents} whole /> },
+    ...(saving
+      ? [{ label: "You save", value: <MoneyText cents={saving} whole /> }]
+      : []),
+    ...(bundle.validUntil
+      ? [{ label: "Valid until", value: formatDate(bundle.validUntil) }]
+      : []),
+  ];
+
+  return (
+    <>
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "Product",
+          name: bundle.name,
+          description: bundle.description ?? undefined,
+          url: `${appUrl}/bundles/${bundle.slug}`,
+          offers: offerJsonLd({
+            appUrl,
+            path: `/bundles/${bundle.slug}`,
+            priceCents: bundle.priceCents,
+            ...(bundle.validUntil ? { priceValidUntil: bundle.validUntil } : {}),
+          }),
+        }}
+      />
+      <JsonLd
+        data={breadcrumbJsonLd(appUrl, [
+          { name: "Home", path: "/" },
+          { name: "Bundles", path: "/bundles" },
+          { name: bundle.name, path: `/bundles/${bundle.slug}` },
+        ])}
+      />
+
+      <PageHeader
+        image="/marketing/creators.webp"
+        imageAlt=""
+        imagePosition="50% 45%"
+        size="compact"
+        eyebrow="Bundle deal"
+        title={bundle.name}
+        breadcrumb={[
+          { label: "Home", href: "/" },
+          { label: "Bundles", href: "/bundles" },
+          { label: bundle.name },
+        ]}
+        stats={stats}
+        actions={
+          <>
+            <PillLink href={`/signup?bundle=${bundle.slug}`}>
+              Grab this deal
+            </PillLink>
+            <PillLink href="/coverage" variant="ink">
+              Check coverage first
+            </PillLink>
+          </>
+        }
+      >
+        {bundle.description ? <p>{bundle.description}</p> : null}
+      </PageHeader>
+
+      <div className="mx-auto max-w-3xl px-4 py-14">
+        <section className="rounded-3xl border bg-card p-6 sm:p-8">
+          <h2 className="text-lg font-semibold tracking-tight">
+            What&apos;s in the bundle
+          </h2>
+          <ul className="mt-5 divide-y">
+            {bundle.items.map((item) => {
+              const unit =
+                item.plan?.priceCents ??
+                item.hardware?.priceCents ??
+                item.customPriceCents;
+              const suffix = item.plan ? "/month on its own" : "once-off on its own";
+              return (
+                <li
+                  key={item.id}
+                  className="flex items-start justify-between gap-4 py-3 first:pt-0"
+                >
+                  <span className="flex items-start gap-2.5 text-sm leading-6">
+                    <Check
+                      className="mt-1 size-4 shrink-0 text-primary"
+                      aria-hidden
+                    />
+                    <span>
+                      {item.qty > 1 ? `${item.qty} x ` : ""}
+                      {item.plan?.name ?? item.hardware?.name ?? item.customName}
+                    </span>
+                  </span>
+                  {unit !== null && unit !== undefined ? (
+                    <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">
+                      <MoneyText cents={unit} whole /> {suffix}
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="mt-6 border-t pt-6">
+            {separately !== null ? (
+              <div className="flex items-baseline justify-between gap-4 text-sm text-muted-foreground">
+                <span>Bought separately</span>
+                <span>
+                  <MoneyText cents={separately} whole />
                 </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-        <div className="mt-4 border-t pt-4">
-          <MoneyText
-            cents={bundle.priceCents}
-            whole
-            className="text-3xl font-semibold"
-          />
-          {bundle.validUntil ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Offer valid until {bundle.validUntil}
+              </div>
+            ) : null}
+            <div className="mt-2 flex items-baseline justify-between gap-4">
+              <span className="font-semibold">Bundle price</span>
+              <MoneyText
+                cents={bundle.priceCents}
+                whole
+                className="text-3xl font-semibold"
+              />
+            </div>
+            {saving ? (
+              <p className="mt-3 inline-flex rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground">
+                You save <MoneyText cents={saving} whole className="ml-1" />
+              </p>
+            ) : null}
+            <p className="mt-4 text-xs leading-5 text-muted-foreground">
+              That is your first payment: the first month of the plan plus any
+              once-off hardware. Monthly billing then starts on your activation
+              date.
+              {bundle.validUntil
+                ? ` Offer valid until ${formatDate(bundle.validUntil)}.`
+                : ""}
             </p>
-          ) : null}
-        </div>
-        <Link
-          href={`/signup?bundle=${bundle.slug}`}
-          className="mt-4 flex touch-target items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          Grab this deal
-        </Link>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <PillLink href={`/signup?bundle=${bundle.slug}`}>
+              Grab this deal
+            </PillLink>
+            <PillLink href="/bundles" variant="outline">
+              See other deals
+            </PillLink>
+          </div>
+        </section>
       </div>
-    </div>
+    </>
   );
 }

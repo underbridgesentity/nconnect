@@ -36,7 +36,7 @@ export async function NotificationBell({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className={`relative inline-flex size-8 items-center justify-center rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${
+        className={`relative inline-flex size-8 items-center justify-center rounded-full outline-none pointer-coarse:min-h-11 pointer-coarse:min-w-11 focus-visible:ring-3 focus-visible:ring-ring/50 ${
           tone === "dark"
             ? "text-white/70 hover:bg-white/10 hover:text-white"
             : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -65,7 +65,7 @@ export async function NotificationBell({
               <Link
                 key={n.id}
                 href={n.link ?? "#"}
-                className={`block border-t px-2 py-2 text-sm hover:bg-accent ${
+                className={`flex flex-col justify-center border-t px-2 py-2 text-sm pointer-coarse:min-h-11 hover:bg-accent ${
                   n.readAt ? "opacity-60" : ""
                 }`}
               >

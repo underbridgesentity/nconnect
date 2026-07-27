@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { inArray, sql } from "drizzle-orm";
 import { FileDown, AlertCircle, Star } from "lucide-react";
+import { db } from "@/lib/db/client";
+import { services } from "@/lib/db/schema";
 import {
   allPlansWithProviders,
   allHardware,
@@ -19,14 +22,21 @@ import {
   StatusMenu,
   NewPlanButton,
   NewHardwareButton,
+  CostPriceTable,
   type PlanRow,
   type HardwareRow,
+  type CostRow,
 } from "./editors";
 import { PLAN_CATEGORIES, HW_CATEGORIES } from "./constants";
 import { BundleBuilder, type BundleDraft } from "./bundle-builder";
 
 export const metadata: Metadata = { title: "Catalogue" };
 
+/**
+ * Margin in rands and as a percentage of the sell price. Percentage is the
+ * number a reseller actually manages by, and it was missing entirely.
+ * Integer cents throughout, the percentage is display only.
+ */
 function Margin({ price, cost }: { price: number; cost: number | null }) {
   if (cost == null) {
     return (
@@ -39,11 +49,21 @@ function Margin({ price, cost }: { price: number; cost: number | null }) {
     );
   }
   const margin = price - cost;
+  const percent = price > 0 ? Math.round((margin * 100) / price) : null;
   return (
-    <MoneyText
-      cents={margin}
-      className={cn("text-sm", margin < 0 && "text-destructive")}
-    />
+    <span
+      className={cn(
+        "whitespace-nowrap text-sm",
+        margin < 0 && "font-medium text-destructive"
+      )}
+    >
+      <MoneyText cents={margin} whole className="text-sm" />
+      {percent != null ? (
+        <span className="tnum ml-1 text-xs text-muted-foreground">
+          ({percent}%)
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -53,12 +73,23 @@ export default async function CataloguePage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab = "plans" } = await searchParams;
-  const [plans, hardware, providers, bundles] = await Promise.all([
+  const [plans, hardware, providers, bundles, activeCounts] = await Promise.all([
     allPlansWithProviders(),
     allHardware(),
     allProviders(),
     bundlesWithItems({ publishedOnly: false }),
+    // How many customers are still billed on each plan, so unpublishing and
+    // archiving can say what they are about to affect.
+    db
+      .select({
+        planId: services.planId,
+        n: sql<number>`count(*)::int`,
+      })
+      .from(services)
+      .where(inArray(services.status, ["active", "suspended", "provisioning"]))
+      .groupBy(services.planId),
   ]);
+  const activeByPlan = new Map(activeCounts.map((r) => [r.planId, r.n]));
 
   const providerOptions = providers.map((p) => ({ id: p.id, name: p.name }));
   const hardwareWithUrls: HardwareRow[] = await Promise.all(
@@ -118,10 +149,34 @@ export default async function CataloguePage({
       costCents: h.costCents,
     }));
 
+  const costRows: CostRow[] = [
+    ...planRows.map((p) => ({
+      kind: "plan" as const,
+      id: p.id,
+      name: p.name,
+      group: p.providerName,
+      priceCents: p.priceCents,
+      costCents: p.costCents,
+    })),
+    ...hardwareWithUrls.map((h) => ({
+      kind: "hardware" as const,
+      id: h.id,
+      name: h.name,
+      group: h.sku,
+      priceCents: h.priceCents,
+      costCents: h.costCents,
+    })),
+  ];
+  const missingCosts = costRows.filter((r) => r.costCents == null).length;
+
   const TABS = [
     { key: "plans", label: `Plans (${plans.length})` },
     { key: "hardware", label: `Hardware (${hardware.length})` },
     { key: "bundles", label: `Bundles (${bundles.length})` },
+    {
+      key: "costs",
+      label: missingCosts > 0 ? `Cost prices (${missingCosts})` : "Cost prices",
+    },
   ];
 
   return (
@@ -222,7 +277,13 @@ export default async function CataloguePage({
                           <td className="p-3">
                             <div className="flex items-center justify-end gap-0.5">
                               <PlanEditor plan={p} providers={providerOptions} />
-                              <StatusMenu kind="plan" id={p.id} status={p.status} />
+                              <StatusMenu
+                                kind="plan"
+                                id={p.id}
+                                status={p.status}
+                                name={p.name}
+                                activeServices={activeByPlan.get(p.id) ?? 0}
+                              />
                             </div>
                           </td>
                         </tr>
@@ -320,6 +381,7 @@ export default async function CataloguePage({
                                 kind="hardware"
                                 id={h.id}
                                 status={h.status}
+                                name={h.name}
                               />
                             </div>
                           </td>
@@ -395,7 +457,12 @@ export default async function CataloguePage({
                           hardwareOptions={hardwareOptions}
                           existing={draft}
                         />
-                        <StatusMenu kind="bundle" id={b.id} status={b.status} />
+                        <StatusMenu
+                          kind="bundle"
+                          id={b.id}
+                          status={b.status}
+                          name={b.name}
+                        />
                       </div>
                     </div>
                   </div>
@@ -404,6 +471,20 @@ export default async function CataloguePage({
             </div>
           )}
         </div>
+      ) : null}
+
+      {tab === "costs" ? (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold">Wholesale cost prices</h2>
+            <p className="text-sm text-muted-foreground">
+              What each provider charges Needd. Margin, the provider report
+              and the reconciliation worksheet are all blind until these are
+              filled in.
+            </p>
+          </div>
+          <CostPriceTable rows={costRows} />
+        </section>
       ) : null}
     </div>
   );

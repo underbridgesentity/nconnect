@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,19 @@ function useRun() {
   return { pending, run };
 }
 
+/**
+ * Scrolls the thread to the newest message on open and after every reply.
+ * A long conversation used to open on its first message, with the reply the
+ * operator needs to read off the bottom of the scroll container.
+ */
+export function ScrollToNewest() {
+  const anchor = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    anchor.current?.scrollIntoView({ block: "end" });
+  });
+  return <div ref={anchor} aria-hidden />;
+}
+
 export function ReplyBox({ conversationId }: { conversationId: string }) {
   const { pending, run } = useRun();
   const formRef = useRef<HTMLFormElement>(null);
@@ -51,6 +64,13 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
             : "Reply, goes out on the conversation's channel"
         }
         className={internal ? "border-amber-300 bg-amber-50" : ""}
+        onKeyDown={(event) => {
+          // Cmd/Ctrl+Enter sends, the convention every chat tool uses.
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            formRef.current?.requestSubmit();
+          }
+        }}
       />
       <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -61,9 +81,14 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
           />
           Internal note
         </label>
-        <Button type="submit" size="sm" disabled={pending}>
-          {pending ? "Sending…" : internal ? "Add note" : "Send reply"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <span className="hidden text-xs text-muted-foreground sm:inline">
+            Ctrl+Enter to send
+          </span>
+          <Button type="submit" size="sm" disabled={pending}>
+            {pending ? "Sending…" : internal ? "Add note" : "Send reply"}
+          </Button>
+        </div>
       </div>
     </form>
   );

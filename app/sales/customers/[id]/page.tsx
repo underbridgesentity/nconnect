@@ -11,6 +11,7 @@ import {
   conversations,
 } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 
@@ -119,7 +120,7 @@ export default async function SalesCustomer360({
               >
                 <span className="font-mono text-xs">{invoice.number}</span>
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {invoice.issueDate}
+                  <span className="tnum">{formatDate(invoice.issueDate)}</span>
                   <StatusPill status={invoice.status} />
                 </span>
               </div>

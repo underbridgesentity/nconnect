@@ -1,19 +1,35 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   publishedHardware,
   publishedHardwareBySku,
 } from "@/lib/domain/catalogue";
 import { fileUrl } from "@/lib/storage";
+import { formatCents } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
-import { JsonLd } from "@/components/public/json-ld";
+import {
+  JsonLd,
+  breadcrumbJsonLd,
+  offerJsonLd,
+} from "@/components/public/json-ld";
+import { PageHeader } from "@/components/public/page-header";
+import { PillLink } from "@/components/public/pill";
+import { ProductImage } from "@/components/public/product-image";
 
 export const revalidate = 3600;
 
 export async function generateStaticParams() {
   const items = await publishedHardware();
   return items.map((h) => ({ sku: h.sku }));
+}
+
+/**
+ * Catalogue images live in a public bucket in production, but fall back to an
+ * expiring local URL in development. Only an absolute, non-expiring URL is
+ * safe to hand to a scraper or to schema.org.
+ */
+function shareableImage(url: string | null): string | null {
+  return url && url.startsWith("http") ? url : null;
 }
 
 export async function generateMetadata({
@@ -24,10 +40,21 @@ export async function generateMetadata({
   const { sku } = await params;
   const item = await publishedHardwareBySku(sku);
   if (!item) return { title: "Hardware not found" };
+  const image = shareableImage(
+    item.imagePath ? await fileUrl("catalogue", item.imagePath) : null
+  );
+  const price = formatCents(item.priceCents, { whole: true });
   return {
-    title: `${item.name}, R${Math.round(item.priceCents / 100)}`,
+    title: `${item.name}, ${price}`,
     description: item.description ?? item.name,
     alternates: { canonical: `/hardware/${item.sku}` },
+    openGraph: {
+      title: `${item.name}, ${price}`,
+      description: item.description ?? item.name,
+      url: `/hardware/${item.sku}`,
+      type: "website",
+      ...(image ? { images: [image] } : {}),
+    },
   };
 }
 
@@ -44,9 +71,10 @@ export default async function HardwareDetailPage({
   const imageUrl = item.imagePath
     ? await fileUrl("catalogue", item.imagePath)
     : null;
+  const schemaImage = shareableImage(imageUrl);
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10">
+    <>
       <JsonLd
         data={{
           "@context": "https://schema.org",
@@ -55,75 +83,76 @@ export default async function HardwareDetailPage({
           sku: item.sku,
           description: item.description ?? undefined,
           url: `${appUrl}/hardware/${item.sku}`,
-          offers: {
-            "@type": "Offer",
-            price: (item.priceCents / 100).toFixed(2),
-            priceCurrency: "ZAR",
-            availability:
-              item.stockQty > 0
-                ? "https://schema.org/InStock"
-                : "https://schema.org/PreOrder",
-          },
+          ...(schemaImage ? { image: [schemaImage] } : {}),
+          offers: offerJsonLd({
+            appUrl,
+            path: `/hardware/${item.sku}`,
+            priceCents: item.priceCents,
+            inStock: item.stockQty > 0,
+          }),
         }}
       />
-      <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
-        <Link href="/" className="hover:text-foreground">
-          Home
-        </Link>{" "}
-        /{" "}
-        <Link href="/hardware" className="hover:text-foreground">
-          Hardware
-        </Link>{" "}
-        / {item.name}
-      </nav>
+      <JsonLd
+        data={breadcrumbJsonLd(appUrl, [
+          { name: "Home", path: "/" },
+          { name: "Hardware", path: "/hardware" },
+          { name: item.name, path: `/hardware/${item.sku}` },
+        ])}
+      />
 
-      <div className="mt-6 grid gap-8 md:grid-cols-2">
-        <div className="flex items-center justify-center rounded-lg border bg-card p-8">
-          {imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- storage URLs
-            <img
-              src={imageUrl}
-              alt={item.name}
-              className="max-h-64 object-contain"
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Image coming soon</p>
-          )}
-        </div>
-        <div>
-          <p className="font-mono text-xs text-muted-foreground">{item.sku}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{item.name}</h1>
-          <p className="mt-3">
-            <MoneyText
-              cents={item.priceCents}
-              whole
-              className="text-3xl font-semibold"
-            />
-          </p>
-          {item.description ? (
-            <p className="mt-3 text-muted-foreground">{item.description}</p>
-          ) : null}
-          <div className="mt-6 rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-            Hardware is added to your order during signup, or quoted with a
-            plan by our team, there&apos;s no standalone checkout. Pick your
-            plan first and we&apos;ll suggest the right device.
-          </div>
-          <div className="mt-4 flex gap-3">
-            <Link
-              href="/internet"
-              className="flex touch-target items-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              Browse plans
-            </Link>
-            <Link
-              href="/contact"
-              className="flex touch-target items-center rounded-md border px-5 text-sm font-medium hover:bg-accent"
-            >
-              Ask about this device
-            </Link>
+      <PageHeader
+        size="compact"
+        eyebrow={<span className="font-mono normal-case">{item.sku}</span>}
+        title={item.name}
+        breadcrumb={[
+          { label: "Home", href: "/" },
+          { label: "Hardware", href: "/hardware" },
+          { label: item.name },
+        ]}
+        stats={[
+          {
+            label: "Once-off",
+            value: <MoneyText cents={item.priceCents} whole />,
+          },
+        ]}
+      />
+
+      <div className="mx-auto max-w-5xl px-4 py-14">
+        <div className="grid gap-10 md:grid-cols-2">
+          <ProductImage
+            src={imageUrl}
+            alt={item.name}
+            ratio="1/1"
+            className="border bg-card p-8"
+          />
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">
+              About this device
+            </h2>
+            {item.description ? (
+              <p className="mt-3 text-base leading-7 text-foreground/85">
+                {item.description}
+              </p>
+            ) : (
+              <p className="mt-3 text-base leading-7 text-muted-foreground">
+                Full specifications for this device are on request. Ask us and
+                we will send them through.
+              </p>
+            )}
+            <div className="mt-6 rounded-2xl border bg-accent/40 p-5 text-sm leading-6 text-foreground/80">
+              Hardware is added to your order during signup, or quoted with a
+              plan by our team, there is no standalone checkout. Pick your plan
+              first and we will suggest the right device.
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <PillLink href="/internet">Browse plans</PillLink>
+              <PillLink href="/contact" variant="outline">
+                Ask about this device
+              </PillLink>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -1,7 +1,8 @@
 import "server-only";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
-import { leads, provisioningTasks } from "@/lib/db/schema";
+import { leads, provisioningTasks, users, notifications } from "@/lib/db/schema";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { normalizePhone } from "@/lib/auth/otp";
@@ -65,7 +66,58 @@ export async function createLead(
     return { leadId: lead.id, eventId };
   });
   await forwardDomainEvent(eventId);
+  await bellSalesOnNewLead(leadId, data, phone);
   return leadId;
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  web_coverage: "coverage check",
+  web_abandoned: "abandoned signup",
+  manual: "walk-in",
+  referral: "referral",
+};
+
+/**
+ * Speed to lead decides reseller conversion, so an unclaimed lead has to
+ * announce itself. Every active rep gets the bell (admins if there are no
+ * reps yet) and the first to claim it owns it.
+ *
+ * Deliberately outside the lead transaction and never allowed to throw: a
+ * failed notification must not lose the lead that a customer just gave us.
+ */
+async function bellSalesOnNewLead(
+  leadId: string,
+  data: z.infer<typeof leadInput>,
+  phone: string
+): Promise<void> {
+  try {
+    const reps = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, "sales"), eq(users.status, "active")));
+    const recipients = reps.length
+      ? reps
+      : await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.role, "admin"), eq(users.status, "active")));
+    if (recipients.length === 0) return;
+
+    const detail =
+      [data.interest, data.addressText].filter(Boolean).join(" · ") ||
+      "No detail beyond the number, call to qualify.";
+    await db.insert(notifications).values(
+      recipients.map((user) => ({
+        userId: user.id,
+        type: "lead_created",
+        title: `New ${SOURCE_LABEL[data.source] ?? data.source} lead: ${data.name}`,
+        body: `${phone}. ${detail}`.slice(0, 300),
+        link: `/sales/leads/${leadId}`,
+      }))
+    );
+  } catch (err) {
+    console.error(`lead ${leadId}: sales bell failed`, err);
+  }
 }
 
 /** Close a feasibility task from its lead (Today queue action). */

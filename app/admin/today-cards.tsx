@@ -5,10 +5,19 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StatusPill } from "@/components/shared/status-pill";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { formatDate } from "@/lib/format";
+import { Check, ChevronDown, Copy, Eye, EyeOff, FileText } from "lucide-react";
 import {
   toggleChecklistAction,
   completeTaskAction,
@@ -219,88 +228,246 @@ export type RicaCardData = {
   createdAt: string;
 };
 
+type RicaDocs = {
+  idDocUrl: string | null;
+  poaDocUrl: string | null;
+  idNumber: string;
+};
+
+/** Selectable ID number with a reveal toggle and a copy button. */
+function IdNumberField({ idNumber }: { idNumber: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-muted-foreground">ID number</span>
+      <code className="select-all rounded-md bg-muted px-2 py-1 font-mono text-sm tracking-wide">
+        {revealed ? idNumber : "•".repeat(idNumber.length || 13)}
+      </code>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setRevealed((v) => !v)}
+        aria-pressed={revealed}
+      >
+        {revealed ? (
+          <>
+            <EyeOff className="size-3.5" aria-hidden /> Hide
+          </>
+        ) : (
+          <>
+            <Eye className="size-3.5" aria-hidden /> Reveal
+          </>
+        )}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(idNumber);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          } catch {
+            toast.error("Could not copy, reveal it and select the number");
+          }
+        }}
+      >
+        {copied ? (
+          <>
+            <Check className="size-3.5" aria-hidden /> Copied
+          </>
+        ) : (
+          <>
+            <Copy className="size-3.5" aria-hidden /> Copy
+          </>
+        )}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * RICA verification (§13). The documents, the ID number and both decisions
+ * live in one dialog: the old flow awaited a server action and then called
+ * window.open twice, which browsers block because the await consumes the
+ * user gesture, and it put an unmasked 13-digit ID number in a toast that
+ * vanished after 15 seconds.
+ */
 export function RicaCard({ record }: { record: RicaCardData }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [docs, setDocs] = useState<RicaDocs | null>(null);
   const [rejecting, setRejecting] = useState(false);
 
-  const viewDocs = () =>
+  const openDialog = () => {
+    setOpen(true);
+    setRejecting(false);
+    if (docs) return;
     startTransition(async () => {
       const r = await ricaDocUrlsAction(record.id);
       if (!r.ok) {
         toast.error(r.error);
+        setOpen(false);
         return;
       }
-      if (r.idDocUrl) window.open(r.idDocUrl, "_blank", "noopener");
-      if (r.poaDocUrl) window.open(r.poaDocUrl, "_blank", "noopener");
-      toast.info(`ID number: ${r.idNumber}`, { duration: 15000 });
+      setDocs({
+        idDocUrl: r.idDocUrl,
+        poaDocUrl: r.poaDocUrl,
+        idNumber: r.idNumber,
+      });
     });
+  };
+
+  const documents: [string, string | null][] = [
+    ["Identity document", docs?.idDocUrl ?? null],
+    ["Proof of address", docs?.poaDocUrl ?? null],
+  ];
 
   return (
     <div className="rounded-lg border bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="font-medium">{record.customerName}</p>
           <p className="font-mono text-sm text-muted-foreground">
             {record.maskedId}
           </p>
+          <p className="text-xs text-muted-foreground">
+            Submitted {formatDate(record.createdAt)}
+          </p>
         </div>
-        <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={viewDocs} disabled={pending}>
-            <ExternalLink className="size-3.5" /> View docs
-          </Button>
-          <Button
-            size="sm"
-            disabled={pending}
-            onClick={() =>
-              startTransition(async () => {
-                const r = await verifyRicaAction(record.id);
-                if (!r.ok) toast.error(r.error);
-                else {
-                  toast.success("RICA verified");
-                  router.refresh();
-                }
-              })
-            }
-          >
-            Verify
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={pending}
-            onClick={() => setRejecting((v) => !v)}
-          >
-            Reject
-          </Button>
-        </div>
+        <Button size="sm" onClick={openDialog} disabled={pending}>
+          <FileText className="size-3.5" aria-hidden /> Check documents
+        </Button>
       </div>
-      {rejecting ? (
-        <form
-          className="mt-2 flex gap-2"
-          action={(form) =>
-            startTransition(async () => {
-              const r = await rejectRicaAction(form);
-              if (!r.ok) toast.error(r.error);
-              else {
-                toast.success("RICA rejected, customer must resubmit");
-                router.refresh();
-              }
-            })
-          }
-        >
-          <input type="hidden" name="ricaId" value={record.id} />
-          <Input
-            name="reason"
-            placeholder="Reason (sent to the customer)"
-            required
-            className="flex-1"
-          />
-          <Button type="submit" size="sm" variant="destructive" disabled={pending}>
-            Confirm reject
-          </Button>
-        </form>
-      ) : null}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Verify RICA: {record.customerName}</DialogTitle>
+            <DialogDescription>
+              Compare the ID number against the document. Every document view
+              is logged and records are kept for five years after termination.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!docs ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Loading documents…
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <IdNumberField idNumber={docs.idNumber} />
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {documents.map(([label, url]) => (
+                  <div key={label} className="space-y-1.5">
+                    <p className="text-xs font-medium">{label}</p>
+                    {url ? (
+                      <>
+                        <iframe
+                          src={url}
+                          title={`${label} for ${record.customerName}`}
+                          className="h-72 w-full rounded-lg border bg-muted"
+                        />
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          Open full size
+                        </a>
+                      </>
+                    ) : (
+                      <p className="rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
+                        Not uploaded. Reject and ask the customer to submit it.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {rejecting ? (
+                <form
+                  className="space-y-2 rounded-lg border border-dashed p-3"
+                  action={(form) =>
+                    startTransition(async () => {
+                      const r = await rejectRicaAction(form);
+                      if (!r.ok) toast.error(r.error);
+                      else {
+                        toast.success("RICA rejected, customer must resubmit");
+                        setOpen(false);
+                        router.refresh();
+                      }
+                    })
+                  }
+                >
+                  <input type="hidden" name="ricaId" value={record.id} />
+                  <Label htmlFor={`rica-reason-${record.id}`}>
+                    Why is this being rejected? (sent to the customer)
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      id={`rica-reason-${record.id}`}
+                      name="reason"
+                      placeholder="e.g. the ID photo is unreadable"
+                      required
+                      autoFocus
+                      className="min-w-52 flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRejecting(false)}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="destructive"
+                      disabled={pending}
+                    >
+                      Confirm reject
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+                  <Button
+                    variant="destructive"
+                    disabled={pending}
+                    onClick={() => setRejecting(true)}
+                  >
+                    Reject…
+                  </Button>
+                  <Button
+                    disabled={pending}
+                    onClick={() =>
+                      startTransition(async () => {
+                        const r = await verifyRicaAction(record.id);
+                        if (!r.ok) toast.error(r.error);
+                        else {
+                          toast.success("RICA verified");
+                          setOpen(false);
+                          router.refresh();
+                        }
+                      })
+                    }
+                  >
+                    {pending ? "Working…" : "Verify"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

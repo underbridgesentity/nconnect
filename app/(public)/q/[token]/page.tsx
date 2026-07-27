@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Check } from "lucide-react";
-import { quoteByToken } from "@/lib/domain/quotes";
+import { eq } from "drizzle-orm";
+import { Check, MessageCircle, RefreshCw } from "lucide-react";
+import { db } from "@/lib/db/client";
+import { orders } from "@/lib/db/schema";
+import { quoteDocument } from "@/lib/domain/quotes";
+import { formatCents } from "@/lib/money";
+import { formatDateLong } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
+import { ResumePaymentButton } from "./resume";
 
 export const metadata: Metadata = {
   title: "Your quote",
@@ -11,9 +17,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * Public quote link (spec §9.1): renders line items, totals and validity;
- * marks `viewed`; the accept button enters checkout with pricing locked to
- * the quote snapshots.
+ * Public quote link (spec §9.1). The document states both figures the customer
+ * is committing to: what is taken on acceptance, and what recurs every month
+ * afterwards. It also recovers the case where an order exists but the payment
+ * never landed, which used to leave the customer with no way to pay.
  */
 export default async function QuotePage({
   params,
@@ -21,66 +28,238 @@ export default async function QuotePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const result = await quoteByToken(token);
+  const result = await quoteDocument(token);
   if (!result) notFound();
-  const { quote, items, expired } = result;
+  const { quote, expired, breakdown, rep, company, recipientName } = result;
+
+  // Drive the outcome off the order, not the quote status: an order sitting at
+  // pending_payment means the customer still owes us the payment.
+  const [order] = quote.acceptedOrderId
+    ? await db
+        .select({
+          number: orders.number,
+          status: orders.status,
+          totalCents: orders.totalCents,
+        })
+        .from(orders)
+        .where(eq(orders.id, quote.acceptedOrderId))
+        .limit(1)
+    : [];
+  const awaitingPayment = order?.status === "pending_payment";
+  const paid = order != null && !awaitingPayment;
+
+  const repWhatsApp = rep?.phone
+    ? `https://wa.me/${rep.phone.replace(/\D/g, "")}`
+    : null;
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
-      <p className="text-sm text-muted-foreground">Your Needd Connect quote</p>
-      <h1 className="text-2xl font-semibold tracking-tight">{quote.number}</h1>
+      <header className="border-b pb-5">
+        <p className="text-sm text-muted-foreground">Your Needd Connect quote</p>
+        <h1 className="font-mono text-2xl font-semibold tracking-tight">
+          {quote.number}
+        </h1>
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          {recipientName ? (
+            <>
+              <dt className="text-muted-foreground">Prepared for</dt>
+              <dd className="font-medium">{recipientName}</dd>
+            </>
+          ) : null}
+          <dt className="text-muted-foreground">Issued</dt>
+          <dd className="tnum">{formatDateLong(quote.createdAt)}</dd>
+          {quote.expiresAt ? (
+            <>
+              <dt className="text-muted-foreground">
+                {expired ? "Expired" : "Valid until"}
+              </dt>
+              <dd className="tnum">{formatDateLong(quote.expiresAt)}</dd>
+            </>
+          ) : null}
+          {rep?.name ? (
+            <>
+              <dt className="text-muted-foreground">Your consultant</dt>
+              <dd className="font-medium">{rep.name}</dd>
+            </>
+          ) : null}
+        </dl>
+      </header>
 
-      <div className="mt-6 rounded-lg border bg-card">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-start justify-between gap-3 border-b p-3 text-sm last:border-0"
-          >
-            <span>
-              {item.nameSnapshot}
-              {item.qty > 1 ? ` × ${item.qty}` : ""}
-              {item.discountCents > 0 ? (
-                <span className="block text-xs text-emerald-700">
-                  includes <MoneyText cents={item.discountCents} /> discount
-                </span>
-              ) : null}
-            </span>
-            <MoneyText
-              cents={(item.unitPriceCentsSnapshot - item.discountCents) * item.qty}
-            />
+      <section className="mt-6" aria-labelledby="pay-now-heading">
+        <h2 id="pay-now-heading" className="text-sm font-semibold">
+          Pay now on acceptance
+        </h2>
+        <div className="mt-2 overflow-hidden rounded-2xl border bg-card">
+          {breakdown.lines.map((line) => (
+            <div
+              key={line.id}
+              className="flex items-start justify-between gap-3 border-b p-3 text-sm last:border-0"
+            >
+              <span>
+                {line.name}
+                {line.qty > 1 ? ` × ${line.qty}` : ""}
+                {line.discountCents > 0 ? (
+                  <span className="block text-xs text-emerald-700">
+                    includes <MoneyText cents={line.discountCents} /> discount
+                  </span>
+                ) : null}
+                {line.monthlyCents != null ? (
+                  <span className="block text-xs text-muted-foreground">
+                    first month plus once-off fees
+                  </span>
+                ) : null}
+              </span>
+              <MoneyText cents={line.payNowCents} />
+            </div>
+          ))}
+          <div className="flex items-center justify-between bg-muted/40 p-3 font-semibold">
+            <span>Total due on acceptance</span>
+            <MoneyText cents={breakdown.payNowCents} />
           </div>
-        ))}
-        <div className="flex items-center justify-between p-3 font-semibold">
-          <span>Total due on acceptance</span>
-          <MoneyText cents={quote.totalCents} />
         </div>
-      </div>
+      </section>
 
-      <p className="mt-3 text-xs text-muted-foreground">
-        {expired
-          ? "This quote has expired, message your rep for a refreshed one; prices may have changed."
-          : quote.expiresAt
-            ? `Valid until ${quote.expiresAt.toISOString().slice(0, 10)}. Prices are locked for you until then.`
-            : ""}
-      </p>
+      {breakdown.hasRecurring ? (
+        <section className="mt-5" aria-labelledby="monthly-heading">
+          <h2 id="monthly-heading" className="text-sm font-semibold">
+            Then per month
+          </h2>
+          <div className="mt-2 overflow-hidden rounded-2xl border bg-card">
+            {breakdown.lines
+              .filter((line) => line.monthlyCents != null)
+              .map((line) => (
+                <div
+                  key={`m-${line.id}`}
+                  className="flex items-start justify-between gap-3 border-b p-3 text-sm last:border-0"
+                >
+                  <span>
+                    {line.name}
+                    {line.qty > 1 ? ` × ${line.qty}` : ""}
+                  </span>
+                  <span>
+                    <MoneyText cents={line.monthlyCents ?? 0} />
+                    <span className="text-muted-foreground"> /month</span>
+                  </span>
+                </div>
+              ))}
+            <div className="flex items-center justify-between bg-muted/40 p-3 font-semibold">
+              <span>Monthly from your second month</span>
+              <span>
+                <MoneyText cents={breakdown.monthlyCents} />
+                <span className="font-normal text-muted-foreground"> /month</span>
+              </span>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            This is an ongoing monthly subscription. Your first invoice is only
+            for the month after activation, the month you pay on acceptance
+            starts when the service works. Monthly billing runs on the same date
+            each month and you can cancel with one calendar month&apos;s notice.
+          </p>
+          {!breakdown.monthlyMatchesQuote ? (
+            <p className="mt-2 text-xs font-medium text-amber-700">
+              The catalogue price of one of these lines has changed since this
+              quote was issued. The amount due on acceptance is still locked to
+              the quote; ask {rep?.name ?? "your consultant"} to reissue it if you
+              want the monthly figure locked too.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
-      {quote.status === "accepted" ? (
-        <p className="mt-6 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-          <Check className="size-4" aria-hidden />
-          Accepted, your order is in. We&apos;ll take it from here.
+      {expired && !order ? (
+        <div className="mt-6 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-medium text-amber-900">
+            This quote link has expired.
+          </p>
+          <p className="text-sm text-amber-900">
+            Prices move, so we do not let an old quote check out at a price we
+            can no longer honour.{" "}
+            {rep?.name
+              ? `${rep.name} can send you a fresh one in a minute.`
+              : "Message us and we will send a fresh one in a minute."}
+          </p>
+          {repWhatsApp ? (
+            <a
+              href={repWhatsApp}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex touch-target items-center gap-2 rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
+            >
+              <MessageCircle className="size-4" aria-hidden />
+              WhatsApp {rep?.name ?? "us"} for a fresh quote
+            </a>
+          ) : (
+            <Link
+              href="/contact"
+              className="inline-flex touch-target items-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
+            >
+              Ask for a fresh quote
+            </Link>
+          )}
+        </div>
+      ) : paid ? (
+        <p className="mt-6 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <Check className="size-4 shrink-0" aria-hidden />
+          Accepted and paid, order {order?.number}. We&apos;ll take it from here.
         </p>
-      ) : expired ? null : (
+      ) : awaitingPayment ? (
+        <div className="mt-6 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <p className="flex items-center gap-2 text-sm font-medium text-amber-900">
+            <RefreshCw className="size-4 shrink-0" aria-hidden />
+            Payment not completed
+          </p>
+          <p className="text-sm text-amber-900">
+            We have your details and order {order?.number} is waiting, but the
+            payment did not go through. Nothing has been charged. Pick up where
+            you left off and your quoted price still applies.
+          </p>
+          <ResumePaymentButton
+            token={token}
+            label={`Resume payment of ${formatCents(order?.totalCents ?? 0)}`}
+          />
+          {repWhatsApp ? (
+            <a
+              href={repWhatsApp}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex text-sm font-medium text-amber-900 underline underline-offset-4"
+            >
+              Rather sort it out with {rep?.name ?? "your consultant"} on WhatsApp
+            </a>
+          ) : null}
+        </div>
+      ) : (
         <Link
           href={`/q/${token}/accept`}
-          className="mt-6 flex touch-target items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="mt-6 flex touch-target items-center justify-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
         >
-          Accept &amp; pay securely
+          Accept and pay securely
         </Link>
       )}
-      <p className="mt-3 text-center text-xs text-muted-foreground">
-        Questions? Reply to your rep on WhatsApp, the quote stays exactly as
-        shown.
-      </p>
+
+      {!expired && !order ? (
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          Questions? {rep?.name ? `${rep.name} wrote this quote.` : ""} Reply on
+          WhatsApp, the quote stays exactly as shown.
+        </p>
+      ) : null}
+
+      <footer className="mt-8 border-t pt-4 text-xs text-muted-foreground">
+        {company ? (
+          <>
+            <p>
+              {company.legalName} · Reg {company.reg} · VAT {company.vat}
+            </p>
+            <p>
+              {company.phone} · {company.email} · {company.website}
+            </p>
+            <p className="mt-1">All amounts shown include VAT.</p>
+          </>
+        ) : (
+          <p>All amounts shown include VAT.</p>
+        )}
+      </footer>
     </div>
   );
 }

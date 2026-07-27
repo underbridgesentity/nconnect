@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { runAction } from "@/app/portal/_lib/run-action";
 import {
   updateProfileAction,
   updateMarketingConsentAction,
@@ -31,7 +32,7 @@ export function ProfileForm({
       className="mt-2 space-y-3"
       action={(form) =>
         startTransition(async () => {
-          const r = await updateProfileAction(form);
+          const r = await runAction(() => updateProfileAction(form));
           if (r.ok) {
             toast.success("Profile saved");
             router.refresh();
@@ -54,13 +55,13 @@ export function ProfileForm({
         <Input id="email" name="email" type="email" defaultValue={email} />
       </div>
       <div className="space-y-1.5">
-        <Label>Cellphone (your sign-in)</Label>
-        <Input value={phone} disabled />
+        <Label htmlFor="phone">Cellphone (your sign-in)</Label>
+        <Input id="phone" value={phone} disabled />
         <p className="text-xs text-muted-foreground">
           Changing your number needs a quick identity check, ask us in Help.
         </p>
       </div>
-      <Button type="submit" size="sm" disabled={pending}>
+      <Button type="submit" className="touch-target" disabled={pending}>
         {pending ? "Saving…" : "Save profile"}
       </Button>
     </form>
@@ -81,31 +82,40 @@ export function MarketingToggles({
     granted: boolean
   ) =>
     startTransition(async () => {
-      const r = await updateMarketingConsentAction(kind, granted);
+      const r = await runAction(() =>
+        updateMarketingConsentAction(kind, granted)
+      );
       if (r.ok) {
         toast.success("Preference saved");
         router.refresh();
       } else toast.error(r.error ?? "Failed");
     });
 
+  // Base UI's Switch renders an element with role="switch", not a labelable
+  // control, so a wrapping <label> would name nothing. Point the switch at the
+  // text with aria-labelledby instead.
   return (
     <div className="mt-3 space-y-3">
-      <label className="flex items-center justify-between text-sm">
-        <span>Deals on WhatsApp</span>
+      <div className="flex touch-target items-center justify-between text-sm">
+        <span id="marketing-whatsapp-label">Deals on WhatsApp</span>
         <Switch
+          id="marketing-whatsapp"
+          aria-labelledby="marketing-whatsapp-label"
           checked={whatsapp}
           disabled={pending}
           onCheckedChange={(v) => toggle("marketing_whatsapp", v === true)}
         />
-      </label>
-      <label className="flex items-center justify-between text-sm">
-        <span>Deals by email</span>
+      </div>
+      <div className="flex touch-target items-center justify-between text-sm">
+        <span id="marketing-email-label">Deals by email</span>
         <Switch
+          id="marketing-email"
+          aria-labelledby="marketing-email-label"
           checked={email}
           disabled={pending}
           onCheckedChange={(v) => toggle("marketing_email", v === true)}
         />
-      </label>
+      </div>
     </div>
   );
 }
@@ -124,12 +134,11 @@ export function RequestDataButton() {
   return (
     <Button
       variant="outline"
-      size="sm"
-      className="mt-2"
+      className="mt-2 touch-target"
       disabled={pending}
       onClick={() =>
         startTransition(async () => {
-          const r = await requestMyDataAction();
+          const r = await runAction(() => requestMyDataAction());
           if (r.ok) setDone(true);
           else toast.error(r.error ?? "Failed");
         })

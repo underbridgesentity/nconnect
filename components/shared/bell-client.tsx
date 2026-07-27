@@ -10,7 +10,7 @@ export function MarkAllReadButton() {
   return (
     <button
       type="button"
-      className="text-xs text-primary hover:underline disabled:opacity-50"
+      className="-mr-1 inline-flex items-center rounded-full px-1 text-xs text-primary pointer-coarse:min-h-11 hover:underline disabled:opacity-50"
       disabled={pending}
       onClick={() =>
         startTransition(async () => {

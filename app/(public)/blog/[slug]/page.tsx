@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import { allPosts, postBySlug } from "@/lib/blog";
+import { formatDateLong } from "@/lib/format";
+import { JsonLd, breadcrumbJsonLd } from "@/components/public/json-ld";
+import { PageHeader } from "@/components/public/page-header";
+import { PillLink } from "@/components/public/pill";
+import { Prose } from "@/components/public/prose";
 
 export async function generateStaticParams() {
   const posts = await allPosts();
@@ -21,11 +25,14 @@ export async function generateMetadata({
     title: post.title,
     description: post.description,
     alternates: { canonical: `/blog/${post.slug}` },
+    authors: [{ name: post.author }],
     openGraph: {
       title: post.title,
       description: post.description,
+      url: `/blog/${post.slug}`,
       type: "article",
       publishedTime: post.date,
+      authors: [post.author],
     },
   };
 }
@@ -39,26 +46,75 @@ export default async function BlogPostPage({
   const post = await postBySlug(slug);
   if (!post) notFound();
 
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+
   return (
-    <article className="mx-auto max-w-3xl px-4 py-10">
-      <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
-        <Link href="/blog" className="hover:text-foreground">
-          Blog
-        </Link>{" "}
-        / {post.title}
-      </nav>
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight">{post.title}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        {post.author} ·{" "}
-        <time dateTime={post.date}>
-          {new Intl.DateTimeFormat("en-ZA", { dateStyle: "long" }).format(
-            new Date(post.date)
-          )}
-        </time>
-      </p>
-      <div className="mt-8 space-y-4 text-[15px] leading-relaxed text-foreground/90 [&_a]:text-primary [&_a]:underline-offset-2 hover:[&_a]:underline [&_h2]:mt-8 [&_h2]:text-xl [&_h2]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_ul]:list-disc">
-        <MDXRemote source={post.content} />
-      </div>
-    </article>
+    <>
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "BlogPosting",
+          headline: post.title,
+          description: post.description || undefined,
+          datePublished: post.date || undefined,
+          author: { "@type": "Person", name: post.author },
+          publisher: {
+            "@type": "Organization",
+            name: "Needd Connect",
+            logo: {
+              "@type": "ImageObject",
+              url: `${appUrl}/brand/icon-512.png`,
+            },
+          },
+          mainEntityOfPage: {
+            "@type": "WebPage",
+            "@id": `${appUrl}/blog/${post.slug}`,
+          },
+        }}
+      />
+      <JsonLd
+        data={breadcrumbJsonLd(appUrl, [
+          { name: "Home", path: "/" },
+          { name: "Blog", path: "/blog" },
+          { name: post.title, path: `/blog/${post.slug}` },
+        ])}
+      />
+
+      <PageHeader
+        size="compact"
+        eyebrow={
+          <>
+            {post.author}
+            {post.date ? ` | ${formatDateLong(post.date)}` : ""}
+          </>
+        }
+        title={post.title}
+        breadcrumb={[
+          { label: "Home", href: "/" },
+          { label: "Blog", href: "/blog" },
+        ]}
+      >
+        {post.description ? <p>{post.description}</p> : null}
+      </PageHeader>
+
+      <article className="mx-auto max-w-3xl px-4 py-14">
+        <Prose
+          flow="flow"
+          className="text-[17px] leading-[1.75] [&_h2]:text-xl"
+        >
+          <MDXRemote source={post.content} />
+        </Prose>
+        <div className="mt-12 flex flex-wrap items-center gap-4 rounded-3xl border bg-card p-6">
+          <p className="flex-1 text-sm leading-6 text-foreground/80">
+            Wondering how this applies at your address? We check coverage
+            before you pay a cent.
+          </p>
+          <PillLink href="/coverage">Check coverage</PillLink>
+          <PillLink href="/blog" variant="outline">
+            More guides
+          </PillLink>
+        </div>
+      </article>
+    </>
   );
 }

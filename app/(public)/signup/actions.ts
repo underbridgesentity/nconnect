@@ -4,13 +4,33 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import sharp from "sharp";
-import { readDraft, writeDraft } from "@/lib/domain/signup";
+import {
+  readDraft,
+  writeDraft,
+  startNewDraftOrder,
+  classifyLeadError,
+  type SignupDraftState,
+} from "@/lib/domain/signup";
 import { requestOtp, verifyOtp, OtpRateLimitError } from "@/lib/auth/otp";
-import { findOrCreateCustomer, createOrder, priceCart } from "@/lib/domain/orders";
+import {
+  findOrCreateCustomer,
+  createOrder,
+  priceCart,
+  orderMatchesCart,
+  cancelStaleOrder,
+} from "@/lib/domain/orders";
 import { createLead } from "@/lib/domain/leads";
 import { uploadFile, randomFileName } from "@/lib/storage";
 
 export type WizardResult = { ok: boolean; error?: string };
+
+/**
+ * Anything that changes what is being bought, or where it goes, drops the
+ * order the customer may already have created at review. The next checkout
+ * then re-prices and rebuilds it, so the amount charged always equals the
+ * amount on screen (spec §9.2).
+ */
+const DROP_ORDER = { orderId: null, orderNumber: null } as const;
 
 // ------------------------------------------------------------------ step 1
 
@@ -18,8 +38,9 @@ export async function chooseSelectionAction(form: FormData): Promise<void> {
   const planSlug = String(form.get("planSlug") ?? "") || undefined;
   const bundleSlug = String(form.get("bundleSlug") ?? "") || undefined;
   await writeDraft({
-    planSlug: bundleSlug ? undefined : planSlug,
-    bundleSlug,
+    ...DROP_ORDER,
+    planSlug: bundleSlug ? null : planSlug,
+    bundleSlug: bundleSlug ?? null,
     step: 1,
   });
   redirect("/signup?step=1");
@@ -33,7 +54,7 @@ export async function toggleHardwareAction(form: FormData): Promise<void> {
   const next = existing
     ? hardware.filter((h) => h.sku !== sku)
     : [...hardware, { sku, qty: 1 }];
-  await writeDraft({ hardware: next });
+  await writeDraft({ ...DROP_ORDER, hardware: next });
   redirect("/signup?step=1");
 }
 
@@ -46,11 +67,18 @@ export async function continueToAddressAction(form: FormData): Promise<void> {
   const effectiveBundle = bundleSlug ?? draft.bundleSlug;
   if (!effectivePlan && !effectiveBundle) redirect("/signup?step=1");
   await writeDraft({
-    planSlug: effectiveBundle ? undefined : effectivePlan,
-    bundleSlug: effectiveBundle,
+    ...DROP_ORDER,
+    planSlug: effectiveBundle ? null : effectivePlan,
+    bundleSlug: effectiveBundle ?? null,
     step: 2,
   });
   redirect("/signup?step=2");
+}
+
+/** Buy something else after a completed order, without losing the account. */
+export async function startNewOrderAction(): Promise<void> {
+  await startNewDraftOrder();
+  redirect("/signup?step=1");
 }
 
 // ------------------------------------------------------------------ step 2
@@ -65,16 +93,34 @@ const addressSchema = z.object({
 });
 
 export async function submitAddressAction(form: FormData): Promise<void> {
+  const typed = {
+    line1: String(form.get("line1") ?? "").trim(),
+    line2: String(form.get("line2") ?? "").trim(),
+    suburb: String(form.get("suburb") ?? "").trim(),
+    city: String(form.get("city") ?? "").trim(),
+    province: String(form.get("province") ?? "").trim(),
+    postalCode: String(form.get("postalCode") ?? "").trim(),
+  };
   const parsed = addressSchema.safeParse({
-    line1: form.get("line1"),
-    line2: String(form.get("line2") ?? "") || undefined,
-    suburb: String(form.get("suburb") ?? "") || undefined,
-    city: form.get("city"),
-    province: String(form.get("province") ?? "") || undefined,
-    postalCode: String(form.get("postalCode") ?? "") || undefined,
+    line1: typed.line1,
+    line2: typed.line2 || undefined,
+    suburb: typed.suburb || undefined,
+    city: typed.city,
+    province: typed.province || undefined,
+    postalCode: typed.postalCode || undefined,
   });
   if (!parsed.success) {
-    redirect("/signup?step=2&error=address");
+    // Keep every character they typed: retyping an address on a phone is
+    // where checkouts die. The form re-renders populated.
+    await writeDraft({ ...DROP_ORDER, addressInput: typed });
+    const missing = parsed.error.issues
+      .map((i) => String(i.path[0]))
+      .filter((f) => f === "line1" || f === "city");
+    redirect(
+      `/signup?step=2&error=address${
+        missing.length ? `&fields=${missing.join(",")}` : ""
+      }`
+    );
   }
 
   const draft = await readDraft();
@@ -95,7 +141,9 @@ export async function submitAddressAction(form: FormData): Promise<void> {
   }
 
   await writeDraft({
+    ...DROP_ORDER,
     address: parsed.data,
+    addressInput: null,
     coverageResult: isFibre ? "fibre-feasibility" : "lte-ok",
     step: isFibre ? 2 : 3,
   });
@@ -132,10 +180,20 @@ export async function fibreFeasibilityAction(form: FormData): Promise<void> {
       addressText,
       feasibilityTask: true,
     });
-  } catch {
-    redirect("/signup?step=2&fibre=1&error=phone");
+  } catch (err) {
+    const reason = classifyLeadError(err);
+    if (reason === "system") {
+      console.error("fibre feasibility lead capture failed:", err);
+    }
+    redirect(`/signup?step=2&fibre=1&error=${reason}`);
   }
-  await writeDraft({ abandonedLeadCaptured: true });
+  // Keep who we promised to come back to: the confirmation page repeats it
+  // so the customer can see we captured the right number, and a later signup
+  // starts prefilled.
+  await writeDraft({
+    contact: { name, phone, ...(draft.contact?.email ? { email: draft.contact.email } : {}) },
+    abandonedLeadCaptured: true,
+  });
   redirect("/signup/feasibility-promised");
 }
 
@@ -147,31 +205,164 @@ const contactSchema = z.object({
   email: z.string().email().optional(),
 });
 
-export async function requestSignupOtpAction(
-  form: FormData
-): Promise<WizardResult> {
-  const parsed = contactSchema.safeParse({
-    name: form.get("name"),
-    phone: form.get("phone"),
-    email: String(form.get("email") ?? "") || undefined,
-  });
-  if (!parsed.success) {
-    return { ok: false, error: "Check your name and cellphone number" };
-  }
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
+/** OTP lifetime in lib/auth/otp.ts, mirrored here for the countdown. */
+const OTP_TTL_SECONDS = 5 * 60;
+const RESEND_COOLDOWN_SECONDS = 60;
+
+export type OtpSendResult = WizardResult & {
+  /** Seconds until the code on its way expires. */
+  expiresIn?: number;
+  /** Seconds before another code may be requested. */
+  resendIn?: number;
+};
+
+/** Mirrors MAX_PER_PHONE_PER_HOUR in lib/auth/otp.ts. */
+const OTP_MAX_PER_PHONE_PER_HOUR = 5;
+
+/**
+ * How long until the per-phone hourly ceiling frees a slot, so we can tell
+ * the customer when to try again instead of "wait a while". A slot opens when
+ * enough of the codes sent in the last hour have aged out to drop the count
+ * below the ceiling.
+ */
+async function otpRetryAfterMinutes(phone: string): Promise<number | null> {
   try {
-    await requestOtp(parsed.data.phone, ip);
+    const { normalizePhone } = await import("@/lib/auth/otp");
+    const { db } = await import("@/lib/db/client");
+    const { otpCodes } = await import("@/lib/db/schema");
+    const { and, eq, gt, sql } = await import("drizzle-orm");
+    const normalised = normalizePhone(phone);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const rows = await db
+      .select({ createdAt: otpCodes.createdAt })
+      .from(otpCodes)
+      .where(
+        and(eq(otpCodes.phone, normalised), gt(otpCodes.createdAt, oneHourAgo))
+      )
+      .orderBy(sql`${otpCodes.createdAt} asc`)
+      .limit(50);
+    const index = rows.length - OTP_MAX_PER_PHONE_PER_HOUR;
+    const blocking = rows[index >= 0 ? index : 0];
+    if (!blocking) return null;
+    const freesAt = blocking.createdAt.getTime() + 60 * 60 * 1000;
+    return Math.max(1, Math.ceil((freesAt - Date.now()) / 60000));
+  } catch {
+    return null;
+  }
+}
+
+async function sendOtp(
+  contact: { name: string; phone: string; email?: string },
+  ip: string | null
+): Promise<OtpSendResult> {
+  try {
+    await requestOtp(contact.phone, ip);
   } catch (err) {
     if (err instanceof OtpRateLimitError) {
-      return { ok: false, error: err.message };
+      const minutes = await otpRetryAfterMinutes(contact.phone);
+      return {
+        ok: false,
+        error: minutes
+          ? `That is as many codes as we can send to this number for now. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}, or WhatsApp us and we will finish the order with you.`
+          : "That is as many codes as we can send to this number for now. WhatsApp us and we will finish the order with you.",
+      };
     }
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Could not send the code",
     };
   }
-  await writeDraft({ contact: parsed.data, otpPending: true });
-  return { ok: true };
+  const sentAt = new Date();
+  await writeDraft({
+    contact,
+    otpPending: true,
+    otpSentAt: sentAt.toISOString(),
+  });
+  return {
+    ok: true,
+    expiresIn: OTP_TTL_SECONDS,
+    resendIn: RESEND_COOLDOWN_SECONDS,
+  };
+}
+
+export async function requestSignupOtpAction(
+  form: FormData
+): Promise<OtpSendResult> {
+  const parsed = contactSchema.safeParse({
+    name: form.get("name"),
+    phone: form.get("phone"),
+    email: String(form.get("email") ?? "") || undefined,
+  });
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path[0];
+    return {
+      ok: false,
+      error:
+        field === "email"
+          ? "That email address does not look right, or leave it blank."
+          : field === "name"
+            ? "Please give us your full name."
+            : "Check your cellphone number, for example 082 123 4567.",
+    };
+  }
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
+  return sendOtp(parsed.data, ip);
+}
+
+/** "Send a new code", rate-limited on our side before PayFast-level limits. */
+export async function resendSignupOtpAction(): Promise<OtpSendResult> {
+  const draft = await readDraft();
+  if (!draft.contact) {
+    return { ok: false, error: "Start with your details" };
+  }
+  if (draft.otpSentAt) {
+    const elapsed = (Date.now() - new Date(draft.otpSentAt).getTime()) / 1000;
+    if (elapsed < RESEND_COOLDOWN_SECONDS) {
+      return {
+        ok: false,
+        error: "Give the first code a moment to arrive.",
+        resendIn: Math.ceil(RESEND_COOLDOWN_SECONDS - elapsed),
+      };
+    }
+  }
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
+  return sendOtp(draft.contact, ip);
+}
+
+/**
+ * Why did a code fail? lib/auth/otp.ts answers with a bare false for three
+ * very different situations, so we read the code's own record to tell the
+ * customer the truth: expired, locked out, or simply mistyped.
+ */
+async function otpFailureMessage(phone: string): Promise<string> {
+  try {
+    const { normalizePhone } = await import("@/lib/auth/otp");
+    const { db } = await import("@/lib/db/client");
+    const { otpCodes } = await import("@/lib/db/schema");
+    const { eq, sql } = await import("drizzle-orm");
+    const [latest] = await db
+      .select()
+      .from(otpCodes)
+      .where(eq(otpCodes.phone, normalizePhone(phone)))
+      .orderBy(sql`${otpCodes.createdAt} desc`)
+      .limit(1);
+    if (!latest) {
+      return "We have no code waiting for that number. Send a new one below.";
+    }
+    if (latest.consumedAt) {
+      return "That code has already been used. Send a new one below.";
+    }
+    if (latest.expiresAt.getTime() <= Date.now()) {
+      return "That code has expired, codes last 5 minutes. Send a new one below.";
+    }
+    const left = 5 - latest.attempts;
+    if (left <= 0) {
+      return "Too many tries on that code. Send a new one below.";
+    }
+    return `That code is not right, ${left} ${left === 1 ? "try" : "tries"} left. Check the SMS or send a new code.`;
+  } catch {
+    return "That code didn't match, try again or send a new code.";
+  }
 }
 
 export async function verifySignupOtpAction(
@@ -195,7 +386,7 @@ export async function verifySignupOtpAction(
 
   const result = await verifyOtp(draft.contact.phone, code);
   if (!result.ok) {
-    return { ok: false, error: "That code didn't match, try again." };
+    return { ok: false, error: await otpFailureMessage(draft.contact.phone) };
   }
 
   const hdrs = await headers();
@@ -250,6 +441,10 @@ async function processDocUpload(
   return filePath;
 }
 
+/**
+ * Each document is saved to the draft the moment it lands, so a failure on
+ * one never asks the customer to re-photograph the other.
+ */
 export async function submitRicaAction(form: FormData): Promise<WizardResult> {
   const draft = await readDraft();
   if (!draft.customerId) return { ok: false, error: "Verify your number first" };
@@ -260,112 +455,230 @@ export async function submitRicaAction(form: FormData): Promise<WizardResult> {
   if (!idNumber.success) {
     return { ok: false, error: idNumber.error.issues[0].message };
   }
+  await writeDraft({ ricaIdNumber: idNumber.data });
+
   const idDoc = form.get("idDoc") as File | null;
   const poaDoc = form.get("poaDoc") as File | null;
-  if (!idDoc || idDoc.size === 0 || !poaDoc || poaDoc.size === 0) {
-    return {
-      ok: false,
-      error: "Both the ID document and proof of address are required",
-    };
+  const failures: string[] = [];
+
+  const save = async (
+    file: File | null,
+    prefix: "id" | "poa",
+    key: "ricaIdDocPath" | "ricaPoaDocPath",
+    label: string,
+    alreadyHave: string | undefined
+  ) => {
+    if (!file || file.size === 0) {
+      if (!alreadyHave) failures.push(`${label} is still needed`);
+      return;
+    }
+    try {
+      const path = await processDocUpload(file, prefix, draft.customerId!);
+      await writeDraft({ [key]: path });
+    } catch (err) {
+      failures.push(
+        `${label}: ${err instanceof Error ? err.message : "upload failed"}`
+      );
+    }
+  };
+
+  await save(idDoc, "id", "ricaIdDocPath", "ID document", draft.ricaIdDocPath);
+  await save(
+    poaDoc,
+    "poa",
+    "ricaPoaDocPath",
+    "Proof of address",
+    draft.ricaPoaDocPath
+  );
+
+  if (failures.length > 0) {
+    return { ok: false, error: `${failures.join(". ")}.` };
   }
-  try {
-    const [idDocPath, poaDocPath] = await Promise.all([
-      processDocUpload(idDoc, "id", draft.customerId),
-      processDocUpload(poaDoc, "poa", draft.customerId),
-    ]);
-    await writeDraft({
-      ricaIdNumber: idNumber.data,
-      ricaIdDocPath: idDocPath,
-      ricaPoaDocPath: poaDocPath,
-    });
-    return { ok: true };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Upload failed",
-    };
-  }
+  return { ok: true };
 }
 
-export async function createOrderAction(): Promise<
-  WizardResult & { orderId?: string }
-> {
-  const draft = await readDraft();
-  if (!draft.customerId || !draft.phoneVerified) {
-    return { ok: false, error: "Verify your cellphone number first" };
-  }
-  if (!draft.address) return { ok: false, error: "We need your address" };
-
-  const cart = {
+function draftCart(draft: SignupDraftState) {
+  return {
     planSlugs: draft.planSlug ? [draft.planSlug] : [],
     hardware: draft.hardware ?? [],
     bundleSlug: draft.bundleSlug ?? null,
   };
-  const priced = await priceCart(cart);
+}
+
+export type CheckoutBlock =
+  | "verify"
+  | "address"
+  | "rica"
+  | "cart"
+  | "price_changed"
+  | "already_paid"
+  | "system";
+
+export type CheckoutResult =
+  | {
+      ok: true;
+      actionUrl: string;
+      fields: Record<string, string>;
+      orderNumber: string;
+      totalCents: number;
+    }
+  | {
+      ok: false;
+      error: string;
+      block: CheckoutBlock;
+      orderNumber?: string;
+      totalCents?: number;
+    };
+
+/**
+ * The single pay button path. Prices the cart that is on screen right now,
+ * rebuilds the order if anything changed since the customer last looked at
+ * review, and only then builds the PayFast form. The amount PayFast collects
+ * is always the amount the customer just read (spec §9.2, §6.2).
+ */
+export async function startCheckoutAction(
+  expectedTotalCents: number
+): Promise<CheckoutResult> {
+  const draft = await readDraft();
+  if (!draft.customerId || !draft.phoneVerified || !draft.contact) {
+    return {
+      ok: false,
+      block: "verify",
+      error: "Verify your cellphone number first",
+    };
+  }
+  if (!draft.address) {
+    return {
+      ok: false,
+      block: "address",
+      error: "We still need the address where the service will live.",
+    };
+  }
+
+  const cart = draftCart(draft);
+  let priced;
+  try {
+    priced = await priceCart(cart);
+  } catch (err) {
+    const known =
+      err instanceof Error && /no longer available|Nothing in the order/i.test(err.message);
+    if (!known) console.error("checkout pricing failed:", err);
+    return {
+      ok: false,
+      block: known ? "cart" : "system",
+      error: known
+        ? (err as Error).message
+        : "We could not price your order just now. Nothing has been charged, please try again in a moment.",
+    };
+  }
+
+  if (priced.totalDueNowCents !== expectedTotalCents) {
+    return {
+      ok: false,
+      block: "price_changed",
+      totalCents: priced.totalDueNowCents,
+      error:
+        "This price changed while you had the page open. Check the new total, then pay.",
+    };
+  }
+
   if (
     priced.requiresRica &&
     !(draft.ricaIdNumber && draft.ricaIdDocPath && draft.ricaPoaDocPath)
   ) {
-    return { ok: false, error: "RICA details are required for SIM services" };
-  }
-
-  try {
-    const order = await createOrder({
-      customerId: draft.customerId,
-      cart,
-      address: draft.address,
-      channel: "web",
-      rica: priced.requiresRica
-        ? {
-            idNumber: draft.ricaIdNumber!,
-            idDocPath: draft.ricaIdDocPath!,
-            poaDocPath: draft.ricaPoaDocPath!,
-          }
-        : null,
-    });
-    await writeDraft({ orderId: order.orderId, orderNumber: order.orderNumber });
-    return { ok: true, orderId: order.orderId };
-  } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "Could not create the order",
+      block: "rica",
+      error: "RICA details are required for SIM services",
     };
   }
-}
 
-/** After payment return: sign the verified customer into the portal. */
-export async function signInVerifiedCustomerAction(): Promise<void> {
-  const draft = await readDraft();
-  if (!draft.phoneVerified || !draft.contact) redirect("/login");
-  // The customer's phone was OTP-verified minutes ago in this same flow;
-  // issue a fresh code internally and consume it to mint the session.
-  const { issueInternalSession } = await import("@/lib/auth/internal-session");
-  await issueInternalSession(draft.contact.phone);
-  redirect("/portal");
-}
-
-/** Build the PayFast redirect form for the draft's order. */
-export async function getCheckoutAction(): Promise<
-  | { ok: true; actionUrl: string; fields: Record<string, string> }
-  | { ok: false; error: string }
-> {
-  const draft = await readDraft();
-  if (!draft.orderId || !draft.contact) {
-    return { ok: false, error: "Order not ready" };
-  }
   const { db } = await import("@/lib/db/client");
   const { orders } = await import("@/lib/db/schema");
   const { eq } = await import("drizzle-orm");
-  const { buildCheckout } = await import("@/lib/payfast");
+
+  let orderId = draft.orderId;
+  let orderNumber = draft.orderNumber;
+
+  if (orderId) {
+    const [existing] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+    if (!existing) {
+      orderId = undefined;
+      orderNumber = undefined;
+    } else if (existing.status !== "pending_payment") {
+      return {
+        ok: false,
+        block: "already_paid",
+        orderNumber: existing.number,
+        error: `Order ${existing.number} is already paid.`,
+      };
+    } else if (!(await orderMatchesCart(orderId, priced, draft.address))) {
+      // The cart or the address moved after this order was built. Retire it
+      // and price a fresh one rather than charging yesterday's basket.
+      await cancelStaleOrder(orderId, "Cart changed before payment");
+      orderId = undefined;
+      orderNumber = undefined;
+    }
+  }
+
+  if (!orderId) {
+    try {
+      const created = await createOrder({
+        customerId: draft.customerId,
+        cart,
+        address: draft.address,
+        channel: "web",
+        expectedTotalCents: priced.totalDueNowCents,
+        rica: priced.requiresRica
+          ? {
+              idNumber: draft.ricaIdNumber!,
+              idDocPath: draft.ricaIdDocPath!,
+              poaDocPath: draft.ricaPoaDocPath!,
+            }
+          : null,
+      });
+      orderId = created.orderId;
+      orderNumber = created.orderNumber;
+      await writeDraft({ orderId, orderNumber });
+    } catch (err) {
+      console.error("order creation failed:", err);
+      return {
+        ok: false,
+        block: "system",
+        error:
+          err instanceof Error ? err.message : "Could not create the order",
+      };
+    }
+  }
+
   const [order] = await db
     .select()
     .from(orders)
-    .where(eq(orders.id, draft.orderId))
+    .where(eq(orders.id, orderId))
     .limit(1);
-  if (!order) return { ok: false, error: "Order not found" };
-  if (order.status !== "pending_payment") {
-    return { ok: false, error: "This order has already been paid" };
+  if (!order) {
+    return { ok: false, block: "system", error: "Order not found" };
   }
+  // Last gate before money moves: the order, the priced cart and the figure
+  // on the button must be the same number.
+  if (
+    order.totalCents !== priced.totalDueNowCents ||
+    order.totalCents !== expectedTotalCents
+  ) {
+    return {
+      ok: false,
+      block: "price_changed",
+      totalCents: priced.totalDueNowCents,
+      error:
+        "This price changed while you had the page open. Check the new total, then pay.",
+    };
+  }
+
+  const { buildCheckout } = await import("@/lib/payfast");
   const nameParts = draft.contact.name.trim().split(/\s+/);
   const checkout = buildCheckout({
     paymentId: order.id,
@@ -376,5 +689,25 @@ export async function getCheckoutAction(): Promise<
     customerEmail: draft.contact.email,
     tokenize: true,
   });
-  return { ok: true, ...checkout };
+  return {
+    ok: true,
+    ...checkout,
+    orderNumber: orderNumber ?? order.number,
+    totalCents: order.totalCents,
+  };
+}
+
+/** After payment return: sign the verified customer into the portal. */
+export async function signInVerifiedCustomerAction(): Promise<void> {
+  const draft = await readDraft();
+  if (!draft.phoneVerified || !draft.contact) redirect("/login");
+  // The customer's phone was OTP-verified minutes ago in this same flow;
+  // issue a fresh code internally and consume it to mint the session.
+  const { issueInternalSession } = await import("@/lib/auth/internal-session");
+  await issueInternalSession(draft.contact.phone);
+  // The purchase is done: retire the draft so a later visit to /signup starts
+  // a clean order instead of reviewing one that is already paid.
+  const { clearDraft } = await import("@/lib/domain/signup");
+  await clearDraft();
+  redirect("/portal");
 }

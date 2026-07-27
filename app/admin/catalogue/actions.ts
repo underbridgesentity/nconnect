@@ -2,7 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import sharp from "sharp";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { requireActor } from "@/lib/auth";
+import { authorize } from "@/lib/auth/authorize";
+import { db } from "@/lib/db/client";
+import { plans, hardwareProducts } from "@/lib/db/schema";
+import { writeAudit } from "@/lib/domain/audit";
+import { emitDomainEvent } from "@/lib/domain/events";
 import {
   upsertPlan,
   setPlanStatus,
@@ -12,6 +19,7 @@ import {
   setBundleStatus,
 } from "@/lib/domain/catalogue";
 import { uploadFile, randomFileName } from "@/lib/storage";
+import { parseZar } from "@/lib/money";
 
 export type ActionResult = { ok: boolean; error?: string };
 
@@ -19,15 +27,25 @@ function fail(err: unknown): ActionResult {
   return { ok: false, error: err instanceof Error ? err.message : "Failed" };
 }
 
+/**
+ * Prices off a form are text, never floats. `Number("1 200") * 100` is NaN
+ * and would land straight in an integer cents column; `parseZar` reads the
+ * formats people actually type and throws on anything else.
+ */
 function num(form: FormData, key: string): number {
-  const v = String(form.get(key) ?? "").trim();
-  return v === "" ? 0 : Math.round(Number(v) * 100);
+  const value = String(form.get(key) ?? "").trim();
+  if (value === "") return 0;
+  try {
+    return parseZar(value);
+  } catch {
+    throw new Error(`"${value}" is not a valid amount, for example 388.00`);
+  }
 }
 
 function optNum(form: FormData, key: string): number | null {
-  const v = String(form.get(key) ?? "").trim();
-  if (v === "") return null;
-  return Math.round(Number(v) * 100);
+  const value = String(form.get(key) ?? "").trim();
+  if (value === "") return null;
+  return num(form, key);
 }
 
 function optInt(form: FormData, key: string): number | null {
@@ -195,6 +213,113 @@ export async function setBundleStatusAction(
     await setBundleStatus(actor, bundleId, status);
     revalidatePath("/admin/catalogue");
     return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+const costRowSchema = z.object({
+  kind: z.enum(["plan", "hardware"]),
+  id: z.string().uuid(),
+  /** Wholesale cost in cents, or null to clear it. */
+  costCents: z.number().int().min(0).nullable(),
+});
+
+/**
+ * Bulk wholesale cost capture. Every plan and SKU on one screen: filling in
+ * 26 plans and 20 SKUs through the per-record sheet is 46 open, scroll,
+ * type, save, wait cycles, and it is the last thing standing between the
+ * catalogue and honest margin reporting.
+ *
+ * One transaction, one audit entry per changed record, one domain event.
+ */
+export async function saveCostPricesAction(
+  form: FormData
+): Promise<ActionResult & { saved?: number }> {
+  try {
+    const actor = await requireActor();
+    authorize(actor, "catalogue.write");
+
+    const updates: z.infer<typeof costRowSchema>[] = [];
+    for (const [key, raw] of form.entries()) {
+      const match = /^cost:(plan|hardware):(.+)$/.exec(key);
+      if (!match) continue;
+      const text = String(raw).trim();
+      let costCents: number | null = null;
+      if (text !== "") {
+        try {
+          costCents = parseZar(text);
+        } catch {
+          throw new Error(`"${text}" is not a valid amount, for example 249.00`);
+        }
+        if (costCents < 0) throw new Error("A cost price cannot be negative");
+      }
+      updates.push(
+        costRowSchema.parse({
+          kind: match[1] as "plan" | "hardware",
+          id: match[2],
+          costCents,
+        })
+      );
+    }
+    if (updates.length === 0) return { ok: true, saved: 0 };
+
+    const changed = await db.transaction(async (tx) => {
+      let count = 0;
+      for (const update of updates) {
+        if (update.kind === "plan") {
+          const [before] = await tx
+            .select({ costCents: plans.costCents, name: plans.name })
+            .from(plans)
+            .where(eq(plans.id, update.id))
+            .limit(1);
+          if (!before || before.costCents === update.costCents) continue;
+          await tx
+            .update(plans)
+            .set({ costCents: update.costCents })
+            .where(eq(plans.id, update.id));
+          await writeAudit(tx, {
+            actor,
+            action: "plan.update",
+            entity: "plan",
+            entityId: update.id,
+            before: { costCents: before.costCents },
+            after: { costCents: update.costCents, via: "bulk cost prices" },
+          });
+        } else {
+          const [before] = await tx
+            .select({ costCents: hardwareProducts.costCents })
+            .from(hardwareProducts)
+            .where(eq(hardwareProducts.id, update.id))
+            .limit(1);
+          if (!before || before.costCents === update.costCents) continue;
+          await tx
+            .update(hardwareProducts)
+            .set({ costCents: update.costCents })
+            .where(eq(hardwareProducts.id, update.id));
+          await writeAudit(tx, {
+            actor,
+            action: "hardware.update",
+            entity: "hardware_product",
+            entityId: update.id,
+            before: { costCents: before.costCents },
+            after: { costCents: update.costCents, via: "bulk cost prices" },
+          });
+        }
+        count++;
+      }
+      if (count > 0) {
+        await emitDomainEvent(tx, "catalogue.costs_updated", {
+          changed: count,
+          actorUserId: actor.userId,
+        });
+      }
+      return count;
+    });
+
+    revalidatePath("/admin/catalogue");
+    revalidatePath("/admin/reports");
+    return { ok: true, saved: changed };
   } catch (err) {
     return fail(err);
   }

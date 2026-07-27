@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { customers, addresses, consents } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
+import { formatDateTime } from "@/lib/format";
 import { SignOutButton } from "@/components/shared/sign-out-button";
 import {
   ProfileForm,
@@ -46,7 +47,7 @@ export default async function PortalAccountPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold tracking-tight">Account</h1>
 
-      <section className="rounded-lg border bg-card p-4">
+      <section className="rounded-2xl border bg-card p-4">
         <h2 className="text-sm font-semibold">Profile</h2>
         <ProfileForm
           firstName={customer.firstName ?? ""}
@@ -56,7 +57,7 @@ export default async function PortalAccountPage() {
         />
       </section>
 
-      <section className="rounded-lg border bg-card p-4">
+      <section className="rounded-2xl border bg-card p-4">
         <h2 className="text-sm font-semibold">Addresses</h2>
         {addressRows.length === 0 ? (
           <p className="mt-1 text-sm text-muted-foreground">
@@ -80,7 +81,7 @@ export default async function PortalAccountPage() {
         </p>
       </section>
 
-      <section className="rounded-lg border bg-card p-4">
+      <section className="rounded-2xl border bg-card p-4">
         <h2 className="text-sm font-semibold">Notifications & marketing</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Service messages (invoices, activations, outages) always reach you, they&apos;re part of running your service. Marketing is up to you:
@@ -91,19 +92,19 @@ export default async function PortalAccountPage() {
         />
       </section>
 
-      <section className="rounded-lg border bg-card p-4">
+      <section className="rounded-2xl border bg-card p-4">
         <h2 className="text-sm font-semibold">Consent history</h2>
         <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
           {consentRows.slice(0, 8).map((c) => (
             <li key={c.id}>
-              {c.capturedAt.toISOString().replace("T", " ").slice(0, 16)}, {" "}
-              {c.kind.replace(/_/g, " ")}: {c.granted ? "granted" : "declined"}
+              {formatDateTime(c.capturedAt)}, {c.kind.replace(/_/g, " ")}:{" "}
+              {c.granted ? "granted" : "declined"}
             </li>
           ))}
         </ul>
       </section>
 
-      <section className="rounded-lg border bg-card p-4">
+      <section className="rounded-2xl border bg-card p-4">
         <h2 className="text-sm font-semibold">Your data (POPIA)</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           Request a copy of the personal information we hold about you. We

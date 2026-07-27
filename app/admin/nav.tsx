@@ -58,11 +58,18 @@ export function AdminSidebarNav() {
   );
 }
 
-/** Icon-only top nav for the 390px admin experience. */
+/**
+ * Icon-only top nav for the 390px admin experience.
+ *
+ * The name lives on the link, not on the svg: a bare `<svg aria-label>` has
+ * no reliably nameable role, so every mobile nav link announced as an
+ * unnamed link. `sr-only` keeps the text in the accessibility tree while
+ * the icon carries the visual meaning.
+ */
 export function AdminMobileNav() {
   const pathname = usePathname();
   return (
-    <nav className="flex items-center gap-1">
+    <nav className="flex items-center gap-1" aria-label="Admin sections">
       {NAV.map((item) => {
         const active = isActive(pathname, item.href);
         return (
@@ -77,7 +84,8 @@ export function AdminMobileNav() {
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}
           >
-            <item.icon className="size-4" aria-label={item.label} />
+            <item.icon className="size-4" aria-hidden />
+            <span className="sr-only">{item.label}</span>
           </Link>
         );
       })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { runAction } from "@/app/portal/_lib/run-action";
 import {
   startPortalConversationAction,
   portalReplyAction,
@@ -29,10 +30,12 @@ export function NewConversationForm() {
 
   return (
     <form
-      className="space-y-3 rounded-lg border bg-card p-4"
+      className="space-y-3 rounded-2xl border bg-card p-4"
       action={(form) =>
         startTransition(async () => {
-          const r: Result = await startPortalConversationAction(form);
+          const r: Result = await runAction(() =>
+            startPortalConversationAction(form)
+          );
           if (r.ok && r.conversationId) {
             toast.success("Sent, we'll get back to you");
             router.push(`/portal/help/${r.conversationId}`);
@@ -58,7 +61,11 @@ export function NewConversationForm() {
         <Input id="photo" name="photo" type="file" accept="image/*" />
       </div>
       <div className="flex gap-2">
-        <Button type="submit" disabled={pending} className="flex-1 touch-target">
+        <Button
+          type="submit"
+          disabled={pending}
+          className="flex-1 touch-target"
+        >
           {pending ? "Sending…" : "Send"}
         </Button>
         <Button
@@ -78,6 +85,8 @@ export function PortalReplyBox({ conversationId }: { conversationId: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
+  const replyId = useId();
+  const photoId = useId();
 
   return (
     <form
@@ -85,7 +94,7 @@ export function PortalReplyBox({ conversationId }: { conversationId: string }) {
       className="space-y-2 border-t p-3"
       action={(form) =>
         startTransition(async () => {
-          const r = await portalReplyAction(form);
+          const r = await runAction(() => portalReplyAction(form));
           if (r.ok) {
             formRef.current?.reset();
             router.refresh();
@@ -94,16 +103,30 @@ export function PortalReplyBox({ conversationId }: { conversationId: string }) {
       }
     >
       <input type="hidden" name="conversationId" value={conversationId} />
-      <Textarea name="body" rows={2} required placeholder="Write a reply…" />
+      <Label htmlFor={replyId} className="text-xs text-muted-foreground">
+        Your reply
+      </Label>
+      <Textarea
+        id={replyId}
+        name="body"
+        rows={2}
+        required
+        placeholder="Write a reply…"
+      />
       <div className="flex items-center justify-between gap-2">
-        <Input
-          name="photo"
-          type="file"
-          accept="image/*"
-          className="max-w-48 text-xs"
-          aria-label="Attach photo"
-        />
-        <Button type="submit" size="sm" disabled={pending}>
+        <div className="min-w-0">
+          <Label htmlFor={photoId} className="sr-only">
+            Attach a photo
+          </Label>
+          <Input
+            id={photoId}
+            name="photo"
+            type="file"
+            accept="image/*"
+            className="max-w-48 text-xs"
+          />
+        </div>
+        <Button type="submit" disabled={pending} className="touch-target">
           {pending ? "Sending…" : "Send"}
         </Button>
       </div>

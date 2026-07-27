@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   conversations,
@@ -367,15 +367,50 @@ export async function ingestWhatsAppMessage(input: {
 
 // ----------------------------------------------------------------- queries
 
+/**
+ * Conversation list for the admin inbox.
+ *
+ * Each row carries the last message and its direction so the queue can be
+ * triaged without opening every thread: an inbound last message means the
+ * customer is waiting on us. `search` uses the pg_trgm indexes M8 built on
+ * conversation subjects, plus customer name, phone and message bodies, so a
+ * caller can be found from whatever identifier they give.
+ */
 export async function listConversations(filter: {
   status?: "open" | "pending" | "resolved";
   channel?: "portal" | "whatsapp";
   assignee?: string | "unassigned";
+  search?: string;
 }) {
+  const pattern = filter.search?.trim()
+    ? `%${filter.search.trim()}%`
+    : null;
+
+  const lastMessage = db
+    .select({
+      conversationId: messages.conversationId,
+      body: sql<string>`(array_agg(${messages.body} order by ${messages.createdAt} desc))[1]`.as(
+        "last_body"
+      ),
+      direction:
+        sql<string>`(array_agg(${messages.direction}::text order by ${messages.createdAt} desc))[1]`.as(
+          "last_direction"
+        ),
+    })
+    .from(messages)
+    .groupBy(messages.conversationId)
+    .as("last_message");
+
   return db
-    .select({ conversation: conversations, customer: customers })
+    .select({
+      conversation: conversations,
+      customer: customers,
+      lastBody: lastMessage.body,
+      lastDirection: lastMessage.direction,
+    })
     .from(conversations)
     .leftJoin(customers, eq(conversations.customerId, customers.id))
+    .leftJoin(lastMessage, eq(lastMessage.conversationId, conversations.id))
     .where(
       and(
         filter.status ? eq(conversations.status, filter.status) : undefined,
@@ -384,7 +419,18 @@ export async function listConversations(filter: {
           ? isNull(conversations.assignedTo)
           : filter.assignee
             ? eq(conversations.assignedTo, filter.assignee)
-            : undefined
+            : undefined,
+        pattern
+          ? or(
+              ilike(conversations.subject, pattern),
+              ilike(customers.companyName, pattern),
+              ilike(customers.firstName, pattern),
+              ilike(customers.lastName, pattern),
+              ilike(customers.phone, pattern),
+              ilike(customers.email, pattern),
+              sql`exists (select 1 from ${messages} m where m.conversation_id = ${conversations.id} and m.body ilike ${pattern})`
+            )
+          : undefined
       )
     )
     .orderBy(desc(conversations.lastMessageAt))

@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentActor } from "@/lib/auth";
 import { authorize } from "@/lib/auth/authorize";
-import { reconciliationWorksheet, toCsv } from "@/lib/domain/reports";
+import {
+  parseStatementCsv,
+  reconciliationWorksheet,
+  toCsv,
+} from "@/lib/domain/reports";
+import { todayInJohannesburg } from "@/lib/domain/services";
 
 /**
- * Reconciliation match (spec §6.4): POST the provider statement CSV
- * (external_ref,amount columns), get back the flagged worksheet as CSV.
- * Nothing is written, this is a checklist the admin resolves.
+ * Reconciliation export (spec §6.4): POST the provider statement CSV
+ * (external_ref,amount columns), get the flagged worksheet back as CSV.
+ * Nothing is written, this is a checklist the admin resolves. The result is
+ * also rendered on screen; this route is the Export button behind it.
+ *
+ * Amounts go through `parseStatementCsv`, which reads both South African
+ * number conventions in integer cents. Lines it cannot read are listed at
+ * the bottom of the file rather than silently dropped.
  */
 export async function POST(req: NextRequest) {
   const actor = await currentActor();
@@ -21,33 +31,37 @@ export async function POST(req: NextRequest) {
   const form = await req.formData();
   const file = form.get("statement") as File | null;
 
-  const statement = new Map<string, number>();
+  let statement: Map<string, number> | undefined;
+  let unreadable: { line: number; text: string }[] = [];
   if (file && file.size > 0) {
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    for (const [index, line] of lines.entries()) {
-      const [ref, amount] = line.split(",").map((s) => s.trim());
-      if (index === 0 && /[a-z]/i.test(amount ?? "")) continue; // header row
-      if (!ref || !amount) continue;
-      const cents = Math.round(parseFloat(amount) * 100);
-      if (Number.isFinite(cents)) statement.set(ref, cents);
-    }
+    const parsed = parseStatementCsv(await file.text());
+    unreadable = parsed.unreadable;
+    if (parsed.amounts.size > 0) statement = parsed.amounts;
   }
 
   const result = await reconciliationWorksheet({
     providerName: provider,
-    statement: statement.size > 0 ? statement : undefined,
+    statement,
   });
 
+  const centsToRands = (cents: number) => (cents / 100).toFixed(2);
+
   const csv = toCsv(
-    ["customer", "plan", "external_ref", "expected_cost_rands", "statement_rands", "flag"],
+    [
+      "customer",
+      "plan",
+      "external_ref",
+      "expected_cost_rands",
+      "statement_rands",
+      "flag",
+    ],
     [
       ...result.rows.map((r) => [
         r.customerName,
         r.planName,
         r.externalRef,
-        r.expectedCostCents != null ? (r.expectedCostCents / 100).toFixed(2) : "",
-        r.statementCents != null ? (r.statementCents / 100).toFixed(2) : "",
+        r.expectedCostCents != null ? centsToRands(r.expectedCostCents) : "",
+        r.statementCents != null ? centsToRands(r.statementCents) : "",
         r.flag,
       ]),
       ...result.leakage.map((l) => [
@@ -55,8 +69,16 @@ export async function POST(req: NextRequest) {
         "",
         l.externalRef,
         "",
-        (l.statementCents / 100).toFixed(2),
+        centsToRands(l.statementCents),
         "leakage",
+      ]),
+      ...unreadable.map((u) => [
+        `(could not read line ${u.line})`,
+        u.text,
+        "",
+        "",
+        "",
+        "unreadable",
       ]),
     ]
   );
@@ -64,7 +86,7 @@ export async function POST(req: NextRequest) {
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="reconciliation-${provider}-${new Date().toISOString().slice(0, 10)}.csv"`,
+      "Content-Disposition": `attachment; filename="reconciliation-${provider}-${todayInJohannesburg()}.csv"`,
     },
   });
 }

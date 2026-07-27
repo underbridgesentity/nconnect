@@ -18,7 +18,7 @@ import {
   payments,
   ricaRecords,
 } from "@/lib/db/schema";
-import { add, multiply } from "@/lib/money";
+import { add, multiply, subtract } from "@/lib/money";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { nextNumber } from "./sequences";
@@ -44,18 +44,36 @@ const cartSchema = z.object({
 });
 export type Cart = z.infer<typeof cartSchema>;
 
+/**
+ * One priced component of a line, so "due now" is never a single unexplained
+ * figure. The parts of a line always sum exactly to `unitPriceCents`.
+ */
+export interface PriceComponent {
+  label: string;
+  amountCents: number;
+  /** True for the recurring portion charged as the first month. */
+  recurring?: boolean;
+}
+
 export interface PricedLine {
   itemType: "plan" | "hardware" | "bundle";
   planId?: string;
   hardwareId?: string;
   bundleId?: string;
   name: string;
+  /** Charged now, per unit. */
   unitPriceCents: number;
   unitCostCents: number | null;
   qty: number;
-  monthlyCents: number; // informational: recurring portion
-  onceOffCents: number; // charged now beyond first month
+  monthlyCents: number; // informational: recurring portion, per unit
+  onceOffCents: number; // per unit, charged now beyond the first month
+  /** What the once-off actually buys, shown to the customer verbatim. */
+  onceOffLabel?: string;
+  /** Itemised breakdown of `unitPriceCents`, always sums to it. */
+  components: PriceComponent[];
   category?: string;
+  /** Hardware only: what the warehouse says right now. */
+  stockQty?: number;
 }
 
 export interface PricedCart {
@@ -63,6 +81,14 @@ export interface PricedCart {
   totalDueNowCents: number;
   monthlyCents: number;
   requiresRica: boolean;
+}
+
+/** Neutral fallback: never claim a fee covers something we cannot verify. */
+const ONCE_OFF_FALLBACK = "Once-off fee";
+
+function onceOffLabelFor(metadata: Record<string, unknown>): string {
+  const label = metadata?.onceOffLabel;
+  return typeof label === "string" && label.trim() ? label.trim() : ONCE_OFF_FALLBACK;
 }
 
 /** Price a cart from the catalogue. Throws if anything is unpublished. */
@@ -81,6 +107,13 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
       throw new Error("One of the chosen plans is no longer available");
     }
     for (const p of planRows) {
+      const onceOffLabel = onceOffLabelFor(p.metadata);
+      const components: PriceComponent[] = [
+        { label: "First month", amountCents: p.priceCents, recurring: true },
+      ];
+      if (p.onceOffCents > 0) {
+        components.push({ label: onceOffLabel, amountCents: p.onceOffCents });
+      }
       lines.push({
         itemType: "plan",
         planId: p.id,
@@ -90,6 +123,8 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
         qty: 1,
         monthlyCents: p.priceCents,
         onceOffCents: p.onceOffCents,
+        onceOffLabel: p.onceOffCents > 0 ? onceOffLabel : undefined,
+        components,
         category: p.category,
       });
     }
@@ -119,7 +154,9 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
         unitCostCents: h.costCents,
         qty,
         monthlyCents: 0,
-        onceOffCents: multiply(h.priceCents, qty),
+        onceOffCents: h.priceCents,
+        components: [{ label: "Once-off", amountCents: h.priceCents }],
+        stockQty: h.stockQty,
       });
     }
   }
@@ -143,6 +180,19 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
           await db.select().from(plans).where(inArray(plans.id, bundlePlanIds))
         ).reduce((sum, p) => sum + p.priceCents, 0)
       : 0;
+    // A bundle price normally covers the first month plus once-off items. If
+    // it is priced below the plans it contains, the split would be negative:
+    // show the one honest figure instead of inventing a breakdown.
+    const bundleOnceOff = subtract(bundle.priceCents, monthly);
+    const components: PriceComponent[] =
+      monthly > 0 && bundleOnceOff >= 0
+        ? [
+            { label: "First month", amountCents: monthly, recurring: true },
+            ...(bundleOnceOff > 0
+              ? [{ label: ONCE_OFF_FALLBACK, amountCents: bundleOnceOff }]
+              : []),
+          ]
+        : [{ label: "Bundle price", amountCents: bundle.priceCents }];
     lines.push({
       itemType: "bundle",
       bundleId: bundle.id,
@@ -151,7 +201,8 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
       unitCostCents: null,
       qty: 1,
       monthlyCents: monthly,
-      onceOffCents: bundle.priceCents - monthly,
+      onceOffCents: bundleOnceOff > 0 ? bundleOnceOff : 0,
+      components,
       category: "bundle",
     });
   }
@@ -162,7 +213,10 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
     (sum, l) => add(sum, multiply(l.unitPriceCents, l.qty)),
     0
   );
-  const monthlyCents = lines.reduce((sum, l) => add(sum, l.monthlyCents), 0);
+  const monthlyCents = lines.reduce(
+    (sum, l) => add(sum, multiply(l.monthlyCents, l.qty)),
+    0
+  );
 
   // SIM-based service in the cart? (bundles: check their plans' categories)
   let requiresRica = lines.some(
@@ -189,6 +243,154 @@ export async function priceCart(input: Cart): Promise<PricedCart> {
   }
 
   return { lines, totalDueNowCents, monthlyCents, requiresRica };
+}
+
+// ------------------------------------------- keeping the order and the cart in step
+
+export interface OrderAddressInput {
+  line1: string;
+  line2?: string | null;
+  suburb?: string | null;
+  city: string;
+  province?: string | null;
+  postalCode?: string | null;
+}
+
+function sameAddress(
+  a: OrderAddressInput,
+  b: {
+    line1: string;
+    line2: string | null;
+    suburb: string | null;
+    city: string;
+    province: string | null;
+    postalCode: string | null;
+  }
+): boolean {
+  const norm = (v?: string | null) => (v ?? "").trim().toLowerCase();
+  return (
+    norm(a.line1) === norm(b.line1) &&
+    norm(a.line2) === norm(b.line2) &&
+    norm(a.suburb) === norm(b.suburb) &&
+    norm(a.city) === norm(b.city) &&
+    norm(a.province) === norm(b.province) &&
+    norm(a.postalCode) === norm(b.postalCode)
+  );
+}
+
+/**
+ * Does this pending order still describe exactly what the customer has on
+ * screen? Compares the total, every line (product, quantity and the price we
+ * snapshotted) and the delivery address. Anything else is stale and must not
+ * be paid: the amount charged has to equal the amount shown.
+ */
+export async function orderMatchesCart(
+  orderId: string,
+  priced: PricedCart,
+  address: OrderAddressInput
+): Promise<boolean> {
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1);
+  if (!order) return false;
+  if (order.totalCents !== priced.totalDueNowCents) return false;
+
+  const items = await db
+    .select()
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId));
+  if (items.length !== priced.lines.length) return false;
+
+  const key = (l: {
+    itemType: string;
+    planId?: string | null;
+    hardwareId?: string | null;
+    bundleId?: string | null;
+    qty: number;
+    price: number;
+  }) =>
+    [
+      l.itemType,
+      l.planId ?? "",
+      l.hardwareId ?? "",
+      l.bundleId ?? "",
+      l.qty,
+      l.price,
+    ].join("|");
+  const have = items
+    .map((i) =>
+      key({
+        itemType: i.itemType,
+        planId: i.planId,
+        hardwareId: i.hardwareId,
+        bundleId: i.bundleId,
+        qty: i.qty,
+        price: i.unitPriceCentsSnapshot,
+      })
+    )
+    .sort();
+  const want = priced.lines
+    .map((l) =>
+      key({
+        itemType: l.itemType,
+        planId: l.planId,
+        hardwareId: l.hardwareId,
+        bundleId: l.bundleId,
+        qty: l.qty,
+        price: l.unitPriceCents,
+      })
+    )
+    .sort();
+  if (have.join(",") !== want.join(",")) return false;
+
+  if (!order.addressId) return false;
+  const [row] = await db
+    .select()
+    .from(addresses)
+    .where(eq(addresses.id, order.addressId))
+    .limit(1);
+  return Boolean(row) && sameAddress(address, row);
+}
+
+/**
+ * Retire a pending order the customer has moved on from (they changed the
+ * cart or the address after reaching review). Never touches a paid order.
+ */
+export async function cancelStaleOrder(
+  orderId: string,
+  reason: string
+): Promise<void> {
+  const eventIds: string[] = [];
+  await db.transaction(async (tx) => {
+    const [order] = await tx
+      .select()
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+    if (!order || order.status !== "pending_payment") return;
+    await tx
+      .update(orders)
+      .set({ status: "cancelled", notes: reason })
+      .where(eq(orders.id, orderId));
+    await writeAudit(tx, {
+      actor: null,
+      action: "order.cancel",
+      entity: "order",
+      entityId: orderId,
+      before: { status: "pending_payment", totalCents: order.totalCents },
+      after: { status: "cancelled", reason },
+    });
+    eventIds.push(
+      await emitDomainEvent(tx, "order.cancelled", {
+        orderId,
+        customerId: order.customerId,
+        reason,
+      })
+    );
+  });
+  for (const id of eventIds) await forwardDomainEvent(id);
 }
 
 // ------------------------------------------------- customer + user creation
@@ -298,6 +500,11 @@ export async function createOrder(input: {
   channel?: "web" | "sales" | "admin";
   createdBy?: string | null;
   quoteId?: string | null;
+  /**
+   * The total the customer was shown. If the catalogue moved between the
+   * review screen and this call, we refuse rather than charge a surprise.
+   */
+  expectedTotalCents?: number;
   rica?: {
     idNumber: string;
     idDocPath: string;
@@ -307,6 +514,14 @@ export async function createOrder(input: {
   const priced = await priceCart(input.cart);
   if (priced.requiresRica && !input.rica) {
     throw new Error("This order includes a SIM service and needs RICA details");
+  }
+  if (
+    input.expectedTotalCents !== undefined &&
+    input.expectedTotalCents !== priced.totalDueNowCents
+  ) {
+    throw new Error(
+      "Our prices changed while you were checking out. Please review the new total before paying."
+    );
   }
 
   const result = await db.transaction(async (tx) => {
@@ -407,7 +622,12 @@ export async function markOrderPaid(input: {
       .where(eq(orders.id, input.orderId))
       .limit(1);
     if (!order) throw new Error("Order not found");
-    if (order.status !== "pending_payment") {
+    // A cancelled order still gets honoured: the customer may have had the
+    // PayFast page open when we retired it, and money that arrives for the
+    // exact total of this order is money for this order. The amount check
+    // below is what makes that safe.
+    const wasCancelled = order.status === "cancelled";
+    if (order.status !== "pending_payment" && !wasCancelled) {
       return { ok: true, alreadyPaid: true as const };
     }
     if (input.amountCents !== order.totalCents) {
@@ -444,18 +664,56 @@ export async function markOrderPaid(input: {
       })
       .returning({ id: invoices.id });
 
-    await tx.insert(invoiceLines).values(
-      items.map((item) => ({
+    // Invoice lines mirror what the customer saw at checkout: a plan's first
+    // month and its once-off fee are separate lines. The split is only shown
+    // when the catalogue still reconciles exactly to the price we charged,
+    // so a line can never contradict the amount taken.
+    const planIds = items.flatMap((i) =>
+      i.itemType === "plan" && i.planId ? [i.planId] : []
+    );
+    const planRows = planIds.length
+      ? await tx.select().from(plans).where(inArray(plans.id, planIds))
+      : [];
+
+    const lineValues: (typeof invoiceLines.$inferInsert)[] = [];
+    for (const item of items) {
+      const suffix = item.qty > 1 ? ` × ${item.qty}` : "";
+      const plan = planRows.find((p) => p.id === item.planId);
+      const splits =
+        plan &&
+        plan.onceOffCents > 0 &&
+        add(plan.priceCents, plan.onceOffCents) === item.unitPriceCentsSnapshot;
+      if (splits && plan) {
+        lineValues.push({
+          invoiceId: invoice.id,
+          kind: "subscription",
+          description: `${item.nameSnapshot}${suffix}, first month`,
+          amountCents: multiply(plan.priceCents, item.qty),
+          qty: item.qty,
+        });
+        lineValues.push({
+          invoiceId: invoice.id,
+          kind: "once_off",
+          description: `${item.nameSnapshot}${suffix}, ${onceOffLabelFor(
+            plan.metadata
+          ).toLowerCase()}`,
+          amountCents: multiply(plan.onceOffCents, item.qty),
+          qty: item.qty,
+        });
+        continue;
+      }
+      lineValues.push({
         invoiceId: invoice.id,
         kind:
           item.itemType === "hardware"
             ? ("hardware" as const)
             : ("once_off" as const),
-        description: `${item.nameSnapshot}${item.qty > 1 ? ` × ${item.qty}` : ""}`,
-        amountCents: item.unitPriceCentsSnapshot * item.qty,
+        description: `${item.nameSnapshot}${suffix}`,
+        amountCents: multiply(item.unitPriceCentsSnapshot, item.qty),
         qty: item.qty,
-      }))
-    );
+      });
+    }
+    await tx.insert(invoiceLines).values(lineValues);
 
     await tx.insert(payments).values({
       invoiceId: invoice.id,
@@ -485,11 +743,14 @@ export async function markOrderPaid(input: {
       action: "order.paid",
       entity: "order",
       entityId: order.id,
-      before: { status: "pending_payment" },
+      before: { status: order.status },
       after: {
         status: "paid",
         gatewayRef: input.gatewayRef,
         invoiceNumber: invNumber,
+        ...(wasCancelled
+          ? { note: "Payment arrived for an order that had been retired" }
+          : {}),
       },
     });
 

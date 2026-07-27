@@ -1,5 +1,16 @@
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  lt,
+  or,
+} from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
@@ -11,16 +22,20 @@ import {
   plans,
   hardwareProducts,
   bundles,
+  bundleItems,
   customers,
   users,
+  notifications,
 } from "@/lib/db/schema";
 import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { nextNumber } from "./sequences";
-import { getSettingOr } from "./settings";
-import { percentOf, add, multiply } from "@/lib/money";
+import { getSetting, getSettingOr } from "./settings";
+import { percentOf, add, multiply, formatCents } from "@/lib/money";
+import { formatDateLong } from "@/lib/format";
 import { sendEmail } from "@/lib/notify/email";
+import { getSmsAdapter } from "@/lib/notify/sms";
 import { sendWhatsAppTemplate, whatsappEnabled } from "@/lib/notify/whatsapp";
 
 /**
@@ -34,6 +49,21 @@ export class DiscountFloorError extends Error {
       `Discount too deep on "${line}": ${detail} Ask an admin to approve a below-floor discount.`
     );
     this.name = "DiscountFloorError";
+  }
+}
+
+/**
+ * Nothing was delivered. The quote stays in its previous status so the rep is
+ * never shown a Sent pill for a message that never left the building.
+ */
+export class QuoteDeliveryError extends Error {
+  readonly link: string;
+  readonly attempts: string[];
+  constructor(message: string, link: string, attempts: string[]) {
+    super(message);
+    this.name = "QuoteDeliveryError";
+    this.link = link;
+    this.attempts = attempts;
   }
 }
 
@@ -211,8 +241,48 @@ export async function createQuote(
   });
 }
 
-/** Send the quote: share link via WhatsApp + email to the lead/customer. */
-export async function sendQuote(actor: Actor, quoteId: string): Promise<void> {
+// ------------------------------------------------------------------ delivery
+
+export type QuoteChannel = "whatsapp" | "email" | "sms";
+
+export interface QuoteSendResult {
+  /** Channels that actually accepted the message. Never empty on success. */
+  channels: QuoteChannel[];
+  /** Channels that were tried and failed, with the adapter's reason. */
+  failures: { channel: QuoteChannel; detail: string }[];
+  link: string;
+  recipient: { name: string | null; phone: string | null; email: string | null };
+}
+
+export function quoteShareLink(shareToken: string): string {
+  const base = process.env.APP_URL ?? "http://localhost:3000";
+  return `${base}/q/${shareToken}`;
+}
+
+const CHANNEL_LABEL: Record<QuoteChannel, string> = {
+  whatsapp: "WhatsApp",
+  email: "email",
+  sms: "SMS",
+};
+
+/** "WhatsApp", "WhatsApp and email", "WhatsApp, email and SMS". */
+export function describeChannels(channels: QuoteChannel[]): string {
+  const labels = channels.map((c) => CHANNEL_LABEL[c]);
+  if (labels.length <= 1) return labels[0] ?? "";
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Send the quote share link. Delivery is attempted first and the status only
+ * moves to `sent` once a channel has accepted the message, so a Sent pill in
+ * the workspace always means the customer was actually reached. When nothing
+ * lands the caller gets a QuoteDeliveryError carrying the link so the rep can
+ * deliver it by hand.
+ */
+export async function sendQuote(
+  actor: Actor,
+  quoteId: string
+): Promise<QuoteSendResult> {
   const [quote] = await db
     .select()
     .from(quotes)
@@ -220,6 +290,15 @@ export async function sendQuote(actor: Actor, quoteId: string): Promise<void> {
     .limit(1);
   if (!quote) throw new Error("Quote not found");
   authorize(actor, "quote.send", { ownerUserId: quote.createdBy });
+
+  if (quote.status === "accepted") {
+    throw new Error("This quote has already been accepted");
+  }
+  if (quote.expiresAt && quote.expiresAt.getTime() < Date.now()) {
+    throw new Error(
+      "This quote has expired. Duplicate it to send a fresh one at current prices."
+    );
+  }
 
   let name: string | null = null;
   let phone: string | null = null;
@@ -250,60 +329,281 @@ export async function sendQuote(actor: Actor, quoteId: string): Promise<void> {
     throw new Error("The quote needs a lead or customer with contact details");
   }
 
-  const link = `${process.env.APP_URL}/q/${quote.shareToken}`;
+  const link = quoteShareLink(quote.shareToken);
+  const validUntil = quote.expiresAt ? formatDateLong(quote.expiresAt) : null;
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(quotes)
-      .set({ status: "sent" })
-      .where(eq(quotes.id, quoteId));
+  const channels: QuoteChannel[] = [];
+  const failures: { channel: QuoteChannel; detail: string }[] = [];
+
+  // In development the email and SMS adapters log to the console and report
+  // success. That is useful locally and a lie in production, so once we are
+  // live a console-only adapter is treated as an unconfigured channel rather
+  // than a delivered one.
+  const live = process.env.NODE_ENV === "production";
+  const smsAdapter = getSmsAdapter();
+
+  // 1. WhatsApp template, the channel most South African customers read.
+  if (phone) {
+    if (whatsappEnabled()) {
+      const result = await sendWhatsAppTemplate({
+        to: phone,
+        template: "quote_sent",
+        bodyParams: [quote.number, link],
+      });
+      if (result.ok) channels.push("whatsapp");
+      else failures.push({ channel: "whatsapp", detail: result.detail ?? "failed" });
+    } else {
+      failures.push({ channel: "whatsapp", detail: "WhatsApp is switched off" });
+    }
+  }
+
+  // 2. Email, the formal record.
+  if (email) {
+    if (live && !process.env.RESEND_API_KEY) {
+      failures.push({ channel: "email", detail: "no email provider configured" });
+    } else {
+      const result = await sendEmail({
+        to: email,
+        subject: `Your Needd Connect quote ${quote.number}`,
+        html: quoteEmailHtml({
+          name,
+          number: quote.number,
+          totalCents: quote.totalCents,
+          link,
+          validUntil,
+        }),
+        text: `Hi ${name ?? "there"}, your Needd Connect quote ${quote.number} for ${formatCents(quote.totalCents)} is ready: ${link}${validUntil ? ` (valid until ${validUntil})` : ""}`,
+      });
+      if (result.ok) channels.push("email");
+      else failures.push({ channel: "email", detail: result.detail ?? "failed" });
+    }
+  }
+
+  // 3. SMS, the floor under everything: a phone-only lead is always reachable.
+  if (phone && channels.length === 0) {
+    if (live && smsAdapter.name === "console") {
+      failures.push({ channel: "sms", detail: "no SMS provider configured" });
+    } else {
+      const result = await smsAdapter.send(
+        phone,
+        `Needd Connect quote ${quote.number}: ${formatCents(quote.totalCents)}. View and accept: ${link}${validUntil ? ` Valid until ${validUntil}.` : ""}`
+      );
+      if (result.ok) channels.push("sms");
+      else failures.push({ channel: "sms", detail: result.detail ?? "failed" });
+    }
+  }
+
+  if (channels.length === 0) {
+    // Record the failed attempt: an undelivered quote is still a fact about
+    // the deal, and the rep needs it in the trail when they chase manually.
+    await db.transaction(async (tx) => {
+      await writeAudit(tx, {
+        actor,
+        action: "quote.send_failed",
+        entity: "quote",
+        entityId: quoteId,
+        after: { link, failures },
+      });
+      if (quote.leadId) {
+        await tx.insert(leadActivities).values({
+          leadId: quote.leadId,
+          kind: "note",
+          body: `Quote ${quote.number} could not be delivered: ${failures.map((f) => `${CHANNEL_LABEL[f.channel]} (${f.detail})`).join(", ")}. Share the link by hand.`,
+          createdBy: actor.userId,
+        });
+      }
+    });
+    throw new QuoteDeliveryError(
+      `No channel reached ${name ?? "this contact"}: ${failures.map((f) => `${CHANNEL_LABEL[f.channel]} ${f.detail}`).join(", ")}. Copy the share link and send it yourself.`,
+      link,
+      failures.map((f) => f.channel)
+    );
+  }
+
+  const eventId = await db.transaction(async (tx) => {
+    // A resend must never walk `viewed` back to `sent`.
+    if (quote.status === "draft") {
+      await tx.update(quotes).set({ status: "sent" }).where(eq(quotes.id, quoteId));
+    } else {
+      await tx.update(quotes).set({ updatedAt: new Date() }).where(eq(quotes.id, quoteId));
+    }
     await writeAudit(tx, {
       actor,
       action: "quote.send",
       entity: "quote",
       entityId: quoteId,
-      after: { link },
+      before: { status: quote.status },
+      after: { link, channels, failures },
     });
-    const eventId = await emitDomainEvent(tx, "quote.sent", {
-      quoteId,
-      createdBy: quote.createdBy,
-    });
-    void eventId;
     if (quote.leadId) {
       await tx
         .update(leads)
         .set({ status: "quoted" })
-        .where(and(eq(leads.id, quote.leadId), inArray(leads.status, ["new", "contacted"])));
+        .where(
+          and(eq(leads.id, quote.leadId), inArray(leads.status, ["new", "contacted"]))
+        );
       await tx.insert(leadActivities).values({
         leadId: quote.leadId,
         kind: "status_change",
-        body: `Quote ${quote.number} sent`,
+        body: `Quote ${quote.number} sent by ${describeChannels(channels)}`,
         createdBy: actor.userId,
       });
     }
+    return emitDomainEvent(tx, "quote.sent", {
+      quoteId,
+      createdBy: quote.createdBy,
+      channels,
+    });
+  });
+  await forwardDomainEvent(eventId);
+
+  return { channels, failures, link, recipient: { name, phone, email } };
+}
+
+function quoteEmailHtml(input: {
+  name: string | null;
+  number: string;
+  totalCents: number;
+  link: string;
+  validUntil: string | null;
+}): string {
+  return `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#121829">
+  <p>Hi ${input.name ?? "there"},</p>
+  <p>Your quote <strong>${input.number}</strong> is ready, ${formatCents(input.totalCents)} due on acceptance.</p>
+  <p><a href="${input.link}" style="display:inline-block;background:#136FB0;color:#fff;padding:12px 24px;border-radius:999px;text-decoration:none">View your quote</a></p>
+  ${input.validUntil ? `<p style="font-size:13px;color:#5b6478">Valid until ${input.validUntil}. Your prices are locked until then.</p>` : ""}
+  <p style="font-size:13px;color:#5b6478">The quote page shows the full breakdown, including anything that recurs monthly.</p>
+  <p>Needd Connect</p>
+</div>`;
+}
+
+// ------------------------------------------------------------- pricing split
+
+export interface QuoteLineBreakdown {
+  id: string;
+  name: string;
+  qty: number;
+  discountCents: number;
+  /** Charged on acceptance: first month plus once-off fees, after discount. */
+  payNowCents: number;
+  /** Recurring per month from the second month on. Null for once-off lines. */
+  monthlyCents: number | null;
+  /**
+   * False when the catalogue price has moved since the quote was issued, so
+   * the monthly figure is the current one rather than the quoted one.
+   */
+  monthlyMatchesQuote: boolean;
+}
+
+export interface QuoteBreakdown {
+  lines: QuoteLineBreakdown[];
+  payNowCents: number;
+  monthlyCents: number;
+  /** True when at least one line renews. Drives the "then per month" block. */
+  hasRecurring: boolean;
+  /** False when any recurring line no longer reconciles with the catalogue. */
+  monthlyMatchesQuote: boolean;
+}
+
+type QuoteItemRow = typeof quoteItems.$inferSelect;
+
+/**
+ * Split each line into "pay now" and "then per month".
+ *
+ * A plan line snapshots first month + once-off as a single figure, so the
+ * recurring portion is read back from the catalogue: that is also the number
+ * the billing engine will charge from month two, which makes it the honest
+ * one to show. Where the catalogue has moved since the quote was issued the
+ * line is flagged rather than quietly reconciled.
+ */
+export async function quoteBreakdown(
+  items: QuoteItemRow[]
+): Promise<QuoteBreakdown> {
+  const planIds = [...new Set(items.flatMap((i) => (i.planId ? [i.planId] : [])))];
+  const bundleIds = [
+    ...new Set(items.flatMap((i) => (i.bundleId ? [i.bundleId] : []))),
+  ];
+
+  const planRows = planIds.length
+    ? await db.select().from(plans).where(inArray(plans.id, planIds))
+    : [];
+  const planById = new Map(planRows.map((p) => [p.id, p]));
+
+  // Bundle recurring = the monthly price of the plans inside it (same rule as
+  // priceCart in lib/domain/orders.ts).
+  const bundleMonthly = new Map<string, { monthly: number; listPrice: number }>();
+  if (bundleIds.length) {
+    const bundleRows = await db
+      .select()
+      .from(bundles)
+      .where(inArray(bundles.id, bundleIds));
+    const memberRows = await db
+      .select()
+      .from(bundleItems)
+      .where(inArray(bundleItems.bundleId, bundleIds));
+    const memberPlanIds = [
+      ...new Set(memberRows.flatMap((m) => (m.planId ? [m.planId] : []))),
+    ];
+    const memberPlans = memberPlanIds.length
+      ? await db.select().from(plans).where(inArray(plans.id, memberPlanIds))
+      : [];
+    const memberPlanById = new Map(memberPlans.map((p) => [p.id, p]));
+    for (const bundle of bundleRows) {
+      const monthly = memberRows
+        .filter((m) => m.bundleId === bundle.id && m.planId)
+        .reduce(
+          (sum, m) => add(sum, memberPlanById.get(m.planId!)?.priceCents ?? 0),
+          0
+        );
+      bundleMonthly.set(bundle.id, { monthly, listPrice: bundle.priceCents });
+    }
+  }
+
+  const lines: QuoteLineBreakdown[] = items.map((item) => {
+    const payNowCents = multiply(
+      item.unitPriceCentsSnapshot - item.discountCents,
+      item.qty
+    );
+    let monthlyCents: number | null = null;
+    let monthlyMatchesQuote = true;
+
+    if (item.itemType === "plan" && item.planId) {
+      const plan = planById.get(item.planId);
+      if (plan && plan.priceCents > 0) {
+        monthlyCents = multiply(plan.priceCents, item.qty);
+        monthlyMatchesQuote =
+          add(plan.priceCents, plan.onceOffCents) === item.unitPriceCentsSnapshot;
+      }
+    } else if (item.itemType === "bundle" && item.bundleId) {
+      const bundle = bundleMonthly.get(item.bundleId);
+      if (bundle && bundle.monthly > 0) {
+        monthlyCents = multiply(bundle.monthly, item.qty);
+        monthlyMatchesQuote = bundle.listPrice === item.unitPriceCentsSnapshot;
+      }
+    }
+
+    return {
+      id: item.id,
+      name: item.nameSnapshot,
+      qty: item.qty,
+      discountCents: item.discountCents,
+      payNowCents,
+      monthlyCents,
+      monthlyMatchesQuote,
+    };
   });
 
-  // §8 quote_sent: WhatsApp (link) + email.
-  let whatsappSent = false;
-  if (whatsappEnabled() && phone) {
-    const result = await sendWhatsAppTemplate({
-      to: phone,
-      template: "quote_sent",
-      bodyParams: [quote.number, link],
-    });
-    whatsappSent = result.ok;
-  }
-  if (email) {
-    await sendEmail({
-      to: email,
-      subject: `Your Needd Connect quote ${quote.number}`,
-      html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${name ?? ""},</p><p>Your quote <strong>${quote.number}</strong> is ready.</p><p><a href="${link}">View your quote</a>, valid until ${quote.expiresAt?.toISOString().slice(0, 10)}.</p><p>, Needd Connect</p></div>`,
-      text: `Your quote ${quote.number}: ${link}`,
-    });
-  } else if (!whatsappSent) {
-    console.warn(`quote ${quote.number}: no reachable channel (WhatsApp ${whatsappEnabled() ? "failed" : "disabled"}, no email)`);
-  }
+  const recurring = lines.filter((l) => l.monthlyCents != null);
+  return {
+    lines,
+    payNowCents: lines.reduce((sum, l) => add(sum, l.payNowCents), 0),
+    monthlyCents: recurring.reduce((sum, l) => add(sum, l.monthlyCents ?? 0), 0),
+    hasRecurring: recurring.length > 0,
+    monthlyMatchesQuote: recurring.every((l) => l.monthlyMatchesQuote),
+  };
 }
+
+// -------------------------------------------------------------- public view
 
 /** Public view by token; flips sent -> viewed and stamps first_viewed_at. */
 export async function quoteByToken(token: string) {
@@ -316,9 +616,14 @@ export async function quoteByToken(token: string) {
   const items = await db
     .select()
     .from(quoteItems)
-    .where(eq(quoteItems.quoteId, quote.id));
+    .where(eq(quoteItems.quoteId, quote.id))
+    .orderBy(asc(quoteItems.createdAt), asc(quoteItems.id));
 
-  if (quote.status === "sent") {
+  const expired =
+    quote.status === "expired" ||
+    (quote.expiresAt != null && quote.expiresAt.getTime() < Date.now());
+
+  if (quote.status === "sent" && !expired) {
     const eventId = await db.transaction(async (tx) => {
       await tx
         .update(quotes)
@@ -337,29 +642,274 @@ export async function quoteByToken(token: string) {
       .where(eq(users.id, quote.createdBy))
       .limit(1);
     if (creator) {
-      const { notifications } = await import("@/lib/db/schema");
       await db.insert(notifications).values({
         userId: creator.id,
         type: "quote_viewed",
         title: `Quote ${quote.number} was opened`,
         body: "The customer is looking at it right now.",
-        link: `/sales/quotes`,
+        link: `/sales/quotes/${quote.id}`,
       });
     }
     quote.status = "viewed";
   }
 
-  const expired =
-    quote.expiresAt != null && quote.expiresAt.getTime() < Date.now();
-  return { quote, items, expired };
+  const breakdown = await quoteBreakdown(items);
+  return { quote, items, expired, breakdown };
 }
 
-export async function listQuotes(actor: Actor) {
+/** Rep name and contact for the quote document, so it is signed by a person. */
+export async function quoteRep(
+  createdBy: string
+): Promise<{ name: string | null; phone: string | null; email: string | null } | null> {
+  const [rep] = await db
+    .select({ name: users.name, phone: users.phone, email: users.email })
+    .from(users)
+    .where(eq(users.id, createdBy))
+    .limit(1);
+  return rep ?? null;
+}
+
+export interface QuoteCompany {
+  legalName: string;
+  website: string;
+  phone: string;
+  email: string;
+  vat: string;
+  reg: string;
+  bbbee: string;
+}
+
+/**
+ * Everything the customer-facing quote needs to read as a real document:
+ * who it is for, who wrote it, what recurs, and who the company is. Same
+ * footer facts as the invoice PDF (lib/pdf/invoice.tsx).
+ */
+export async function quoteDocument(token: string) {
+  const base = await quoteByToken(token);
+  if (!base) return null;
+
+  const [rep, company] = await Promise.all([
+    quoteRep(base.quote.createdBy),
+    getSetting<QuoteCompany>("company"),
+  ]);
+
+  let recipientName: string | null = null;
+  if (base.quote.customerId) {
+    const [customer] = await db
+      .select()
+      .from(customers)
+      .where(eq(customers.id, base.quote.customerId))
+      .limit(1);
+    recipientName = customer
+      ? (customer.companyName ??
+        [customer.firstName, customer.lastName].filter(Boolean).join(" ") ??
+        null)
+      : null;
+  }
+  if (!recipientName && base.quote.leadId) {
+    const [lead] = await db
+      .select({ name: leads.name })
+      .from(leads)
+      .where(eq(leads.id, base.quote.leadId))
+      .limit(1);
+    recipientName = lead?.name ?? null;
+  }
+
+  return { ...base, rep, company, recipientName };
+}
+
+// ---------------------------------------------------------- workspace reads
+
+export interface QuoteListRow {
+  quote: typeof quotes.$inferSelect;
+  /** Status as the customer would experience it right now. */
+  effectiveStatus: string;
+  expiresInDays: number | null;
+  leadName: string | null;
+  leadId: string | null;
+}
+
+/** True once the stored status or the expiry date says the quote is dead. */
+export function isQuoteExpired(quote: {
+  status: string;
+  expiresAt: Date | null;
+}): boolean {
+  return (
+    quote.status === "expired" ||
+    (quote.expiresAt != null && quote.expiresAt.getTime() < Date.now())
+  );
+}
+
+function daysUntil(date: Date | null): number | null {
+  if (!date) return null;
+  return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+}
+
+export async function listQuotes(
+  actor: Actor,
+  opts: { search?: string; limit?: number } = {}
+): Promise<QuoteListRow[]> {
   authorize(actor, "quote.create", { ownerUserId: actor.userId });
+  const search = opts.search?.trim();
+  const term = search ? `%${search}%` : null;
+
+  const rows = await db
+    .select({ quote: quotes, leadName: leads.name, leadId: leads.id })
+    .from(quotes)
+    .leftJoin(leads, eq(leads.id, quotes.leadId))
+    .where(
+      and(
+        actor.role === "admin" ? undefined : eq(quotes.createdBy, actor.userId),
+        term
+          ? or(ilike(quotes.number, term), ilike(leads.name, term))
+          : undefined
+      )
+    )
+    .orderBy(desc(quotes.createdAt))
+    .limit(opts.limit ?? 100);
+
+  return rows.map((r) => ({
+    quote: r.quote,
+    leadName: r.leadName,
+    leadId: r.leadId,
+    effectiveStatus:
+      r.quote.status !== "accepted" && isQuoteExpired(r.quote)
+        ? "expired"
+        : r.quote.status,
+    expiresInDays: daysUntil(r.quote.expiresAt),
+  }));
+}
+
+/**
+ * One quote with everything the detail page needs. Scoped the same way as the
+ * list: a rep only ever opens their own quotes.
+ */
+export async function quoteDetail(actor: Actor, quoteId: string) {
+  const [quote] = await db
+    .select()
+    .from(quotes)
+    .where(eq(quotes.id, quoteId))
+    .limit(1);
+  if (!quote) return null;
+  try {
+    authorize(actor, "quote.send", { ownerUserId: quote.createdBy });
+  } catch {
+    return null;
+  }
+
+  const items = await db
+    .select()
+    .from(quoteItems)
+    .where(eq(quoteItems.quoteId, quote.id))
+    .orderBy(asc(quoteItems.createdAt), asc(quoteItems.id));
+
+  const [lead] = quote.leadId
+    ? await db.select().from(leads).where(eq(leads.id, quote.leadId)).limit(1)
+    : [];
+  const [customer] = quote.customerId
+    ? await db
+        .select()
+        .from(customers)
+        .where(eq(customers.id, quote.customerId))
+        .limit(1)
+    : [];
+
+  const breakdown = await quoteBreakdown(items);
+  const marginCents = items.reduce((sum, i) => {
+    if (i.unitCostCentsSnapshot == null) return sum;
+    return add(
+      sum,
+      multiply(
+        i.unitPriceCentsSnapshot - i.discountCents - i.unitCostCentsSnapshot,
+        i.qty
+      )
+    );
+  }, 0);
+  const marginKnown = items.every(
+    (i) => i.itemType === "custom" || i.unitCostCentsSnapshot != null
+  );
+
+  return {
+    quote,
+    items,
+    breakdown,
+    lead: lead ?? null,
+    customer: customer ?? null,
+    link: quoteShareLink(quote.shareToken),
+    expired: isQuoteExpired(quote),
+    expiresInDays: daysUntil(quote.expiresAt),
+    marginCents,
+    marginKnown,
+  };
+}
+
+// ------------------------------------------------------------------- expiry
+
+/**
+ * Daily sweep: quotes past their validity date stop counting as live work.
+ * Returns the number expired so the caller can log it. Accepted quotes are
+ * never touched.
+ */
+export async function expireQuotes(): Promise<number> {
+  const stale = await db
+    .select({ id: quotes.id, number: quotes.number, status: quotes.status })
+    .from(quotes)
+    .where(
+      and(
+        inArray(quotes.status, ["sent", "viewed"]),
+        isNotNull(quotes.expiresAt),
+        lt(quotes.expiresAt, new Date())
+      )
+    );
+  if (stale.length === 0) return 0;
+
+  const eventIds: string[] = [];
+  for (const quote of stale) {
+    const eventId = await db.transaction(async (tx) => {
+      await tx
+        .update(quotes)
+        .set({ status: "expired" })
+        .where(and(eq(quotes.id, quote.id), inArray(quotes.status, ["sent", "viewed"])));
+      await writeAudit(tx, {
+        actor: null,
+        action: "quote.expire",
+        entity: "quote",
+        entityId: quote.id,
+        before: { status: quote.status },
+        after: { status: "expired" },
+      });
+      return emitDomainEvent(tx, "quote.expired", {
+        quoteId: quote.id,
+        number: quote.number,
+      });
+    });
+    eventIds.push(eventId);
+  }
+  for (const id of eventIds) await forwardDomainEvent(id);
+  return stale.length;
+}
+
+/**
+ * Quotes lapsing within `days`, for the chase-list and the reminder bell.
+ * Ordered by the tightest deadline first.
+ */
+export async function quotesExpiringSoon(actor: Actor, days = 3) {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() + days * 86_400_000);
   return db
     .select()
     .from(quotes)
-    .where(actor.role === "admin" ? undefined : eq(quotes.createdBy, actor.userId))
-    .orderBy(desc(quotes.createdAt))
-    .limit(100);
+    .where(
+      and(
+        actor.role === "admin" ? undefined : eq(quotes.createdBy, actor.userId),
+        inArray(quotes.status, ["sent", "viewed"]),
+        isNotNull(quotes.expiresAt),
+        // Strictly still live: an already-lapsed quote is not "expiring soon",
+        // it is dead, and it belongs in the list under its expired pill.
+        gte(quotes.expiresAt, now),
+        lt(quotes.expiresAt, cutoff)
+      )
+    )
+    .orderBy(asc(quotes.expiresAt))
+    .limit(20);
 }

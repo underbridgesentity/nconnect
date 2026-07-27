@@ -7,12 +7,14 @@ import { db } from "@/lib/db/client";
 import { customers, consents, users, notifications } from "@/lib/db/schema";
 import { requireActor } from "@/lib/auth";
 import { writeAudit } from "@/lib/domain/audit";
+import { customerFacingError } from "@/app/portal/_lib/errors";
 import { and } from "drizzle-orm";
 
 export type Result = { ok: boolean; error?: string };
+/** Customer-facing copy only: raw domain and driver messages stay in the log. */
 const fail = (err: unknown): Result => ({
   ok: false,
-  error: err instanceof Error ? err.message : "Failed",
+  error: customerFacingError(err),
 });
 
 export async function updateProfileAction(form: FormData): Promise<Result> {
@@ -115,7 +117,7 @@ export async function requestMyDataAction(): Promise<Result> {
       await sendEmail({
         to: customer.email,
         subject: "We've received your data access request",
-        html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${customer.firstName ?? ""},</p><p>We've received your POPIA access request and will send you an export of the personal information we hold about you. Note that RICA records are retained for 5 years after service termination as required by law.</p><p>, Needd Connect</p></div>`,
+        html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${customer.firstName ?? ""},</p><p>We've received your POPIA access request and will send you an export of the personal information we hold about you. Note that RICA records are retained for 5 years after service termination as required by law.</p><p>Needd Connect</p></div>`,
         text: "We've received your POPIA access request and will send you an export of the personal information we hold about you.",
       });
     }

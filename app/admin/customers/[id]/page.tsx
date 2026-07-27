@@ -17,8 +17,15 @@ import {
   auditLog,
   addresses,
 } from "@/lib/db/schema";
-import { customerBalanceCents } from "@/lib/domain/billing";
+import {
+  customerBalanceCents,
+  paidCentsByInvoice,
+  collectionAttemptsFor,
+} from "@/lib/domain/billing";
 import { maskedIdNumber } from "@/lib/domain/rica";
+import { todayInJohannesburg } from "@/lib/domain/services";
+import { formatDate, formatDateTime } from "@/lib/format";
+import { actorLabel, paymentMethodLabel } from "../../labels";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { cn } from "@/lib/utils";
@@ -29,6 +36,7 @@ import {
   RecordEftForm,
   MarkOrderPaidForm,
   ServiceActions,
+  InvoiceActions,
 } from "./client";
 
 export const metadata: Metadata = { title: "Customer" };
@@ -64,7 +72,7 @@ export default async function Customer360Page({
     customer.companyName ??
     [customer.firstName, customer.lastName].filter(Boolean).join(" ");
 
-  const [balance, reps, serviceRows, invoiceRows, orderRows] =
+  const [balance, reps, serviceRows, invoiceRows, orderRows, ricaSummary] =
     await Promise.all([
       customerBalanceCents(id),
       db
@@ -87,7 +95,50 @@ export default async function Customer360Page({
         .from(orders)
         .where(eq(orders.customerId, id))
         .orderBy(desc(orders.createdAt)),
+      db
+        .select({ status: ricaRecords.status })
+        .from(ricaRecords)
+        .where(eq(ricaRecords.customerId, id)),
     ]);
+
+  // What has actually been banked against each invoice, so a partly paid
+  // invoice can show what is still outstanding instead of the full total.
+  const openInvoiceIds = invoiceRows
+    .filter((i) => i.status === "open" || i.status === "past_due")
+    .map((i) => i.id);
+  const [paidByInvoice, attempts] = await Promise.all([
+    paidCentsByInvoice(invoiceRows.map((i) => i.id)),
+    collectionAttemptsFor(openInvoiceIds),
+  ]);
+
+  const today = todayInJohannesburg();
+  const activeServices = serviceRows.filter(
+    (s) => s.service.status === "active"
+  ).length;
+  const nextInvoiceDate = serviceRows
+    .map((s) => s.service.nextInvoiceDate)
+    .filter((d): d is string => Boolean(d))
+    .sort()[0];
+  const ricaState =
+    ricaSummary.length === 0
+      ? null
+      : ricaSummary.some((r) => r.status === "pending")
+        ? "RICA pending"
+        : ricaSummary.every((r) => r.status === "verified")
+          ? "RICA verified"
+          : "RICA rejected";
+
+  const facts: [string, string][] = [
+    ["Customer since", formatDate(customer.createdAt)],
+    [
+      "Services",
+      activeServices === serviceRows.length
+        ? `${serviceRows.length} active`
+        : `${activeServices} active of ${serviceRows.length}`,
+    ],
+    ["Next invoice", nextInvoiceDate ? formatDate(nextInvoiceDate) : "None scheduled"],
+    ...(ricaState ? ([["Compliance", ricaState]] as [string, string][]) : []),
+  ];
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -119,6 +170,16 @@ export default async function Customer360Page({
           <EditDetailsSheet customer={customer} />
         </div>
       </div>
+
+      {/* The brief an operator needs before picking up the phone. */}
+      <dl className="flex flex-wrap gap-x-6 gap-y-2 rounded-2xl border bg-card px-4 py-3 text-sm">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="font-medium">{value}</dd>
+          </div>
+        ))}
+      </dl>
 
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground">Sales rep:</span>
@@ -164,15 +225,15 @@ export default async function Customer360Page({
                     <p className="text-sm text-muted-foreground">
                       {provider.name}
                       {service.activationDate
-                        ? ` · active since ${service.activationDate}`
+                        ? ` · active since ${formatDate(service.activationDate)}`
                         : ""}
                       {service.nextInvoiceDate
-                        ? ` · next invoice ${service.nextInvoiceDate}`
+                        ? ` · next invoice ${formatDate(service.nextInvoiceDate)}`
                         : ""}
                     </p>
                     {service.cancelEffectiveDate ? (
                       <p className="text-sm text-amber-700">
-                        Cancels {service.cancelEffectiveDate}
+                        Cancels {formatDate(service.cancelEffectiveDate)}
                         {service.cancelReason ? `, ${service.cancelReason}` : ""}
                       </p>
                     ) : null}
@@ -184,6 +245,8 @@ export default async function Customer360Page({
                       serviceId={service.id}
                       customerId={id}
                       status={service.status}
+                      planName={plan.name}
+                      customerName={name || "this customer"}
                     />
                   </div>
                 </div>
@@ -209,7 +272,7 @@ export default async function Customer360Page({
                     <MarkOrderPaidForm
                       orderId={order.id}
                       customerId={id}
-                      amountRands={order.totalCents / 100}
+                      amountCents={order.totalCents}
                     />
                   </div>
                 ))}
@@ -223,34 +286,100 @@ export default async function Customer360Page({
                 No invoices yet.
               </p>
             ) : (
-              invoiceRows.map((invoice) => (
-                <div key={invoice.id} className="rounded-lg border bg-card p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-mono text-sm font-medium">
-                        {invoice.number}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Issued {invoice.issueDate} · due {invoice.dueDate}
-                        {invoice.periodStart
-                          ? ` · ${invoice.periodStart} → ${invoice.periodEnd}`
-                          : ""}
-                      </p>
+              invoiceRows.map((invoice) => {
+                const paid = paidByInvoice.get(invoice.id) ?? 0;
+                const outstanding = invoice.totalCents - paid;
+                const collectable =
+                  invoice.status === "open" || invoice.status === "past_due";
+                const invoiceAttempts = attempts.filter(
+                  (a) => a.invoiceId === invoice.id
+                );
+                return (
+                  <div key={invoice.id} className="rounded-lg border bg-card p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-mono text-sm font-medium">
+                          {invoice.number}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Issued {formatDate(invoice.issueDate)} · due{" "}
+                          {formatDate(invoice.dueDate)}
+                          {invoice.periodStart
+                            ? ` · ${formatDate(invoice.periodStart)} to ${formatDate(invoice.periodEnd)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <MoneyText cents={invoice.totalCents} />
+                          {paid > 0 && collectable ? (
+                            <p className="text-xs text-muted-foreground">
+                              <MoneyText cents={paid} className="text-xs" /> paid,{" "}
+                              <MoneyText
+                                cents={outstanding}
+                                className="text-xs font-medium text-red-600"
+                              />{" "}
+                              outstanding
+                            </p>
+                          ) : null}
+                        </div>
+                        <StatusPill status={invoice.status} />
+                        {collectable ? (
+                          <InvoiceActions
+                            invoiceId={invoice.id}
+                            invoiceNumber={invoice.number}
+                            customerId={id}
+                            customerName={name || "this customer"}
+                            outstandingCents={outstanding}
+                            hasPayments={paid > 0}
+                          />
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <MoneyText cents={invoice.totalCents} />
-                      <StatusPill status={invoice.status} />
-                    </div>
+
+                    {/* What the bank actually said, so the operator on the
+                        phone can name the reason instead of guessing. */}
+                    {invoiceAttempts.length > 0 ? (
+                      <ul className="mt-3 space-y-1 border-t pt-3 text-xs">
+                        {invoiceAttempts.map((attempt) => (
+                          <li
+                            key={attempt.id}
+                            className={cn(
+                              "flex flex-wrap items-baseline gap-x-2",
+                              attempt.result === "failed"
+                                ? "text-red-600"
+                                : "text-muted-foreground"
+                            )}
+                          >
+                            <span className="font-medium">
+                              Card attempt {attempt.attemptNo}
+                            </span>
+                            <span>
+                              {attempt.executedAt
+                                ? formatDateTime(attempt.executedAt)
+                                : `scheduled ${formatDateTime(attempt.scheduledFor)}`}
+                            </span>
+                            <span>
+                              {attempt.result
+                                ? `${attempt.result}${attempt.detail ? `, ${attempt.detail}` : ""}`
+                                : "not attempted yet"}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+
+                    {collectable ? (
+                      <RecordEftForm
+                        invoiceId={invoice.id}
+                        customerId={id}
+                        outstandingCents={outstanding}
+                        today={today}
+                      />
+                    ) : null}
                   </div>
-                  {invoice.status === "open" || invoice.status === "past_due" ? (
-                    <RecordEftForm
-                      invoiceId={invoice.id}
-                      customerId={id}
-                      defaultAmountRands={invoice.totalCents / 100}
-                    />
-                  ) : null}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -302,10 +431,10 @@ async function PaymentsLog({ customerId }: { customerId: string }) {
             {rows.map(({ payment, invoice }) => (
               <tr key={payment.id} className="border-b last:border-0">
                 <td className="p-3 text-muted-foreground">
-                  {payment.createdAt.toISOString().slice(0, 10)}
+                  {formatDate(payment.createdAt)}
                 </td>
                 <td className="p-3 font-mono text-xs">{invoice.number}</td>
-                <td className="p-3">{payment.method}</td>
+                <td className="p-3">{paymentMethodLabel(payment.method)}</td>
                 <td className="p-3 text-right">
                   <MoneyText cents={payment.amountCents} />
                 </td>
@@ -331,8 +460,8 @@ async function ConversationsTab({ customerId }: { customerId: string }) {
     <section className="space-y-3">
       {rows.length === 0 ? (
         <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          No conversations with this customer yet. The unified inbox arrives
-          with the next milestone; portal and WhatsApp threads will land here.
+          No conversations with this customer yet. Portal messages and inbound
+          WhatsApp land here the moment they arrive.
         </p>
       ) : (
         rows.map((c) => (
@@ -381,7 +510,7 @@ async function DocumentsTab({ customerId }: { customerId: string }) {
               <div>
                 <p className="font-mono text-sm">{maskedIdNumber(r.idNumberEncrypted)}</p>
                 <p className="text-xs text-muted-foreground">
-                  Captured {r.createdAt.toISOString().slice(0, 10)}
+                  Captured {formatDate(r.createdAt)}
                   {r.rejectionReason ? ` · rejected: ${r.rejectionReason}` : ""}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -419,9 +548,12 @@ async function AuditTab({
   serviceIds: string[];
 }) {
   const entityIds = [customerId, ...serviceIds];
+  // An audit trail that cannot name the actor fails the purpose it exists
+  // for, so join the user behind actor_user_id (§12, POPIA).
   const rows = await db
-    .select()
+    .select({ entry: auditLog, actorName: users.name })
     .from(auditLog)
+    .leftJoin(users, eq(auditLog.actorUserId, users.id))
     .where(inArray(auditLog.entityId, entityIds))
     .orderBy(desc(auditLog.createdAt))
     .limit(50);
@@ -432,18 +564,17 @@ async function AuditTab({
           No audited actions yet.
         </p>
       ) : (
-        rows.map((row) => (
-          <div key={row.id} className="rounded-lg border bg-card p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-xs font-medium">{row.action}</span>
+        rows.map(({ entry, actorName }) => (
+          <div key={entry.id} className="rounded-lg border bg-card p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-xs font-medium">{entry.action}</span>
               <span className="text-xs text-muted-foreground">
-                {row.createdAt.toISOString().replace("T", " ").slice(0, 16)} ·{" "}
-                {row.actorRole}
+                {formatDateTime(entry.createdAt)} · {actorLabel(actorName, entry.actorRole)}
               </span>
             </div>
-            {row.after ? (
+            {entry.after ? (
               <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                {JSON.stringify(row.after)}
+                {JSON.stringify(entry.after)}
               </p>
             ) : null}
           </div>
@@ -455,8 +586,9 @@ async function AuditTab({
 
 async function RecentActivity({ customerId }: { customerId: string }) {
   const rows = await db
-    .select()
+    .select({ entry: auditLog, actorName: users.name })
     .from(auditLog)
+    .leftJoin(users, eq(auditLog.actorUserId, users.id))
     .where(eq(auditLog.entityId, customerId))
     .orderBy(desc(auditLog.createdAt))
     .limit(8);
@@ -464,10 +596,11 @@ async function RecentActivity({ customerId }: { customerId: string }) {
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-semibold">Recent activity</h2>
-      {rows.map((row) => (
-        <p key={row.id} className="text-sm text-muted-foreground">
-          <span className="font-mono text-xs">{row.action}</span>, {" "}
-          {row.createdAt.toISOString().replace("T", " ").slice(0, 16)}
+      {rows.map(({ entry, actorName }) => (
+        <p key={entry.id} className="text-sm text-muted-foreground">
+          <span className="font-mono text-xs">{entry.action}</span>,{" "}
+          {formatDateTime(entry.createdAt)},{" "}
+          {actorLabel(actorName, entry.actorRole)}
         </p>
       ))}
     </section>

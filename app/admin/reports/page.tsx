@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { Download } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { users, auditLog, providers } from "@/lib/db/schema";
@@ -17,6 +17,8 @@ import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
 import { TEMPLATES } from "@/lib/notify/templates";
 import { MoneyText } from "@/components/shared/money-text";
 import { Input } from "@/components/ui/input";
+import { formatDateTime } from "@/lib/format";
+import { actorLabel, planCategoryLabel } from "../labels";
 import { cn } from "@/lib/utils";
 import {
   CompanyForm,
@@ -24,6 +26,7 @@ import {
   InviteStaffForm,
   StaffRow,
   TestSendPanel,
+  ReconcileWorksheet,
 } from "./client";
 
 export const metadata: Metadata = { title: "Reports & Settings" };
@@ -84,9 +87,14 @@ function integrationStatus() {
 export default async function ReportsSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; entity?: string; provider?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    entity?: string;
+    provider?: string;
+    q?: string;
+  }>;
 }) {
-  const { tab = "reports", entity, provider = "Telkom" } = await searchParams;
+  const { tab = "reports", entity, provider = "Telkom", q } = await searchParams;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -120,7 +128,7 @@ export default async function ReportsSettingsPage({
         <IntegrationsTab items={integrationStatus()} />
       ) : null}
       {tab === "templates" ? <TemplatesTab /> : null}
-      {tab === "audit" ? <AuditTab entity={entity} /> : null}
+      {tab === "audit" ? <AuditTab entity={entity} q={q} /> : null}
     </div>
   );
 }
@@ -170,7 +178,7 @@ async function ReportsTab() {
               ) : (
                 byCategory.map((row) => (
                   <tr key={row.category} className="border-b last:border-0">
-                    <td className="p-3">{row.category}</td>
+                    <td className="p-3">{planCategoryLabel(row.category)}</td>
                     <td className="tnum p-3 text-right">{row.count}</td>
                     <td className="p-3 text-right">
                       <MoneyText cents={row.mrrCents} whole />
@@ -213,7 +221,7 @@ async function ReportsTab() {
                     {row.marginCents != null ? (
                       <MoneyText cents={row.marginCents} whole />
                     ) : (
-                      ", "
+                      <span className="text-muted-foreground">not set</span>
                     )}
                   </td>
                   <td
@@ -357,79 +365,22 @@ async function ReconciliationTab({ provider }: { provider: string }) {
         ))}
       </div>
 
-      <form
-        method="post"
-        action={`/admin/reports/reconcile?provider=${encodeURIComponent(provider)}`}
-        encType="multipart/form-data"
-        className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3"
-      >
-        <Input
-          type="file"
-          name="statement"
-          accept=".csv,text/csv"
-          className="max-w-xs"
-          aria-label="Provider statement CSV"
-        />
-        <button
-          type="submit"
-          className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          Match statement
-        </button>
-        <span className="text-xs text-muted-foreground">
-          Expected wholesale total:{" "}
-          <MoneyText cents={worksheet.expectedTotalCents} />
-        </span>
-      </form>
+      <ReconcileWorksheet
+        provider={provider}
+        expectedTotalCents={worksheet.expectedTotalCents}
+      />
 
-      <div className="overflow-x-auto rounded-lg border bg-card">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs text-muted-foreground">
-              <th className="p-3 font-medium">Customer</th>
-              <th className="p-3 font-medium">Plan</th>
-              <th className="p-3 font-medium">External ref</th>
-              <th className="p-3 text-right font-medium">Expected cost</th>
-              <th className="p-3 font-medium">Flag</th>
-            </tr>
-          </thead>
-          <tbody>
-            {worksheet.rows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="p-4 text-center text-muted-foreground">
-                  No active services on {provider}.
-                </td>
-              </tr>
-            ) : (
-              worksheet.rows.map((row) => (
-                <tr key={row.serviceId} className="border-b last:border-0">
-                  <td className="p-3">{row.customerName}</td>
-                  <td className="p-3">{row.planName}</td>
-                  <td className="p-3 font-mono text-xs">
-                    {row.externalRef ?? "-"}
-                  </td>
-                  <td className="p-3 text-right">
-                    {row.expectedCostCents != null ? (
-                      <MoneyText cents={row.expectedCostCents} />
-                    ) : (
-                      ", "
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {row.flag === "ok" ? (
-                      <span className="text-xs text-emerald-700">ok</span>
-                    ) : (
-                      <span className="text-xs font-medium text-amber-700">
-                        {row.flag.replace(/_/g, " ")}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {worksheet.rows.length === 0 ? (
+        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          No active services on {provider} to reconcile.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {worksheet.rows.length} active service
+          {worksheet.rows.length === 1 ? "" : "s"} on {provider} are in scope
+          for this month.
+        </p>
+      )}
     </div>
   );
 }
@@ -554,17 +505,27 @@ function TemplatesTab() {
   );
 }
 
-async function AuditTab({ entity }: { entity?: string }) {
+async function AuditTab({ entity, q }: { entity?: string; q?: string }) {
+  const search = q?.trim();
+  // Join the user behind actor_user_id: an audit trail that cannot name the
+  // actor fails the compliance purpose it exists for (§12, POPIA).
   const rows = await db
-    .select()
+    .select({ entry: auditLog, actorName: users.name })
     .from(auditLog)
+    .leftJoin(users, eq(auditLog.actorUserId, users.id))
     .where(
-      entity
-        ? or(
-            eq(auditLog.entity, entity),
-            ilike(auditLog.action, `%${entity}%`)
-          )
-        : undefined
+      and(
+        entity
+          ? or(eq(auditLog.entity, entity), ilike(auditLog.action, `%${entity}%`))
+          : undefined,
+        search
+          ? or(
+              ilike(auditLog.entityId, `%${search}%`),
+              ilike(auditLog.action, `%${search}%`),
+              ilike(users.name, `%${search}%`)
+            )
+          : undefined
+      )
     )
     .orderBy(desc(auditLog.createdAt))
     .limit(100);
@@ -612,36 +573,71 @@ async function AuditTab({ entity }: { entity?: string }) {
           </Link>
         ))}
       </div>
+
+      <form method="get" action="/admin/reports" className="flex gap-2">
+        <input type="hidden" name="tab" value="audit" />
+        {entity ? <input type="hidden" name="entity" value={entity} /> : null}
+        <Input
+          name="q"
+          defaultValue={search}
+          placeholder="Search by record id, action or who did it…"
+          className="max-w-md"
+          aria-label="Search the audit log"
+        />
+      </form>
+
       <div className="space-y-1.5">
-        {rows.map((row) => (
-          <details key={row.id} className="rounded-lg border bg-card p-3 text-sm">
-            <summary className="flex cursor-pointer items-center justify-between">
-              <span className="font-mono text-xs font-medium">{row.action}</span>
-              <span className="text-xs text-muted-foreground">
-                {row.createdAt.toISOString().replace("T", " ").slice(0, 19)} ·{" "}
-                {row.actorRole}
-              </span>
-            </summary>
-            <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-              {row.before ? (
-                <div>
-                  <p className="font-medium text-muted-foreground">Before</p>
-                  <pre className="mt-1 overflow-x-auto rounded bg-muted p-2">
-                    {JSON.stringify(row.before, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-              {row.after ? (
-                <div>
-                  <p className="font-medium text-muted-foreground">After</p>
-                  <pre className="mt-1 overflow-x-auto rounded bg-muted p-2">
-                    {JSON.stringify(row.after, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-            </div>
-          </details>
-        ))}
+        {rows.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            {search
+              ? `Nothing in the audit log matches "${search}".`
+              : "No audited actions recorded yet."}
+          </p>
+        ) : (
+          rows.map(({ entry, actorName }) => (
+            <details
+              key={entry.id}
+              className="rounded-lg border bg-card p-3 text-sm"
+            >
+              <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-xs font-medium">
+                  {entry.action}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTime(entry.createdAt)} ·{" "}
+                  {actorLabel(actorName, entry.actorRole)}
+                </span>
+              </summary>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                {entry.entity} {entry.entityId}
+              </p>
+              <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                {entry.before ? (
+                  <div>
+                    <p className="font-medium text-muted-foreground">Before</p>
+                    <pre className="mt-1 overflow-x-auto rounded bg-muted p-2">
+                      {JSON.stringify(entry.before, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+                {entry.after ? (
+                  <div>
+                    <p className="font-medium text-muted-foreground">After</p>
+                    <pre className="mt-1 overflow-x-auto rounded bg-muted p-2">
+                      {JSON.stringify(entry.after, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            </details>
+          ))
+        )}
+        {rows.length === 100 ? (
+          <p className="pt-1 text-xs text-muted-foreground">
+            Showing the 100 most recent entries. Narrow the search to reach
+            older ones.
+          </p>
+        ) : null}
       </div>
     </div>
   );

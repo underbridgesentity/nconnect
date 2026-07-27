@@ -8,6 +8,7 @@ import {
   invoices,
   customers,
 } from "@/lib/db/schema";
+import { parseZar } from "@/lib/money";
 import { todayInJohannesburg } from "./services";
 
 /**
@@ -100,6 +101,135 @@ export async function missingCostChecklist() {
     .leftJoin(services, eq(services.planId, plans.id))
     .where(and(isNull(plans.costCents), eq(plans.status, "published")))
     .groupBy(plans.name, providers.name);
+}
+
+/**
+ * Parse a provider or bank statement CSV into integer cents.
+ *
+ * South African exports routinely write "R1 234,56" or "1 234.56". A
+ * `parseFloat` on those returns 1, which silently reconciles an entire
+ * statement as amount deltas, so every amount goes through `parseZar`
+ * (integer cents, throws on junk) and anything unreadable is reported back
+ * to the operator instead of being dropped on the floor.
+ */
+export interface ParsedStatement {
+  amounts: Map<string, number>;
+  /** Lines that could not be read, so the UI can say "N rows ignored". */
+  unreadable: { line: number; text: string }[];
+}
+
+/** CSV split that respects double quotes and doubled escapes. */
+function splitCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      cells.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current);
+  return cells.map((cell) => cell.trim());
+}
+
+/**
+ * Normalise an amount written in either South African convention into the
+ * canonical "1234.56" that `parseZar` accepts. "R1 234,56", "1.234,56",
+ * "1 234.56" and "1234.56" are all R1 234.56. Whichever separator comes
+ * last, with one or two digits after it, is the decimal separator; every
+ * other separator is a thousands mark. Accounting exports also write the
+ * minus sign after the number.
+ */
+function normaliseAmount(raw: string): string {
+  let value = raw.trim();
+  let negative = false;
+  if (value.startsWith("-")) {
+    negative = true;
+    value = value.slice(1);
+  }
+  if (value.endsWith("-")) {
+    negative = true;
+    value = value.slice(0, -1);
+  }
+  value = value.replace(/^(ZAR|R)\s*/i, "").replace(/[\s ]/g, "");
+  // Reject anything that is not sanely grouped, so junk like "1.2.3.4" is
+  // reported as unreadable instead of quietly read as R123.40.
+  const grouped = /^\d{1,3}([.,]\d{3})*([.,]\d{1,2})?$/;
+  const plain = /^\d+([.,]\d{1,2})?$/;
+  if (!grouped.test(value) && !plain.test(value)) {
+    throw new TypeError(`cannot read "${raw}" as an amount`);
+  }
+
+  const lastComma = value.lastIndexOf(",");
+  const lastDot = value.lastIndexOf(".");
+  let decimalAt = -1;
+  if (lastComma >= 0 && lastDot >= 0) {
+    decimalAt = Math.max(lastComma, lastDot);
+  } else if (lastComma >= 0) {
+    decimalAt = /,\d{1,2}$/.test(value) ? lastComma : -1;
+  } else if (lastDot >= 0) {
+    decimalAt = /\.\d{1,2}$/.test(value) ? lastDot : -1;
+  }
+
+  const whole = (decimalAt >= 0 ? value.slice(0, decimalAt) : value).replace(
+    /[.,]/g,
+    ""
+  );
+  const fraction = decimalAt >= 0 ? value.slice(decimalAt + 1) : "";
+  const normalised = fraction ? `${whole}.${fraction}` : whole;
+  return negative ? `-${normalised}` : normalised;
+}
+
+export function parseStatementCsv(text: string): ParsedStatement {
+  const amounts = new Map<string, number>();
+  const unreadable: { line: number; text: string }[] = [];
+
+  for (const [index, raw] of text.split(/\r?\n/).entries()) {
+    const line = raw.trim();
+    if (!line) continue;
+    const cells = splitCsvLine(line);
+    const ref = cells[0];
+    // Header row: "external_ref,amount".
+    if (index === 0 && cells.slice(1).some((c) => /[a-z]/i.test(c))) continue;
+    if (!ref || cells.length < 2) {
+      unreadable.push({ line: index + 1, text: line });
+      continue;
+    }
+
+    // An unquoted decimal comma splits the amount across cells, so try the
+    // documented second column first, then the rejoined remainder.
+    const candidates =
+      cells.length > 2
+        ? [cells[1], cells.slice(1).join(",")]
+        : [cells[1]];
+    let parsed: number | null = null;
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      try {
+        parsed = parseZar(normaliseAmount(candidate));
+        break;
+      } catch {
+        // try the next reading of the line
+      }
+    }
+    if (parsed == null) {
+      unreadable.push({ line: index + 1, text: line });
+      continue;
+    }
+    amounts.set(ref, parsed);
+  }
+  return { amounts, unreadable };
 }
 
 /**

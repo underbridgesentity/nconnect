@@ -1,12 +1,25 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getSetting } from "@/lib/domain/settings";
 import { JsonLd } from "@/components/public/json-ld";
+import { PageHeader } from "@/components/public/page-header";
+import { PillLink } from "@/components/public/pill";
+import { WhatsAppPill } from "@/components/public/whatsapp-link";
+import { Reveal } from "@/components/shared/reveal";
+import { whatsappHref, type CompanySettings } from "@/components/public/whatsapp";
 
 export const metadata: Metadata = {
   title: "Help & FAQ",
   description:
     "Answers on coverage, billing, RICA, activation times, suspensions and cancellations at Needd Connect.",
   alternates: { canonical: "/help" },
+  openGraph: {
+    title: "Help & FAQ | Needd Connect",
+    description:
+      "Straight answers on coverage, billing, RICA, activation, suspension and cancellation.",
+    url: "/help",
+    type: "website",
+  },
 };
 
 const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
@@ -72,9 +85,15 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
   },
 ];
 
-export default function HelpPage() {
+export default async function HelpPage() {
+  const company = await getSetting<CompanySettings>("company");
+  const wa = whatsappHref(
+    company,
+    "Hi Needd Connect, I could not find the answer on your help page."
+  );
+
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10">
+    <>
       <JsonLd
         data={{
           "@context": "https://schema.org",
@@ -88,27 +107,71 @@ export default function HelpPage() {
           ),
         }}
       />
-      <h1 className="text-3xl font-semibold tracking-tight">Help & FAQ</h1>
-      <p className="mt-2 text-muted-foreground">
-        Straight answers. If yours isn&apos;t here,{" "}
-        <Link href="/contact" className="text-primary hover:underline">
-          ask us directly
-        </Link>
-        .
-      </p>
-      {SECTIONS.map((section) => (
-        <section key={section.title} className="mt-10">
-          <h2 className="text-xl font-semibold">{section.title}</h2>
-          <dl className="mt-4 space-y-5">
-            {section.faqs.map((f) => (
-              <div key={f.q}>
-                <dt className="font-medium">{f.q}</dt>
-                <dd className="mt-1 text-sm text-muted-foreground">{f.a}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      ))}
-    </div>
+      <PageHeader
+        image="/marketing/family.webp"
+        imageAlt="A family at home enjoying time online together"
+        imagePosition="50% 35%"
+        eyebrow="Help"
+        title="Straight answers, no runaround"
+        actions={
+          <>
+            {wa ? (
+              <WhatsAppPill href={wa}>Ask on WhatsApp</WhatsAppPill>
+            ) : (
+              <PillLink href="/contact">Ask us directly</PillLink>
+            )}
+            <PillLink href="/coverage" variant="ink">
+              Check coverage
+            </PillLink>
+          </>
+        }
+      >
+        <p>
+          The questions we actually get asked, answered the way we answer them
+          on WhatsApp.
+        </p>
+      </PageHeader>
+
+      <div className="mx-auto max-w-3xl px-4 py-14">
+        {SECTIONS.map((section, index) => (
+          <section key={section.title} className={index === 0 ? "" : "mt-12"}>
+            <h2 className="text-xl font-semibold tracking-tight">
+              {section.title}
+            </h2>
+            <dl className="mt-5 space-y-3">
+              {section.faqs.map((f, i) => (
+                <Reveal
+                  key={f.q}
+                  delay={Math.min(i, 4) * 0.05}
+                  className="rounded-2xl border bg-card p-5"
+                >
+                  <dt className="font-semibold">{f.q}</dt>
+                  <dd className="mt-1.5 text-sm leading-6 text-foreground/80">
+                    {f.a}
+                  </dd>
+                </Reveal>
+              ))}
+            </dl>
+          </section>
+        ))}
+
+        <div className="mt-12 flex flex-wrap items-center gap-4 rounded-3xl border bg-card p-6">
+          <p className="flex-1 text-sm leading-6 text-foreground/80">
+            Still stuck? Ask us directly and a real person answers. Existing
+            customers get the fastest help from{" "}
+            <Link
+              href="/portal/help"
+              className="font-medium text-primary hover:underline"
+            >
+              inside the portal
+            </Link>
+            .
+          </p>
+          <PillLink href="/contact" variant="outline">
+            Contact us
+          </PillLink>
+        </div>
+      </div>
+    </>
   );
 }

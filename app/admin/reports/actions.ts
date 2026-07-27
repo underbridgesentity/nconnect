@@ -7,12 +7,75 @@ import { inviteStaff, setStaffStatus, setStaffRole } from "@/lib/domain/staff";
 import { sendEmail } from "@/lib/notify/email";
 import { getSmsAdapter } from "@/lib/notify/sms";
 import { authorize } from "@/lib/auth/authorize";
+import {
+  parseStatementCsv,
+  reconciliationWorksheet,
+  type ReconRow,
+} from "@/lib/domain/reports";
 
 export type Result = { ok: boolean; error?: string; detail?: string };
 const fail = (err: unknown): Result => ({
   ok: false,
   error: err instanceof Error ? err.message : "Failed",
 });
+
+export interface ReconResult {
+  rows: ReconRow[];
+  leakage: { externalRef: string; statementCents: number }[];
+  expectedTotalCents: number;
+  statementTotalCents: number;
+  matchedCount: number;
+  unreadable: { line: number; text: string }[];
+}
+
+/**
+ * Match a provider statement and hand the worksheet back to the screen.
+ * The monthly margin check used to end in a CSV download, so the moment of
+ * value happened in Excel and never in the product (§6.4).
+ */
+export async function matchStatementAction(
+  form: FormData
+): Promise<
+  { ok: true; result: ReconResult } | { ok: false; error: string }
+> {
+  try {
+    const actor = await requireActor();
+    authorize(actor, "billing.reconciliation");
+    const provider = String(form.get("provider") ?? "");
+    const file = form.get("statement");
+    if (!(file instanceof File) || file.size === 0) {
+      throw new Error("Choose a statement CSV first");
+    }
+    const parsed = parseStatementCsv(await file.text());
+    if (parsed.amounts.size === 0) {
+      throw new Error(
+        "No readable lines in that file. It needs external_ref and amount columns."
+      );
+    }
+    const worksheet = await reconciliationWorksheet({
+      providerName: provider,
+      statement: parsed.amounts,
+    });
+    let statementTotalCents = 0;
+    for (const cents of parsed.amounts.values()) statementTotalCents += cents;
+
+    return {
+      ok: true,
+      result: {
+        ...worksheet,
+        statementTotalCents,
+        matchedCount: worksheet.rows.filter((r) => r.statementCents != null)
+          .length,
+        unreadable: parsed.unreadable,
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed",
+    };
+  }
+}
 
 export async function updateCompanyAction(form: FormData): Promise<Result> {
   try {
