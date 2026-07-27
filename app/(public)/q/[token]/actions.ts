@@ -38,8 +38,20 @@ export async function resumeQuotePaymentAction(
       .where(eq(orders.id, quote.acceptedOrderId))
       .limit(1);
     if (!order) return { ok: false, error: "We could not find that order" };
+    // "Not pending" is not the same as "paid". A cancelled order is the one
+    // case where the customer owes nothing at all, and telling them it was
+    // paid would be the exact opposite of the truth.
+    if (order.status === "cancelled") {
+      return {
+        ok: false,
+        error: `Order ${order.number} was cancelled, so there is nothing to pay. Ask your consultant for a fresh quote.`,
+      };
+    }
     if (order.status !== "pending_payment") {
-      return { ok: false, error: "This order is already paid, nothing to do" };
+      return {
+        ok: false,
+        error: `Order ${order.number} is already paid, nothing to do.`,
+      };
     }
 
     const [customer] = await db

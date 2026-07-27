@@ -7,6 +7,10 @@ import { orders, orderItems, invoices, payments } from "@/lib/db/schema";
 import { getSetting } from "@/lib/domain/settings";
 import { add, subtract, type Cents } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
+import {
+  whatsappHref,
+  type CompanySettings,
+} from "@/components/public/whatsapp";
 import { signInVerifiedCustomerAction } from "../actions";
 
 export const metadata: Metadata = {

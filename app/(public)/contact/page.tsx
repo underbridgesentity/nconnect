@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, MessageCircle, LifeBuoy } from "lucide-react";
-import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
+import { getSettingForDisplay } from "@/lib/domain/settings";
 import { PageHeader } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { WhatsAppPill } from "@/components/public/whatsapp-link";

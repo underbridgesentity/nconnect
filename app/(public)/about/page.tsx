@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
+import { getSettingForDisplay } from "@/lib/domain/settings";
 import { PageHeader, type HeaderStat } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { Prose } from "@/components/public/prose";

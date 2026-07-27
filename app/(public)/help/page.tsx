@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
+import { getSettingForDisplay } from "@/lib/domain/settings";
 import { JsonLd } from "@/components/public/json-ld";
 import { PageHeader } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";

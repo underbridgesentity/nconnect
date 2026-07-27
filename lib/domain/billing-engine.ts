@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { createHmac } from "node:crypto";
-import { db } from "@/lib/db/client";
+import { db, type Tx } from "@/lib/db/client";
 import {
   services,
   plans,
@@ -14,7 +14,13 @@ import {
   users,
   notifications,
 } from "@/lib/db/schema";
-import { add, formatCents, prorataComplement, type Cents } from "@/lib/money";
+import {
+  add,
+  formatCents,
+  prorataComplement,
+  subtract,
+  type Cents,
+} from "@/lib/money";
 import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
@@ -87,8 +93,18 @@ function daysBetween(a: string, b: string): number {
 
 /**
  * Generate recurring invoices for every active/suspended service whose
- * next_invoice_date <= today (§6.1). Idempotent: a service+period pair is
- * only ever invoiced once. Returns created invoice ids.
+ * next_invoice_date <= today (§6.1). Returns created invoice ids.
+ *
+ * Idempotent, and safe when two runs overlap. Each service row is taken with
+ * `select ... for update` before anything is read from it, and the billing
+ * pointer is re-read under that lock: a run that arrives second finds
+ * `next_invoice_date` already advanced past today and does nothing. Without
+ * the lock, two runs could both read the same anchor date, both find no
+ * invoice for the period, and bill the customer for the month twice.
+ *
+ * One bad service never stops the rest: each is its own transaction and its
+ * own try/catch, so a run that hits a broken row still bills every customer
+ * after it.
  */
 export async function runInvoiceGeneration(
   today = todayInJohannesburg()
@@ -96,7 +112,7 @@ export async function runInvoiceGeneration(
   const dunning = await getSettingOr<DunningConfig>("dunning", DEFAULT_DUNNING);
 
   const due = await db
-    .select({ service: services, plan: plans })
+    .select({ id: services.id })
     .from(services)
     .innerJoin(plans, eq(services.planId, plans.id))
     .where(
@@ -107,131 +123,168 @@ export async function runInvoiceGeneration(
     );
 
   const created: string[] = [];
-  for (const { service, plan } of due) {
-    const periodStart = service.nextInvoiceDate!;
-    const periodEnd = addDays(
-      nextMonthOnAnchor(periodStart, service.billingAnchorDay ?? 1),
-      -1
-    );
-
-    const invoiceId = await db.transaction(async (tx) => {
-      // Idempotency: one invoice per service+period.
-      const [existing] = await tx
-        .select({ id: invoices.id })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.serviceId, service.id),
-            eq(invoices.periodStart, periodStart)
-          )
-        )
-        .limit(1);
-      if (existing) {
-        // Advance the pointer anyway so we don't loop forever.
-        await tx
-          .update(services)
-          .set({
-            nextInvoiceDate: nextMonthOnAnchor(
-              periodStart,
-              service.billingAnchorDay ?? 1
-            ),
-          })
-          .where(eq(services.id, service.id));
-        return null;
-      }
-
-      // Scheduled downgrade rollover (§5): swap at the anchor.
-      let billingPlan = plan;
-      if (
-        service.pendingPlanId &&
-        service.planChangeEffectiveDate &&
-        service.planChangeEffectiveDate <= periodStart
-      ) {
-        const [newPlan] = await tx
+  let failed = 0;
+  for (const row of due) {
+    let invoiceId: string | null = null;
+    try {
+      invoiceId = await db.transaction(async (tx) => {
+        // Row lock first, then every decision is made from the locked row.
+        const [service] = await tx
           .select()
-          .from(plans)
-          .where(eq(plans.id, service.pendingPlanId))
+          .from(services)
+          .where(eq(services.id, row.id))
+          .limit(1)
+          .for("update");
+        if (!service) return null;
+        if (service.status !== "active" && service.status !== "suspended") {
+          return null;
+        }
+
+        // Re-read under the lock: an overlapping run may already have billed
+        // this period and moved the pointer on.
+        const periodStart = service.nextInvoiceDate;
+        if (!periodStart || periodStart > today) return null;
+
+        const anchorDay = service.billingAnchorDay ?? 1;
+        const nextAnchor = nextMonthOnAnchor(periodStart, anchorDay);
+        const periodEnd = addDays(nextAnchor, -1);
+
+        // Backstop for anything that predates the lock: one invoice per
+        // service and period, ever.
+        const [existing] = await tx
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.serviceId, service.id),
+              eq(invoices.periodStart, periodStart)
+            )
+          )
           .limit(1);
-        if (newPlan) {
-          billingPlan = newPlan;
+        if (existing) {
+          // Advance the pointer anyway so we don't loop forever.
           await tx
             .update(services)
-            .set({
-              planId: newPlan.id,
-              pendingPlanId: null,
-              planChangeEffectiveDate: null,
-            })
+            .set({ nextInvoiceDate: nextAnchor })
             .where(eq(services.id, service.id));
-          await writeAudit(tx, {
-            actor: null,
-            action: "service.plan_change.rollover",
-            entity: "service",
-            entityId: service.id,
-            before: { planId: plan.id },
-            after: { planId: newPlan.id },
-          });
+          return null;
         }
-      }
 
-      const number = await nextNumber(tx, "INV");
-      const [invoice] = await tx
-        .insert(invoices)
-        .values({
-          number,
-          customerId: service.customerId,
-          serviceId: service.id,
-          periodStart,
-          periodEnd,
-          issueDate: today,
-          dueDate: addDays(today, dunning.invoiceDueDays),
-          status: "open",
-          subtotalCents: billingPlan.priceCents,
-          totalCents: billingPlan.priceCents,
-        })
-        .returning({ id: invoices.id, number: invoices.number });
+        const [plan] = await tx
+          .select()
+          .from(plans)
+          .where(eq(plans.id, service.planId))
+          .limit(1);
+        if (!plan) {
+          throw new Error(`Service ${service.id} points at a missing plan`);
+        }
 
-      await tx.insert(invoiceLines).values({
-        invoiceId: invoice.id,
-        kind: "subscription",
-        description: `${billingPlan.name}, ${periodStart} to ${periodEnd}`,
-        serviceId: service.id,
-        amountCents: billingPlan.priceCents,
-      });
+        // Scheduled downgrade rollover (§5): swap at the anchor.
+        let billingPlan = plan;
+        if (
+          service.pendingPlanId &&
+          service.planChangeEffectiveDate &&
+          service.planChangeEffectiveDate <= periodStart
+        ) {
+          const [newPlan] = await tx
+            .select()
+            .from(plans)
+            .where(eq(plans.id, service.pendingPlanId))
+            .limit(1);
+          if (newPlan) {
+            billingPlan = newPlan;
+            await tx
+              .update(services)
+              .set({
+                planId: newPlan.id,
+                pendingPlanId: null,
+                planChangeEffectiveDate: null,
+              })
+              .where(eq(services.id, service.id));
+            await writeAudit(tx, {
+              actor: null,
+              action: "service.plan_change.rollover",
+              entity: "service",
+              entityId: service.id,
+              before: { planId: plan.id },
+              after: { planId: newPlan.id },
+            });
+          }
+        }
 
-      await tx
-        .update(services)
-        .set({
-          nextInvoiceDate: nextMonthOnAnchor(
+        const number = await nextNumber(tx, "INV");
+        const [invoice] = await tx
+          .insert(invoices)
+          .values({
+            number,
+            customerId: service.customerId,
+            serviceId: service.id,
             periodStart,
-            service.billingAnchorDay ?? 1
-          ),
-        })
-        .where(eq(services.id, service.id));
+            periodEnd,
+            issueDate: today,
+            dueDate: addDays(today, dunning.invoiceDueDays),
+            status: "open",
+            subtotalCents: billingPlan.priceCents,
+            totalCents: billingPlan.priceCents,
+          })
+          .returning({ id: invoices.id, number: invoices.number });
 
-      await writeAudit(tx, {
-        actor: null,
-        action: "invoice.issue",
-        entity: "invoice",
-        entityId: invoice.id,
-        after: {
-          number: invoice.number,
+        await tx.insert(invoiceLines).values({
+          invoiceId: invoice.id,
+          kind: "subscription",
+          description: `${billingPlan.name}, ${periodStart} to ${periodEnd}`,
           serviceId: service.id,
           amountCents: billingPlan.priceCents,
-          periodStart,
-          periodEnd,
-        },
+        });
+
+        await tx
+          .update(services)
+          .set({ nextInvoiceDate: nextAnchor })
+          .where(eq(services.id, service.id));
+
+        await writeAudit(tx, {
+          actor: null,
+          action: "invoice.issue",
+          entity: "invoice",
+          entityId: invoice.id,
+          after: {
+            number: invoice.number,
+            serviceId: service.id,
+            amountCents: billingPlan.priceCents,
+            periodStart,
+            periodEnd,
+          },
+        });
+        await emitDomainEvent(tx, "invoice.issued", {
+          invoiceId: invoice.id,
+          customerId: service.customerId,
+        });
+        return invoice.id;
       });
-      await emitDomainEvent(tx, "invoice.issued", {
-        invoiceId: invoice.id,
-        customerId: service.customerId,
-      });
-      return invoice.id;
-    });
+    } catch (err) {
+      failed++;
+      console.error(
+        `invoice generation failed for service ${row.id} on ${today}:`,
+        err
+      );
+      continue;
+    }
 
     if (invoiceId) {
       created.push(invoiceId);
-      await notifyInvoiceIssued(invoiceId);
+      // The invoice is committed. A notification that fails is worth logging,
+      // never worth losing the rest of the run over.
+      try {
+        await notifyInvoiceIssued(invoiceId);
+      } catch (err) {
+        console.error(`invoice ${invoiceId} issued but not notified:`, err);
+      }
     }
+  }
+  if (failed > 0) {
+    console.error(
+      `invoice generation on ${today}: ${created.length} issued, ${failed} of ${due.length} services failed`
+    );
   }
   return created;
 }
@@ -281,52 +334,137 @@ export function verifyPayLinkToken(invoiceId: string, token: string): boolean {
 
 // ------------------------------------------------- gateway invoice payment
 
+/** Invoice statuses, as the database defines them. */
+type InvoiceStatusValue = (typeof invoices.$inferSelect)["status"];
+
+/**
+ * How money that arrived relates to the invoice it names.
+ *
+ * `applied` is the ordinary case. `overpaid` settles the invoice and leaves
+ * change over. `unallocated` is money the invoice cannot absorb at all, on an
+ * invoice that is already settled, void or written off. The last two are
+ * banked exactly like the first: the difference is that a person has to
+ * decide where the surplus goes.
+ */
+export type PaymentDisposition = "applied" | "overpaid" | "unallocated";
+
+export type GatewayPaymentDecision =
+  | {
+      accepted: true;
+      disposition: PaymentDisposition;
+      /** Owed on the invoice before this payment. */
+      outstandingCents: Cents;
+      /** Completed payments against the invoice once this one is banked. */
+      paidTotalCents: Cents;
+      /** The part of this payment the invoice could not absorb. */
+      excessCents: Cents;
+      /** This payment takes the invoice to paid. */
+      settles: boolean;
+      /** Plain words for the audit trail and the operator's queue. */
+      note?: string;
+    }
+  | { accepted: false; reason: string };
+
 /**
  * Pure settlement rule for one gateway payment, kept separate from the
  * database so it can be reasoned about and tested on its own.
  *
- * Money that arrives for less than the full invoice is still money: it is
- * banked and the invoice stays open for the rest. Only money that arrives for
- * more than is owed is refused, because financial rows are never deleted
- * (§16.4) and an over-allocation would be permanent.
+ * The governing fact is that the card has already been debited by the time
+ * this runs. Refusing the money does not give it back to the customer, it
+ * only removes our record of having taken it. So the only payment refused
+ * here is one where no money moved at all, an amount of zero or less.
+ *
+ * Everything else is banked. Money for less than the balance leaves the
+ * invoice open for the rest; money for the balance or more settles it; money
+ * for an invoice that is already settled, void or written off is banked
+ * against that invoice and flagged, because financial rows are never deleted
+ * (§16.4) and only a person can decide between allocating it elsewhere and
+ * refunding it.
  */
 export function gatewayPaymentOutcome(input: {
+  status: InvoiceStatusValue;
   totalCents: Cents;
   alreadyPaidCents: Cents;
   amountCents: Cents;
-}):
-  | {
-      accepted: true;
-      outstandingCents: Cents;
-      paidTotalCents: Cents;
-      settles: boolean;
-    }
-  | { accepted: false; reason: string } {
-  const outstanding = outstandingCents(input.totalCents, input.alreadyPaidCents);
+}): GatewayPaymentDecision {
   if (input.amountCents <= 0) {
     return { accepted: false, reason: "Payment amount must be more than R0.00" };
   }
-  if (outstanding === 0) {
-    return {
-      accepted: false,
-      reason: "Nothing is outstanding on this invoice, so the payment was not banked",
-    };
-  }
-  if (input.amountCents > outstanding) {
-    return {
-      accepted: false,
-      reason:
-        `Payment of ${formatCents(input.amountCents)} exceeds the ` +
-        `${formatCents(outstanding)} outstanding on this invoice`,
-    };
-  }
+  const outstanding = outstandingCents(input.totalCents, input.alreadyPaidCents);
   const paidTotalCents = add(input.alreadyPaidCents, input.amountCents);
+  const closed = input.status === "void" || input.status === "written_off";
+
+  if (closed || input.status === "paid" || outstanding === 0) {
+    const because = closed
+      ? `the invoice is ${input.status.replace("_", " ")}`
+      : "nothing was outstanding on the invoice";
+    return {
+      accepted: true,
+      disposition: "unallocated",
+      outstandingCents: outstanding,
+      paidTotalCents,
+      excessCents: input.amountCents,
+      settles: false,
+      note:
+        `${formatCents(input.amountCents)} arrived but ${because}, so none of ` +
+        `it could be applied. It needs allocating to another invoice or refunding.`,
+    };
+  }
+
+  const excessCents =
+    input.amountCents > outstanding
+      ? subtract(input.amountCents, outstanding)
+      : 0;
   return {
     accepted: true,
+    disposition: excessCents > 0 ? "overpaid" : "applied",
     outstandingCents: outstanding,
     paidTotalCents,
+    excessCents,
     settles: paidTotalCents >= input.totalCents,
+    note:
+      excessCents > 0
+        ? `${formatCents(input.amountCents)} arrived against ` +
+          `${formatCents(outstanding)} outstanding. The invoice is settled and ` +
+          `the ${formatCents(excessCents)} over needs allocating or refunding.`
+        : undefined,
   };
+}
+
+/** Bell rows for every active admin, written inside the caller's transaction. */
+async function flagForOperator(
+  tx: Tx,
+  input: { type: string; title: string; body: string; link: string }
+): Promise<void> {
+  const admins = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.role, "admin"), eq(users.status, "active")));
+  if (admins.length === 0) {
+    console.error(`no active admin to flag: ${input.title}`);
+    return;
+  }
+  await tx.insert(notifications).values(
+    admins.map((a) => ({
+      userId: a.id,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      link: input.link,
+    }))
+  );
+}
+
+export interface GatewayPaymentResult {
+  ok: boolean;
+  /** This gateway ref was already banked; nothing was written this time. */
+  alreadyPaid: boolean;
+  settled: boolean;
+  paidCents: Cents;
+  outstandingCents: Cents;
+  disposition: PaymentDisposition | "duplicate";
+  /** Banked money the invoice could not absorb, waiting on an operator. */
+  unallocatedCents: Cents;
 }
 
 /**

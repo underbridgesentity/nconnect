@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { publishedPlans, bundlesWithItems } from "@/lib/domain/catalogue";
-import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
+import { getSettingForDisplay } from "@/lib/domain/settings";
 import { MoneyText } from "@/components/shared/money-text";
 import { Reveal } from "@/components/shared/reveal";
 import { JsonLd, organizationJsonLd } from "@/components/public/json-ld";

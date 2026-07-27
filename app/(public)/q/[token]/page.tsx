@@ -2,19 +2,72 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { Check, MessageCircle, RefreshCw } from "lucide-react";
+import { Check, MessageCircle, RefreshCw, XCircle } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { orders } from "@/lib/db/schema";
-import { quoteDocument } from "@/lib/domain/quotes";
+import { quoteDocument, type OrderStatus } from "@/lib/domain/quotes";
 import { formatCents } from "@/lib/money";
 import { formatDateLong } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
+import {
+  whatsappHref,
+  whatsappHrefFor,
+} from "@/components/public/whatsapp";
 import { ResumePaymentButton } from "./resume";
 
 export const metadata: Metadata = {
   title: "Your quote",
   robots: { index: false, follow: false },
 };
+
+type OrderRow = { number: string; status: OrderStatus; totalCents: number };
+
+/** What the customer is told, once there is an order behind the quote. */
+type OrderView =
+  | { kind: "none" }
+  | { kind: "awaiting_payment"; number: string; totalCents: number }
+  | { kind: "in_progress"; number: string; line: string }
+  | { kind: "cancelled"; number: string };
+
+/**
+ * Every value of the order status enum, spelled out.
+ *
+ * This used to read "paid = an order exists and is not pending_payment", which
+ * meant a cancelled order (`cancelStaleOrder` genuinely creates them) told a
+ * customer who had never been charged that their payment had gone through.
+ * A new status has to be handled here before the page will compile, so that
+ * class of lie cannot come back.
+ */
+function describeOrder(order: OrderRow): Exclude<OrderView, { kind: "none" }> {
+  switch (order.status) {
+    case "pending_payment":
+      return {
+        kind: "awaiting_payment",
+        number: order.number,
+        totalCents: order.totalCents,
+      };
+    case "paid":
+      return {
+        kind: "in_progress",
+        number: order.number,
+        line: "We'll take it from here.",
+      };
+    case "processing":
+      return {
+        kind: "in_progress",
+        number: order.number,
+        line: "We're preparing it now and will message you at every step.",
+      };
+    case "fulfilled":
+      return {
+        kind: "in_progress",
+        number: order.number,
+        line: "It's done. Everything about your service now lives in your portal.",
+      };
+    case "cancelled":
+      return { kind: "cancelled", number: order.number };
+  }
+}
 
 /**
  * Public quote link (spec §9.1). The document states both figures the customer
@@ -33,7 +86,8 @@ export default async function QuotePage({
   const { quote, expired, breakdown, rep, company, recipientName } = result;
 
   // Drive the outcome off the order, not the quote status: an order sitting at
-  // pending_payment means the customer still owes us the payment.
+  // pending_payment means the customer still owes us the payment, and one that
+  // was cancelled means they owe us nothing at all.
   const [order] = quote.acceptedOrderId
     ? await db
         .select({
@@ -45,12 +99,22 @@ export default async function QuotePage({
         .where(eq(orders.id, quote.acceptedOrderId))
         .limit(1)
     : [];
-  const awaitingPayment = order?.status === "pending_payment";
-  const paid = order != null && !awaitingPayment;
+  const view: OrderView = order ? describeOrder(order) : { kind: "none" };
 
-  const repWhatsApp = rep?.phone
-    ? `https://wa.me/${rep.phone.replace(/\D/g, "")}`
-    : null;
+  // wa.me only resolves real mobiles. A rep's `users.phone` is often a desk
+  // line and the company number is an 086 share-call, so both routes are
+  // filtered through the same guard and the affordance simply disappears when
+  // there is nothing behind it.
+  const repWhatsApp = whatsappHrefFor(
+    rep?.phone,
+    `Hi${rep?.name ? ` ${rep.name}` : ""}, I have a question about quote ${quote.number}.`
+  );
+  const companyWhatsApp = whatsappHref(
+    company,
+    `Hi Needd Connect, I have a question about quote ${quote.number}.`
+  );
+  const chatHref = repWhatsApp ?? companyWhatsApp;
+  const chatLabel = repWhatsApp && rep?.name ? `WhatsApp ${rep.name}` : "WhatsApp us";
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
@@ -167,7 +231,70 @@ export default async function QuotePage({
         </section>
       ) : null}
 
-      {expired && !order ? (
+      {view.kind === "in_progress" ? (
+        <p className="mt-6 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <Check className="size-4 shrink-0" aria-hidden />
+          Accepted and paid, order {view.number}. {view.line}
+        </p>
+      ) : view.kind === "awaiting_payment" ? (
+        <div className="mt-6 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <p className="flex items-center gap-2 text-sm font-medium text-amber-900">
+            <RefreshCw className="size-4 shrink-0" aria-hidden />
+            Payment not completed
+          </p>
+          <p className="text-sm text-amber-900">
+            We have your details and order {view.number} is waiting, but the
+            payment did not go through. Nothing has been charged. Pick up where
+            you left off and your quoted price still applies.
+          </p>
+          <ResumePaymentButton
+            token={token}
+            label={`Resume payment of ${formatCents(view.totalCents)}`}
+          />
+          {chatHref ? (
+            <a
+              href={chatHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex text-sm font-medium text-amber-900 underline underline-offset-4"
+            >
+              Rather sort it out on WhatsApp
+            </a>
+          ) : null}
+        </div>
+      ) : view.kind === "cancelled" ? (
+        <div className="mt-6 space-y-3 rounded-2xl border bg-muted/40 p-4">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <XCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            Order {view.number} was cancelled
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Nothing was charged, and this quote is closed because it is tied to
+            that order.{" "}
+            {rep?.name
+              ? `${rep.name} can send you a fresh one at current prices.`
+              : "Ask us for a fresh one at current prices."}
+          </p>
+          {chatHref ? (
+            <a
+              href={chatHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex touch-target items-center gap-2 rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
+            >
+              <MessageCircle className="size-4" aria-hidden />
+              {chatLabel} for a fresh quote
+            </a>
+          ) : (
+            <Link
+              href="/contact"
+              className="inline-flex touch-target items-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
+            >
+              Ask for a fresh quote
+            </Link>
+          )}
+        </div>
+      ) : expired ? (
         <div className="mt-6 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
           <p className="text-sm font-medium text-amber-900">
             This quote link has expired.
@@ -179,15 +306,15 @@ export default async function QuotePage({
               ? `${rep.name} can send you a fresh one in a minute.`
               : "Message us and we will send a fresh one in a minute."}
           </p>
-          {repWhatsApp ? (
+          {chatHref ? (
             <a
-              href={repWhatsApp}
+              href={chatHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex touch-target items-center gap-2 rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
             >
               <MessageCircle className="size-4" aria-hidden />
-              WhatsApp {rep?.name ?? "us"} for a fresh quote
+              {chatLabel} for a fresh quote
             </a>
           ) : (
             <Link
@@ -198,37 +325,6 @@ export default async function QuotePage({
             </Link>
           )}
         </div>
-      ) : paid ? (
-        <p className="mt-6 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <Check className="size-4 shrink-0" aria-hidden />
-          Accepted and paid, order {order?.number}. We&apos;ll take it from here.
-        </p>
-      ) : awaitingPayment ? (
-        <div className="mt-6 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
-          <p className="flex items-center gap-2 text-sm font-medium text-amber-900">
-            <RefreshCw className="size-4 shrink-0" aria-hidden />
-            Payment not completed
-          </p>
-          <p className="text-sm text-amber-900">
-            We have your details and order {order?.number} is waiting, but the
-            payment did not go through. Nothing has been charged. Pick up where
-            you left off and your quoted price still applies.
-          </p>
-          <ResumePaymentButton
-            token={token}
-            label={`Resume payment of ${formatCents(order?.totalCents ?? 0)}`}
-          />
-          {repWhatsApp ? (
-            <a
-              href={repWhatsApp}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex text-sm font-medium text-amber-900 underline underline-offset-4"
-            >
-              Rather sort it out with {rep?.name ?? "your consultant"} on WhatsApp
-            </a>
-          ) : null}
-        </div>
       ) : (
         <Link
           href={`/q/${token}/accept`}
@@ -238,10 +334,24 @@ export default async function QuotePage({
         </Link>
       )}
 
-      {!expired && !order ? (
+      {view.kind === "none" && !expired ? (
         <p className="mt-3 text-center text-xs text-muted-foreground">
-          Questions? {rep?.name ? `${rep.name} wrote this quote.` : ""} Reply on
-          WhatsApp, the quote stays exactly as shown.
+          {rep?.name ? `${rep.name} wrote this quote. ` : ""}Ask anything before
+          you pay, it stays exactly as shown.
+          {chatHref ? (
+            <>
+              {" "}
+              <a
+                href={chatHref}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium underline underline-offset-4"
+              >
+                {chatLabel}
+              </a>
+              .
+            </>
+          ) : null}
         </p>
       ) : null}
 

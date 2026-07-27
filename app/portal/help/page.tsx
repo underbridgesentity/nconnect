@@ -8,6 +8,10 @@ import { getSetting } from "@/lib/domain/settings";
 import { formatDateTime } from "@/lib/format";
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusPill } from "@/components/shared/status-pill";
+import {
+  whatsappHref,
+  type CompanySettings,
+} from "@/components/public/whatsapp";
 import { NewConversationForm } from "./client";
 
 export const metadata: Metadata = { title: "Help" };
@@ -18,14 +22,19 @@ export default async function PortalHelpPage() {
 
   const [rows, company] = await Promise.all([
     customerConversations(actor.customerId),
-    getSetting<{ phone?: string; email?: string }>("company"),
+    getSetting<CompanySettings>("company"),
   ]);
 
   const phone = company?.phone ?? null;
   const email = company?.email ?? null;
-  const whatsapp = phone
-    ? `https://wa.me/27${phone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
+  // The switchboard is an 086 share-call number, which wa.me cannot resolve.
+  // whatsappHref returns null unless settings carry a real mobile, so the
+  // button is absent rather than broken for a customer whose connection is
+  // already the thing that is not working.
+  const whatsapp = whatsappHref(
+    company,
+    "Hi Needd Connect, I need help with my service."
+  );
 
   return (
     <div className="space-y-6">
@@ -76,6 +85,8 @@ export default async function PortalHelpPage() {
             {whatsapp ? (
               <a
                 href={whatsapp}
+                target="_blank"
+                rel="noreferrer"
                 className="flex touch-target items-center gap-3 rounded-full px-2 text-sm hover:bg-muted"
               >
                 <MessageCircle className="size-4 text-primary" aria-hidden />
