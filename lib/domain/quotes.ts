@@ -291,7 +291,7 @@ function describeQuoteInFlight(
   }
   switch (order.status) {
     case "pending_payment":
-      return `Quote ${quoteNumber} has been accepted and order ${order.number} is waiting for payment. The customer's existing link takes them straight back to the payment page, so resending the quote would only confuse them.`;
+      return `The customer has already started checkout on quote ${quoteNumber}. Order ${order.number} is waiting for payment and their existing link takes them straight back to it, so there is nothing to resend.`;
     case "paid":
       return `Quote ${quoteNumber} has been accepted and paid, order ${order.number}.`;
     case "processing":
@@ -299,7 +299,7 @@ function describeQuoteInFlight(
     case "fulfilled":
       return `Quote ${quoteNumber} has been accepted and paid. Order ${order.number} is complete.`;
     case "cancelled":
-      return `Quote ${quoteNumber} was accepted, then order ${order.number} was cancelled and nothing was charged. Duplicate it as a new quote to send fresh pricing.`;
+      return `The customer started checkout on quote ${quoteNumber} and order ${order.number} was then cancelled, so nothing was charged. Duplicate it as a new quote to send fresh pricing.`;
   }
 }
 

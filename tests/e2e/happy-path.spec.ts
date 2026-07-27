@@ -104,7 +104,13 @@ test("admin completes the activation task from Today", async ({ page }) => {
   await page.getByLabel("Email").fill("admin@needdconnect.co.za");
   await page.getByLabel("Password").fill(adminPassword!);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  // Sign-in hops through /after-login before the role router lands on /admin,
+  // and Today itself fans out over a dozen queries behind a loading skeleton.
+  // The default 5s assertion timeout is tight enough that a cold dev compile
+  // fails it, so this waits as long as the other slow steps in this file.
+  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible({
+    timeout: 30_000,
+  });
 
   await page
     .getByRole("button", { name: /E2E Happy Path/ })

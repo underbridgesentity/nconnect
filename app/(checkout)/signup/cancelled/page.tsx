@@ -7,6 +7,10 @@ import { orders, orderItems, invoices } from "@/lib/db/schema";
 import { getSetting } from "@/lib/domain/settings";
 import { multiply } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
+import {
+  whatsappHref,
+  type CompanySettings,
+} from "@/components/public/whatsapp";
 
 export const metadata: Metadata = {
   title: "Payment cancelled",
@@ -48,13 +52,16 @@ export default async function SignupCancelledPage({
 }) {
   const { ref } = await searchParams;
   const [company, banking] = await Promise.all([
-    getSetting<{ phone: string }>("company"),
+    getSetting<CompanySettings>("company"),
     getSetting<Banking>("banking"),
   ]);
-  const phone = company?.phone ?? null;
-  const wa = phone
-    ? `https://wa.me/27${phone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
+  // wa.me cannot deliver to the 086 switchboard, so the button only appears
+  // once settings carry a real mobile. A dead link here loses the warmest
+  // lead in the funnel.
+  const wa = whatsappHref(
+    company,
+    "Hi Needd Connect, my card payment did not go through and I would like to finish my order."
+  );
 
   const invoiceRef = ref?.startsWith("inv:") ? ref.slice(4).split(":")[0] : null;
   const invoice =

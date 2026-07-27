@@ -14,7 +14,6 @@ import { StatusPill } from "@/components/shared/status-pill";
 import {
   CTA,
   CTA_SECONDARY,
-  CompanyLine,
   ExpiredLink,
   whatsappHref,
   type Company,
@@ -102,7 +101,10 @@ export default async function PayOutcomePage({
 
   const actor = await currentActor();
   const ownsInvoice = actor?.customerId === invoice.customerId;
-  const wa = whatsappHref(company?.phone);
+  const wa = whatsappHref(
+    company,
+    `Hi Needd Connect, I am checking on a payment for invoice ${invoice.number}.`
+  );
 
   return (
     <div className="mx-auto max-w-md px-4 py-12">
@@ -238,12 +240,6 @@ export default async function PayOutcomePage({
           </div>
         ) : null}
       </div>
-
-      {company ? (
-        <div className="mt-6 rounded-2xl border bg-card p-4 text-center">
-          <CompanyLine company={company} />
-        </div>
-      ) : null}
     </div>
   );
 }

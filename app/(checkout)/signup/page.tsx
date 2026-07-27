@@ -14,6 +14,11 @@ import { multiply } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PendingSubmit } from "@/components/ui/pending-submit";
+import {
+  whatsappHref,
+  type CompanySettings,
+} from "@/components/public/whatsapp";
 import { cn } from "@/lib/utils";
 import {
   chooseSelectionAction,
@@ -22,7 +27,7 @@ import {
   submitAddressAction,
   fibreFeasibilityAction,
 } from "./actions";
-import { PendingCard, PendingSubmit } from "./pending-button";
+import { PendingCard } from "./pending-card";
 import { StepThree } from "./step-three";
 
 export const metadata: Metadata = {
@@ -127,7 +132,7 @@ export default async function SignupWizardPage({
 }) {
   const params = await searchParams;
   const stored = await readDraft();
-  const company = await getSetting<{ phone: string }>("company");
+  const company = await getSetting<CompanySettings>("company");
 
   // Deep links (?plan= / ?bundle=) preselect without touching the draft, // cookies can't be written during render; persistence happens when the
   // visitor takes an action (spec §9.2).
@@ -194,7 +199,7 @@ export default async function SignupWizardPage({
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8 pb-36">
+    <div className="mx-auto max-w-2xl px-4 py-8">
       <h1 className="text-2xl font-semibold tracking-tight">
         Let&apos;s get you connected
       </h1>
@@ -247,7 +252,13 @@ export default async function SignupWizardPage({
           ricaIdSaved={Boolean(draft.ricaIdDocPath)}
           ricaPoaSaved={Boolean(draft.ricaPoaDocPath)}
           address={draft.address ?? null}
-          supportPhone={company?.phone ?? null}
+          // Built here, not from a bare phone number: wa.me cannot deliver to
+          // the 086 switchboard, so the link is only offered when settings
+          // carry a real mobile.
+          whatsapp={whatsappHref(
+            company,
+            "Hi Needd Connect, I have a question before I pay."
+          )}
           otpSent={Boolean(draft.otpSentAt)}
           otpExpiresAt={deadline(draft.otpSentAt, OTP_TTL_SECONDS)}
           otpResendAt={deadline(draft.otpSentAt, OTP_RESEND_SECONDS)}
@@ -272,10 +283,15 @@ export default async function SignupWizardPage({
         />
       ) : null}
 
-      {/* Running total pinned bottom (spec §9.2) */}
+      {/*
+        Running total pinned bottom (spec §9.2). Sticky rather than fixed: it
+        rides the viewport while there is page below it, then comes to rest at
+        the end of the wizard instead of sitting on top of the checkout
+        footer's support and company lines.
+      */}
       {priced ? (
-        <div className="fixed inset-x-0 bottom-0 z-10 border-t bg-card/95 backdrop-blur">
-          <div className="mx-auto flex max-w-2xl flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+        <div className="sticky bottom-0 z-10 -mx-4 mt-8 border-t bg-card/95 backdrop-blur">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
             <div className="text-sm">
               <span className="text-muted-foreground">Due now: </span>
               <MoneyText

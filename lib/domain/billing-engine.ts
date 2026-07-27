@@ -431,6 +431,26 @@ export function gatewayPaymentOutcome(input: {
   };
 }
 
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Best effort for work that happens after the money is already committed:
+ * a notification or a follow-up sweep that fails must never be reported back
+ * as a payment we failed to record.
+ */
+async function safely(
+  label: string,
+  work: () => Promise<unknown>
+): Promise<void> {
+  try {
+    await work();
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+  }
+}
+
 /** Bell rows for every active admin, written inside the caller's transaction. */
 async function flagForOperator(
   tx: Tx,
@@ -472,23 +492,33 @@ export interface GatewayPaymentResult {
  * Idempotent on the gateway ref; clears dunning and auto-reactivates once the
  * invoice is settled.
  *
- * The amount does not have to equal the invoice total. A customer paying the
- * outstanding balance of a part-paid invoice, or paying what they can afford,
- * must have that money recorded rather than met with an error after the card
- * has already been debited.
+ * The one rule this function will not break is that money PayFast says it
+ * took is always written down. The amount does not have to equal the invoice
+ * total, and the invoice does not have to be open. A customer paying the
+ * balance of a part-paid invoice, a second tab that debits the card twice, a
+ * retried ITN that arrives under a new pf_payment_id, an EFT that settled the
+ * invoice an hour before the card did: in every one of those the customer has
+ * been charged, so a payment row is written. Where the invoice cannot absorb
+ * it, the money is banked against that invoice anyway and raised as an
+ * exception for an operator to allocate or refund, with an audit row, a
+ * domain event and a bell.
+ *
+ * Idempotency is on the gateway ref and nothing else, so replays are free and
+ * genuinely new debits are never mistaken for them.
  */
 export async function markInvoicePaidFromGateway(input: {
   invoiceId: string;
   gatewayRef: string;
   amountCents: number;
   method: "payfast_card" | "payfast_token";
-}): Promise<{
-  ok: boolean;
-  alreadyPaid: boolean;
-  settled: boolean;
-  paidCents: Cents;
-  outstandingCents: Cents;
-}> {
+}): Promise<GatewayPaymentResult> {
+  const gatewayRef = input.gatewayRef?.trim();
+  if (!gatewayRef) {
+    // Without a reference there is no idempotency key and a retry would bank
+    // the same money twice. Refuse before anything is written.
+    throw new Error("A gateway reference is required to bank a payment");
+  }
+
   const eventIds: string[] = [];
   const outcome = await db.transaction(async (tx) => {
     // Row lock: an ITN and a token charge landing together must not both read
@@ -501,46 +531,35 @@ export async function markInvoicePaidFromGateway(input: {
       .for("update");
     if (!invoice) throw new Error("Invoice not found");
 
-    const alreadyPaidCents = await paidCentsFor(tx, invoice.id);
-
-    if (invoice.status === "paid") {
-      return {
-        invoice,
-        alreadyPaid: true,
-        settled: true,
-        paidCents: alreadyPaidCents,
-      };
-    }
-    if (invoice.status === "void" || invoice.status === "written_off") {
-      throw new Error(
-        `Invoice ${invoice.number} is ${invoice.status.replace(
-          "_",
-          " "
-        )}, so this payment needs a person to allocate it`
-      );
-    }
-
-    // The gateway ref is the idempotency key: a replayed ITN or a retried
-    // token charge must never bank the same money twice.
+    // The gateway ref is the idempotency key, so it is checked first and on
+    // its own. A replayed ITN carries a ref we have already banked. A genuine
+    // second debit carries a new one, and that money is real whatever state
+    // the invoice happens to be in.
     const [duplicate] = await tx
       .select({ id: payments.id })
       .from(payments)
-      .where(eq(payments.gatewayRef, input.gatewayRef))
+      .where(eq(payments.gatewayRef, gatewayRef))
       .limit(1);
     if (duplicate) {
+      const paidCents = await paidCentsFor(tx, invoice.id);
       return {
         invoice,
         alreadyPaid: true,
-        settled: alreadyPaidCents >= invoice.totalCents,
-        paidCents: alreadyPaidCents,
+        disposition: "duplicate" as const,
+        settled: invoice.status === "paid",
+        paidCents,
+        unallocatedCents: 0,
       };
     }
 
+    const alreadyPaidCents = await paidCentsFor(tx, invoice.id);
     const decision = gatewayPaymentOutcome({
+      status: invoice.status,
       totalCents: invoice.totalCents,
       alreadyPaidCents,
       amountCents: input.amountCents,
     });
+    // Only a zero or negative amount gets here, which means no money moved.
     if (!decision.accepted) throw new Error(decision.reason);
 
     await tx.insert(payments).values({
@@ -548,9 +567,12 @@ export async function markInvoicePaidFromGateway(input: {
       method: input.method,
       amountCents: input.amountCents,
       status: "complete",
-      gatewayRef: input.gatewayRef,
+      gatewayRef,
     });
 
+    // The invoice's own status logic is unchanged: it settles only when the
+    // money banked against it covers it, and a void or written-off invoice is
+    // never revived by a payment landing on it.
     if (decision.settles) {
       await tx
         .update(invoices)
@@ -567,22 +589,34 @@ export async function markInvoicePaidFromGateway(input: {
         );
     }
 
+    const action =
+      decision.disposition === "unallocated"
+        ? "payment.unallocated"
+        : decision.disposition === "overpaid"
+          ? "payment.overpaid"
+          : decision.settles
+            ? "invoice.paid"
+            : "invoice.part_paid";
+
     await writeAudit(tx, {
       actor: null,
-      action: decision.settles ? "invoice.paid" : "invoice.part_paid",
+      action,
       entity: "invoice",
       entityId: invoice.id,
       before: { status: invoice.status, paidCents: alreadyPaidCents },
       after: {
         status: decision.settles ? "paid" : invoice.status,
         method: input.method,
-        gatewayRef: input.gatewayRef,
+        gatewayRef,
         amountCents: input.amountCents,
         paidCents: decision.paidTotalCents,
         outstandingCents: outstandingCents(
           invoice.totalCents,
           decision.paidTotalCents
         ),
+        unallocatedCents: decision.excessCents,
+        disposition: decision.disposition,
+        ...(decision.note ? { note: decision.note } : {}),
       },
     });
     eventIds.push(
@@ -592,26 +626,67 @@ export async function markInvoicePaidFromGateway(input: {
         amountCents: input.amountCents,
         method: input.method,
         settled: decision.settles,
+        disposition: decision.disposition,
+        unallocatedCents: decision.excessCents,
       })
     );
+
+    if (decision.excessCents > 0) {
+      eventIds.push(
+        await emitDomainEvent(tx, "payment.unallocated", {
+          invoiceId: invoice.id,
+          customerId: invoice.customerId,
+          gatewayRef,
+          method: input.method,
+          amountCents: input.amountCents,
+          unallocatedCents: decision.excessCents,
+          invoiceStatus: invoice.status,
+          reason: decision.note ?? "",
+        })
+      );
+      await flagForOperator(tx, {
+        type: `payment_unallocated:${gatewayRef}`,
+        title: `Allocate ${formatCents(decision.excessCents)} received on ${invoice.number}`,
+        body: decision.note ?? "",
+        link: `/admin/customers/${invoice.customerId}?tab=billing`,
+      });
+      console.warn(
+        `unallocated payment: invoice=${invoice.id} number=${invoice.number} ` +
+          `status=${invoice.status} gatewayRef=${gatewayRef} ` +
+          `amountCents=${input.amountCents} unallocatedCents=${decision.excessCents}`
+      );
+    }
+
     return {
       invoice,
       alreadyPaid: false,
+      disposition: decision.disposition,
       settled: decision.settles,
       paidCents: decision.paidTotalCents,
+      unallocatedCents: decision.excessCents,
     };
   });
 
   for (const id of eventIds) await forwardDomainEvent(id);
 
+  // Everything from here runs after the payment is committed, so none of it
+  // may throw: a caller that catches an exception from this function has to be
+  // able to read it as "the money was not recorded".
   if (!outcome.alreadyPaid) {
-    await notify("payment_received", {
-      customerId: outcome.invoice.customerId,
-      amountCents: input.amountCents,
-      reference: outcome.invoice.number,
-    });
+    // The customer was debited, so they get their receipt either way. Where
+    // the money went is our problem to sort out, not theirs.
+    await safely("payment_received notification", () =>
+      notify("payment_received", {
+        customerId: outcome.invoice.customerId,
+        amountCents: input.amountCents,
+        reference: outcome.invoice.number,
+      })
+    );
     if (outcome.settled) {
-      await maybeReactivateAfterSettlement(outcome.invoice.customerId);
+      await safely(
+        `reactivation after settling ${outcome.invoice.number}`,
+        () => maybeReactivateAfterSettlement(outcome.invoice.customerId)
+      );
     }
   }
   return {
@@ -623,10 +698,53 @@ export async function markInvoicePaidFromGateway(input: {
       outcome.invoice.totalCents,
       outcome.paidCents
     ),
+    disposition: outcome.disposition,
+    unallocatedCents: outcome.unallocatedCents,
   };
 }
 
 // ----------------------------------------------------------- token charges
+
+/**
+ * Put a card charge that went wrong in front of a person: audit row, domain
+ * event and a bell for every admin. Used when a debit succeeded but could not
+ * be recorded, and when the gateway call itself errored so we cannot tell
+ * whether the customer was charged. Both are money problems that no automatic
+ * retry should be allowed to guess at.
+ */
+async function recordChargeException(
+  invoice: { id: string; number: string; customerId: string },
+  amountCents: Cents,
+  headline: string,
+  detail: string
+): Promise<void> {
+  const eventIds: string[] = [];
+  await db.transaction(async (tx) => {
+    await writeAudit(tx, {
+      actor: null,
+      action: "payment.exception",
+      entity: "invoice",
+      entityId: invoice.id,
+      after: { headline, detail, amountCents },
+    });
+    eventIds.push(
+      await emitDomainEvent(tx, "payment.exception", {
+        invoiceId: invoice.id,
+        customerId: invoice.customerId,
+        amountCents,
+        headline,
+        detail,
+      })
+    );
+    await flagForOperator(tx, {
+      type: `payment_exception:${invoice.id}:${headline}`,
+      title: `${headline}: ${invoice.number}, ${formatCents(amountCents)}`,
+      body: detail,
+      link: `/admin/customers/${invoice.customerId}?tab=billing`,
+    });
+  });
+  for (const id of eventIds) await forwardDomainEvent(id);
+}
 
 /** Attempt a token charge for an open invoice (§6.2/§6.3). */
 export async function attemptTokenCharge(
@@ -683,37 +801,126 @@ export async function attemptTokenCharge(
     return attempt.id;
   });
 
-  const charge = await charger({
-    token: method.payfastToken,
-    amountCents: dueCents,
-    itemName: `Needd Connect invoice ${invoice.number}`,
-    paymentId: `inv:${invoice.id}:${attemptNo}`,
-  });
+  let charge: Awaited<ReturnType<Charger>>;
+  try {
+    charge = await charger({
+      token: method.payfastToken,
+      amountCents: dueCents,
+      itemName: `Needd Connect invoice ${invoice.number}`,
+      paymentId: `inv:${invoice.id}:${attemptNo}`,
+    });
+  } catch (err) {
+    // The gateway call itself threw, so we do not know whether the card was
+    // debited. Never guess with somebody's money: record the attempt and put
+    // it in front of a person to check against PayFast.
+    const detail = `charge errored, outcome unknown: ${errorText(err)}`;
+    console.error(
+      `token charge errored: invoice=${invoice.id} number=${invoice.number} amountCents=${dueCents}:`,
+      err
+    );
+    await safely("collection attempt update", () =>
+      db
+        .update(collectionAttempts)
+        .set({ result: "failed", detail })
+        .where(eq(collectionAttempts.id, attemptId))
+    );
+    await safely("charge exception record", () =>
+      recordChargeException(
+        invoice,
+        dueCents,
+        "Card charge outcome unknown",
+        `${detail}. Check PayFast for ${`inv:${invoice.id}:${attemptNo}`} before charging again.`
+      )
+    );
+    return { result: "failed", detail };
+  }
 
   if (charge.ok && charge.gatewayRef) {
-    await db
-      .update(collectionAttempts)
-      .set({ result: "success", detail: charge.gatewayRef })
-      .where(eq(collectionAttempts.id, attemptId));
-    await markInvoicePaidFromGateway({
-      invoiceId,
-      gatewayRef: charge.gatewayRef,
-      amountCents: dueCents,
-      method: "payfast_token",
-    });
-    return { result: "success" };
+    const gatewayRef = charge.gatewayRef;
+    try {
+      await db
+        .update(collectionAttempts)
+        .set({ result: "success", detail: gatewayRef })
+        .where(eq(collectionAttempts.id, attemptId));
+      await markInvoicePaidFromGateway({
+        invoiceId,
+        gatewayRef,
+        amountCents: dueCents,
+        method: "payfast_token",
+      });
+      return { result: "success" };
+    } catch (err) {
+      // The card has been debited. A record we fail to write here is money
+      // the customer paid and we cannot see, so it is logged loudly and left
+      // as an operator task rather than swallowed.
+      const detail =
+        `charged ${formatCents(dueCents)} on gateway ref ${gatewayRef}, ` +
+        `but the payment could not be recorded: ${errorText(err)}`;
+      console.error(
+        `UNBANKED CARD DEBIT: invoice=${invoice.id} number=${invoice.number} ` +
+          `customer=${invoice.customerId} gatewayRef=${gatewayRef} amountCents=${dueCents}:`,
+        err
+      );
+      await safely("collection attempt update", () =>
+        db
+          .update(collectionAttempts)
+          .set({ result: "success", detail })
+          .where(eq(collectionAttempts.id, attemptId))
+      );
+      await safely("charge exception record", () =>
+        recordChargeException(
+          invoice,
+          dueCents,
+          "Card debited but not recorded",
+          `${detail}. Capture it against ${invoice.number} using gateway ref ${gatewayRef}.`
+        )
+      );
+      // The money did leave the customer's account, so this was a successful
+      // charge. Calling it a failure would have the next dunning slot debit
+      // them a second time.
+      return { result: "success", detail };
+    }
+  }
+
+  if (charge.ok) {
+    // Reported successful with no reference to bank it against. The customer
+    // may well have been debited and we have nothing to reconcile with, so
+    // this goes to a person rather than round the retry loop.
+    const detail =
+      "gateway reported success without a reference, so nothing could be banked";
+    console.error(
+      `CHARGE WITHOUT REFERENCE: invoice=${invoice.id} number=${invoice.number} amountCents=${dueCents}`
+    );
+    await safely("collection attempt update", () =>
+      db
+        .update(collectionAttempts)
+        .set({ result: "success", detail })
+        .where(eq(collectionAttempts.id, attemptId))
+    );
+    await safely("charge exception record", () =>
+      recordChargeException(
+        invoice,
+        dueCents,
+        "Card charge without a reference",
+        `${detail}. Check PayFast for inv:${invoice.id}:${attemptNo} before charging again.`
+      )
+    );
+    return { result: "success", detail };
   }
 
   await db
     .update(collectionAttempts)
     .set({ result: "failed", detail: charge.detail ?? "charge failed" })
     .where(eq(collectionAttempts.id, attemptId));
-  await notify("payment_failed", {
-    customerId: invoice.customerId,
-    amountCents: dueCents,
-    reference: invoice.number,
-    link: payLinkFor(invoiceId),
-  });
+  // A notification outage is not a reason to lose the recorded decline.
+  await safely("payment_failed notification", () =>
+    notify("payment_failed", {
+      customerId: invoice.customerId,
+      amountCents: dueCents,
+      reference: invoice.number,
+      link: payLinkFor(invoiceId),
+    })
+  );
   return { result: "failed", detail: charge.detail };
 }
 
@@ -723,11 +930,17 @@ export async function attemptTokenCharge(
  * Daily dunning sweep (§6.3). Timeline relative to invoice issue date:
  * day 0 charge #1, +2 charge #2, +5 charge #3, +7 past_due warning,
  * +10 suspend, +40 admin decision. Explicit `today` for time-travel tests.
+ *
+ * Every invoice is isolated: one that throws is logged with its id, counted
+ * and stepped over, so a single bad row can never stop the customers behind
+ * it from being chased. The failure count comes back with the run so the
+ * night's report says what actually happened rather than reporting a clean
+ * sweep it did not finish.
  */
 export async function runDunning(
   today = todayInJohannesburg(),
   opts: { charger?: Charger } = {}
-): Promise<{ processed: number }> {
+): Promise<{ processed: number; failed: number }> {
   const dunning = await getSettingOr<DunningConfig>("dunning", DEFAULT_DUNNING);
   const open = await db
     .select()
@@ -735,136 +948,163 @@ export async function runDunning(
     .where(inArray(invoices.status, ["open", "past_due"]));
 
   let processed = 0;
+  let failed = 0;
   for (const invoice of open) {
     const age = daysBetween(invoice.issueDate, today);
     if (age < 0) continue;
     processed++;
-
-    // Token charge attempts on the configured days (only once per day-slot).
-    const attemptIndex = dunning.chargeAttemptDays.indexOf(age);
-    if (attemptIndex >= 0) {
-      const [already] = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(collectionAttempts)
-        .where(
-          and(
-            eq(collectionAttempts.invoiceId, invoice.id),
-            eq(collectionAttempts.attemptNo, attemptIndex + 1)
-          )
-        );
-      if (already.n === 0) {
-        await attemptTokenCharge(invoice.id, attemptIndex + 1, {
-          charger: opts.charger,
-          today,
-        });
-      }
-    }
-
-    // Re-read (a charge may have settled it).
-    const [current] = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.id, invoice.id))
-      .limit(1);
-    if (!current || current.status === "paid") continue;
-
-    // past_due at +pastDueDay with the 3-day warning (§6.3).
-    if (age >= dunning.pastDueDay && current.status === "open") {
-      // What we tell the customer they owe is the balance, not the total: a
-      // part payment leaves the invoice open on purpose (§6.2).
-      const dueCents = outstandingCents(
-        current.totalCents,
-        await paidCentsForInvoice(current.id)
+    try {
+      await dunInvoice(invoice, age, today, dunning, opts);
+    } catch (err) {
+      failed++;
+      console.error(
+        `dunning failed for invoice ${invoice.number} (${invoice.id}) on ${today}, age ${age}:`,
+        err
       );
-      await db.transaction(async (tx) => {
-        await tx
-          .update(invoices)
-          .set({ status: "past_due" })
-          .where(eq(invoices.id, invoice.id));
-        await writeAudit(tx, {
-          actor: null,
-          action: "invoice.past_due",
-          entity: "invoice",
-          entityId: invoice.id,
-          after: { age },
-        });
+    }
+  }
+  if (failed > 0) {
+    console.error(
+      `dunning on ${today}: ${processed} invoices considered, ${failed} failed`
+    );
+  }
+  return { processed, failed };
+}
+
+/** One invoice's turn through the dunning timeline. Throws on its own row only. */
+async function dunInvoice(
+  invoice: typeof invoices.$inferSelect,
+  age: number,
+  today: string,
+  dunning: DunningConfig,
+  opts: { charger?: Charger }
+): Promise<void> {
+  // Token charge attempts on the configured days (only once per day-slot).
+  const attemptIndex = dunning.chargeAttemptDays.indexOf(age);
+  if (attemptIndex >= 0) {
+    const [already] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(collectionAttempts)
+      .where(
+        and(
+          eq(collectionAttempts.invoiceId, invoice.id),
+          eq(collectionAttempts.attemptNo, attemptIndex + 1)
+        )
+      );
+    if (already.n === 0) {
+      await attemptTokenCharge(invoice.id, attemptIndex + 1, {
+        charger: opts.charger,
+        today,
       });
-      await notify("past_due_warning", {
+    }
+  }
+
+  // Re-read (a charge may have settled it).
+  const [current] = await db
+    .select()
+    .from(invoices)
+    .where(eq(invoices.id, invoice.id))
+    .limit(1);
+  if (!current || current.status === "paid") return;
+
+  // past_due at +pastDueDay with the 3-day warning (§6.3).
+  if (age >= dunning.pastDueDay && current.status === "open") {
+    // What we tell the customer they owe is the balance, not the total: a
+    // part payment leaves the invoice open on purpose (§6.2).
+    const dueCents = outstandingCents(
+      current.totalCents,
+      await paidCentsForInvoice(current.id)
+    );
+    await db.transaction(async (tx) => {
+      await tx
+        .update(invoices)
+        .set({ status: "past_due" })
+        .where(eq(invoices.id, invoice.id));
+      await writeAudit(tx, {
+        actor: null,
+        action: "invoice.past_due",
+        entity: "invoice",
+        entityId: invoice.id,
+        after: { age },
+      });
+    });
+    // The status change is committed. A notification that fails must not undo
+    // the rest of this invoice's timeline.
+    await safely("past_due_warning notification", () =>
+      notify("past_due_warning", {
         customerId: current.customerId,
         amountCents: dueCents,
         reference: current.number,
         link: payLinkFor(invoice.id),
-      });
-    }
+      })
+    );
+  }
 
-    // Suspend at +suspendDay (state machine handles task + notification).
-    if (age >= dunning.suspendDay && current.serviceId) {
-      const [service] = await db
+  // Suspend at +suspendDay (state machine handles task + notification).
+  if (age >= dunning.suspendDay && current.serviceId) {
+    const [service] = await db
+      .select()
+      .from(services)
+      .where(eq(services.id, current.serviceId))
+      .limit(1);
+    if (service?.status === "active") {
+      await suspendService(
+        null,
+        service.id,
+        `Invoice ${current.number} unpaid ${age} days`
+      );
+      const [plan] = await db
         .select()
-        .from(services)
-        .where(eq(services.id, current.serviceId))
+        .from(plans)
+        .where(eq(plans.id, service.planId))
         .limit(1);
-      if (service?.status === "active") {
-        await suspendService(
-          null,
-          service.id,
-          `Invoice ${current.number} unpaid ${age} days`
-        );
-        const [plan] = await db
-          .select()
-          .from(plans)
-          .where(eq(plans.id, service.planId))
-          .limit(1);
-        await notify("service_suspended", {
+      await safely("service_suspended notification", () =>
+        notify("service_suspended", {
           customerId: current.customerId,
           serviceName: plan?.name ?? "service",
           reference: current.number,
           link: payLinkFor(invoice.id),
-        });
-      }
-    }
-
-    // +adminDecisionDay: unpaid and suspended, human decision, nothing
-    // automatic (§6.3). One bell per invoice.
-    if (age >= dunning.adminDecisionDay) {
-      const marker = `dunning_decision:${invoice.id}`;
-      const [existing] = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(notifications)
-        .where(eq(notifications.type, marker));
-      if (existing.n === 0) {
-        const admins = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(and(eq(users.role, "admin"), eq(users.status, "active")));
-        const [customer] = await db
-          .select()
-          .from(customers)
-          .where(eq(customers.id, current.customerId))
-          .limit(1);
-        const name =
-          customer?.companyName ??
-          [customer?.firstName, customer?.lastName].filter(Boolean).join(" ");
-        if (admins.length) {
-          await db.insert(notifications).values(
-            admins.map((a) => ({
-              userId: a.id,
-              type: marker,
-              title: `Decision needed: ${name}, ${current.number} unpaid ${age} days`,
-              body: "Suspended for 30 days. Cancel the service or write off the invoice; nothing happens automatically.",
-              link: `/admin/customers/${current.customerId}?tab=billing`,
-            }))
-          );
-        }
-      }
+        })
+      );
     }
   }
-  return { processed };
+
+  // +adminDecisionDay: unpaid and suspended, human decision, nothing
+  // automatic (§6.3). One bell per invoice.
+  if (age >= dunning.adminDecisionDay) {
+    const marker = `dunning_decision:${invoice.id}`;
+    const [existing] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(notifications)
+      .where(eq(notifications.type, marker));
+    if (existing.n === 0) {
+      const [customer] = await db
+        .select()
+        .from(customers)
+        .where(eq(customers.id, current.customerId))
+        .limit(1);
+      const name =
+        customer?.companyName ??
+        [customer?.firstName, customer?.lastName].filter(Boolean).join(" ");
+      await db.transaction((tx) =>
+        flagForOperator(tx, {
+          type: marker,
+          title: `Decision needed: ${name}, ${current.number} unpaid ${age} days`,
+          body: "Suspended for 30 days. Cancel the service or write off the invoice; nothing happens automatically.",
+          link: `/admin/customers/${current.customerId}?tab=billing`,
+        })
+      );
+    }
+  }
 }
 
 // ------------------------------------------------------- lifecycle sweeps
 
-/** Finalize cancellations whose effective date has arrived (§5). */
+/**
+ * Finalize cancellations whose effective date has arrived (§5). Returns how
+ * many were actually finalized, not how many were due: one service that
+ * throws is logged and stepped over, and the count reflects that honestly.
+ */
 export async function runCancellationSweep(
   today = todayInJohannesburg()
 ): Promise<number> {
@@ -877,10 +1117,19 @@ export async function runCancellationSweep(
         lte(services.cancelEffectiveDate, today)
       )
     );
+  let finalized = 0;
   for (const service of due) {
-    await finalizeCancellation(service.id);
+    try {
+      await finalizeCancellation(service.id);
+      finalized++;
+    } catch (err) {
+      console.error(
+        `cancellation sweep failed for service ${service.id} on ${today}:`,
+        err
+      );
+    }
   }
-  return due.length;
+  return finalized;
 }
 
 // -------------------------------------------------------------- plan change

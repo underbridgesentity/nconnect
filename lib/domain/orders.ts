@@ -617,11 +617,16 @@ export async function markOrderPaid(input: {
 }): Promise<{ ok: boolean; alreadyPaid?: boolean; invoiceId?: string }> {
   const eventIds: string[] = [];
   const result = await db.transaction(async (tx) => {
+    // Row lock, like every other money path. A PayFast ITN and an operator
+    // clicking "mark paid" can land together; without the lock both read
+    // pending_payment, both write an invoice and the customer is billed for
+    // one order twice.
     const [order] = await tx
       .select()
       .from(orders)
       .where(eq(orders.id, input.orderId))
-      .limit(1);
+      .limit(1)
+      .for("update");
     if (!order) throw new Error("Order not found");
     // A cancelled order still gets honoured: the customer may have had the
     // PayFast page open when we retired it, and money that arrives for the

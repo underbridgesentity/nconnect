@@ -97,15 +97,31 @@ export async function POST(req: NextRequest) {
       const { markInvoicePaidFromGateway } = await import(
         "@/lib/domain/billing-engine"
       );
-      await markInvoicePaidFromGateway({
+      const result = await markInvoicePaidFromGateway({
         invoiceId,
         gatewayRef: pfPaymentId,
         amountCents,
         method: "payfast_card",
       });
+      if (result.unallocatedCents > 0) {
+        // Banked, but the invoice could not absorb it. An operator has a bell
+        // and a domain event; this line is for whoever is tailing the logs.
+        console.warn(
+          `payfast itn: ${result.unallocatedCents} cents of ${amountCents} on ` +
+            `${pfPaymentId} could not be applied to invoice ${invoiceId}`
+        );
+      }
       return new NextResponse("OK", { status: 200 });
     } catch (err) {
-      console.error("invoice itn processing failed:", err);
+      // The customer has been debited and we could not write it down. Log
+      // every identifier needed to reconcile it by hand, then answer 500 so
+      // PayFast retries: the gateway ref makes retries idempotent, so a
+      // transient database fault still ends with the money recorded.
+      console.error(
+        `PAYMENT NOT RECORDED: invoice=${invoiceId} pf_payment_id=${pfPaymentId} ` +
+          `amountCents=${amountCents} m_payment_id=${mPaymentId}:`,
+        err
+      );
       return new NextResponse("Processing error", { status: 500 });
     }
   }
@@ -169,7 +185,11 @@ export async function POST(req: NextRequest) {
 
     return new NextResponse("OK", { status: 200 });
   } catch (err) {
-    console.error("payfast itn processing failed:", err);
+    console.error(
+      `PAYMENT NOT RECORDED: order=${mPaymentId} pf_payment_id=${pfPaymentId} ` +
+        `amountCents=${amountCents}:`,
+      err
+    );
     // 500 so PayFast retries, the idempotency guard makes retries safe.
     return new NextResponse("Processing error", { status: 500 });
   }

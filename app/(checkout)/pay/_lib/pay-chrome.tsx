@@ -1,20 +1,19 @@
 import Link from "next/link";
 
+import {
+  whatsappHref as companyWhatsappHref,
+  type CompanySettings,
+} from "@/components/public/whatsapp";
+
 /**
  * Shared furniture for the public pay-link surfaces (spec §6.2/§6.3).
  *
  * Both the pay page and the outcome page arrive by SMS or WhatsApp, so they
- * have to look unmistakably like us and offer the same human route out:
- * legal name, registration, VAT and a way to reach a person.
+ * have to offer a human route out. The registered company details sit in the
+ * checkout layout, which wraps every one of these screens.
  */
 
-export type Company = {
-  legalName: string;
-  phone: string;
-  email: string;
-  vat: string;
-  reg: string;
-};
+export type Company = CompanySettings;
 
 export const CTA =
   "flex w-full touch-target items-center justify-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]";
@@ -22,24 +21,26 @@ export const CTA =
 export const CTA_SECONDARY =
   "inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent";
 
-/** wa.me link for the support number, or null when no number is configured. */
-export function whatsappHref(phone: string | null | undefined): string | null {
-  if (!phone) return null;
-  return `https://wa.me/27${phone.replace(/\D/g, "").replace(/^0/, "")}`;
-}
-
-export function CompanyLine({ company }: { company: Company | null }) {
-  if (!company) return null;
-  return (
-    <p className="pt-1 text-xs text-muted-foreground">
-      {company.legalName} | Reg {company.reg} | VAT {company.vat}
-    </p>
-  );
+/**
+ * wa.me link for the support number, or null when settings carry no
+ * WhatsApp-capable mobile. The company switchboard is an 086 share-call
+ * number that wa.me refuses, so deriving the link from `company.phone`
+ * produced "phone number shared via url is invalid" on a payment page, which
+ * is worse than offering no WhatsApp at all.
+ */
+export function whatsappHref(
+  company: Company | null | undefined,
+  message?: string
+): string | null {
+  return companyWhatsappHref(company, message);
 }
 
 /** No token, a bad token, or an invoice we cannot find behind one. */
 export function ExpiredLink({ company }: { company: Company | null }) {
-  const wa = whatsappHref(company?.phone);
+  const wa = whatsappHref(
+    company,
+    "Hi Needd Connect, my payment link has expired, please send me a new one."
+  );
   return (
     <div className="mx-auto max-w-md px-4 py-16 text-center">
       <h1 className="text-2xl font-semibold">This payment link has expired</h1>
@@ -57,9 +58,6 @@ export function ExpiredLink({ company }: { company: Company | null }) {
             WhatsApp us for a new link
           </a>
         ) : null}
-      </div>
-      <div className="mt-8">
-        <CompanyLine company={company} />
       </div>
     </div>
   );

@@ -3,6 +3,10 @@ import Link from "next/link";
 import { MessageCircle, Phone } from "lucide-react";
 import { readDraft } from "@/lib/domain/signup";
 import { getSetting } from "@/lib/domain/settings";
+import {
+  whatsappHref,
+  type CompanySettings,
+} from "@/components/public/whatsapp";
 
 export const metadata: Metadata = {
   title: "We're checking your address",
@@ -20,7 +24,7 @@ const CTA_SECONDARY =
 export default async function FeasibilityPromisedPage() {
   const [draft, company] = await Promise.all([
     readDraft(),
-    getSetting<{ phone: string }>("company"),
+    getSetting<CompanySettings>("company"),
   ]);
   const address = draft.address
     ? [
@@ -33,9 +37,12 @@ export default async function FeasibilityPromisedPage() {
         .join(", ")
     : null;
   const phone = company?.phone ?? null;
-  const wa = phone
-    ? `https://wa.me/27${phone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
+  // Only when settings carry a WhatsApp-capable mobile: the 086 switchboard
+  // cannot receive wa.me, and this page promises a WhatsApp reply.
+  const wa = whatsappHref(
+    company,
+    "Hi Needd Connect, I am following up on my fibre feasibility check."
+  );
 
   return (
     <div className="mx-auto max-w-xl px-4 py-16 text-center">

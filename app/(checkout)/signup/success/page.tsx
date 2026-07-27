@@ -30,19 +30,39 @@ const CTA =
 const CTA_SECONDARY =
   "inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent";
 
-function SupportRoutes({ phone }: { phone: string | null }) {
-  if (!phone) return null;
-  const wa = `https://wa.me/27${phone.replace(/\D/g, "").replace(/^0/, "")}`;
+/**
+ * Ways to reach a person, offered only where they actually work. The company
+ * switchboard is an 086 share-call number and wa.me cannot resolve one, so the
+ * WhatsApp button is drawn from whatsappHref and simply is not there until
+ * settings carry a real mobile. Somebody who has just been charged deserves a
+ * route that opens, not one that reports an invalid number.
+ */
+function SupportRoutes({ company }: { company: CompanySettings | null }) {
+  const phone = company?.phone ?? null;
+  const wa = whatsappHref(
+    company,
+    "Hi Needd Connect, I have just paid and need a hand with my order."
+  );
+  if (!wa && !phone) return null;
   return (
     <div className="mt-6 flex flex-wrap justify-center gap-3">
-      <a href={wa} className={CTA_SECONDARY}>
-        <MessageCircle className="mr-2 size-4" aria-hidden />
-        WhatsApp us
-      </a>
-      <a href={`tel:${phone.replace(/\s/g, "")}`} className={CTA_SECONDARY}>
-        <Phone className="mr-2 size-4" aria-hidden />
-        {phone}
-      </a>
+      {wa ? (
+        <a
+          href={wa}
+          target="_blank"
+          rel="noreferrer"
+          className={CTA_SECONDARY}
+        >
+          <MessageCircle className="mr-2 size-4" aria-hidden />
+          WhatsApp us
+        </a>
+      ) : null}
+      {phone ? (
+        <a href={`tel:${phone.replace(/\s/g, "")}`} className={CTA_SECONDARY}>
+          <Phone className="mr-2 size-4" aria-hidden />
+          {phone}
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -64,8 +84,7 @@ export default async function SignupSuccessPage({
   searchParams: Promise<{ ref?: string; tries?: string }>;
 }) {
   const { ref, tries } = await searchParams;
-  const company = await getSetting<{ phone: string }>("company");
-  const supportPhone = company?.phone ?? null;
+  const company = await getSetting<CompanySettings>("company");
 
   const attempt = Number.isFinite(Number(tries)) ? Math.max(0, Number(tries)) : 0;
   const elapsed = attempt * POLL_INTERVAL_SECONDS;
@@ -86,7 +105,7 @@ export default async function SignupSuccessPage({
             .limit(1)
         )[0]
       : undefined;
-    if (!invoice) return <NotFound supportPhone={supportPhone} />;
+    if (!invoice) return <NotFound company={company} />;
 
     // The invoice total is not what was just paid. Part-payments are supported
     // and leave the invoice open, so quoting the total here would overstate the
@@ -164,7 +183,7 @@ export default async function SignupSuccessPage({
             </Link>
           ) : null}
         </div>
-        {!settled ? <SupportRoutes phone={supportPhone} /> : null}
+        {!settled ? <SupportRoutes company={company} /> : null}
       </div>
     );
   }
@@ -175,7 +194,7 @@ export default async function SignupSuccessPage({
       ? (await db.select().from(orders).where(eq(orders.id, ref)).limit(1))[0]
       : undefined;
 
-  if (!order) return <NotFound supportPhone={supportPhone} />;
+  if (!order) return <NotFound company={company} />;
 
   const paid = order.status !== "pending_payment";
   const items = await db
@@ -225,7 +244,7 @@ export default async function SignupSuccessPage({
                 Check again
               </Link>
             </div>
-            <SupportRoutes phone={supportPhone} />
+            <SupportRoutes company={company} />
             <p className="mt-4 text-xs text-muted-foreground">
               Quote order {order.number} and we will find it straight away.
             </p>
@@ -272,13 +291,13 @@ export default async function SignupSuccessPage({
             Open your portal
           </button>
         </form>
-        <SupportRoutes phone={supportPhone} />
+        <SupportRoutes company={company} />
       </div>
     </div>
   );
 }
 
-function NotFound({ supportPhone }: { supportPhone: string | null }) {
+function NotFound({ company }: { company: CompanySettings | null }) {
   return (
     <div className="mx-auto max-w-xl px-4 py-16 text-center">
       <h1 className="text-2xl font-semibold">We couldn&apos;t find that order</h1>
@@ -292,7 +311,7 @@ function NotFound({ supportPhone }: { supportPhone: string | null }) {
           Sign in to your portal
         </Link>
       </div>
-      <SupportRoutes phone={supportPhone} />
+      <SupportRoutes company={company} />
     </div>
   );
 }

@@ -16,8 +16,24 @@ export default function SalesLeadsLoading() {
   return (
     <LoadingShell label="leads">
       <HeaderSkeleton />
-      {/* Quick add, the card a rep types into mid-conversation. */}
-      <Skeleton className="h-28 w-full rounded-2xl" />
+
+      {/*
+        Quick add, the card a rep types into mid-conversation. Drawn as the
+        real wrapping row rather than one tall block, so it reflows to the same
+        height the form will occupy and the search box below it does not jump
+        under a thumb that is already moving.
+      */}
+      <div className="space-y-2 rounded-2xl border bg-card p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Skeleton className="h-8 w-36 flex-1 rounded-lg pointer-coarse:h-11" />
+          <Skeleton className="h-8 w-36 flex-1 rounded-lg pointer-coarse:h-11" />
+          <Skeleton className="h-8 w-40 flex-1 rounded-lg pointer-coarse:h-11" />
+          <Skeleton className="hidden h-8 flex-1 rounded-lg pointer-coarse:h-11 sm:block" />
+          <Skeleton className="h-11 w-28 rounded-full" />
+        </div>
+        <Skeleton className="h-3 w-80 max-w-full" />
+      </div>
+
       <SearchRowSkeleton />
       <PillRowSkeleton count={3} />
       <PillRowSkeleton count={6} />

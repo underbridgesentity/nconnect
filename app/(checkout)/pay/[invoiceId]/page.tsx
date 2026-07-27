@@ -10,9 +10,9 @@ import { add, subtract, type Cents } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
+import { PendingSubmit } from "@/components/ui/pending-submit";
 import {
   CTA,
-  CompanyLine,
   ExpiredLink,
   whatsappHref,
   type Company,
@@ -87,7 +87,10 @@ export default async function PayInvoicePage({
   const customerName =
     customer?.companyName ??
     [customer?.firstName, customer?.lastName].filter(Boolean).join(" ");
-  const wa = whatsappHref(company?.phone);
+  const wa = whatsappHref(
+    company,
+    `Hi Needd Connect, I have a question about invoice ${invoice.number}.`
+  );
 
   // Where PayFast sends the payer next. A pay link lands on our own outcome
   // page, which reads the invoice back rather than assuming the redirect means
@@ -201,22 +204,38 @@ export default async function PayInvoicePage({
             store your card number.
           </span>
         </p>
-        {wa ? (
+        {/*
+          The verification line, not gated on WhatsApp: this link arrives by
+          SMS, so "check with us first" has to survive even when settings
+          carry no WhatsApp-capable mobile and only the switchboard is left.
+        */}
+        {wa || company?.phone ? (
           <p className="flex gap-2">
             <MessageCircle
               className="mt-0.5 size-4 shrink-0 text-primary"
               aria-hidden
             />
             <span>
-              Not sure this link is really from us?{" "}
-              <a href={wa} className="text-primary hover:underline">
-                WhatsApp us
-              </a>{" "}
-              or call {company?.phone} and quote invoice {invoice.number}.
+              Not sure this link is really from us? Check with us before you
+              pay, and quote invoice {invoice.number}. Reach us on{" "}
+              {wa ? (
+                <a href={wa} className="text-primary hover:underline">
+                  WhatsApp
+                </a>
+              ) : null}
+              {wa && company?.phone ? " or " : null}
+              {company?.phone ? (
+                <a
+                  href={`tel:${company.phone.replace(/\s/g, "")}`}
+                  className="text-primary hover:underline"
+                >
+                  {company.phone}
+                </a>
+              ) : null}
+              .
             </span>
           </p>
         ) : null}
-        <CompanyLine company={company} />
       </div>
     </div>
   );
@@ -244,14 +263,22 @@ function PayForm({
     cancelPath,
   });
   return (
+    // A plain form POST, so it still works with no JavaScript. PendingSubmit
+    // listens for the form's own submit event, because React does not track a
+    // form that posts to an external URL, and this link arrives during dunning
+    // where an impatient second tap is a second payment attempt.
     <form action={checkout.actionUrl} method="post" className="mt-6">
       {Object.entries(checkout.fields).map(([name, value]) => (
         <input key={name} type="hidden" name={name} value={value} />
       ))}
-      <button type="submit" className={CTA}>
+      <PendingSubmit
+        native
+        pendingLabel="Taking you to PayFast..."
+        className={CTA}
+      >
         Pay <MoneyText cents={amountCents} className="mx-1" /> securely with
         PayFast
-      </button>
+      </PendingSubmit>
       <p className="mt-2 text-center text-xs text-muted-foreground">
         Prefer EFT? The banking details are on your invoice PDF, reference{" "}
         <span className="font-mono">{invoiceNumber}</span>.

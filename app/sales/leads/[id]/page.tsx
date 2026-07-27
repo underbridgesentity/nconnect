@@ -9,6 +9,7 @@ import { isQuoteExpired } from "@/lib/domain/quotes";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
+import { BackLink } from "../../back-link";
 import { ActivityForm, LeadStatusButtons } from "../client";
 import { isUuid } from "@/lib/utils";
 
@@ -49,13 +50,8 @@ export default async function LeadDetailPage({
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          href="/sales/leads"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← Leads
-        </Link>
-        <div className="mt-1 flex items-start justify-between gap-2">
+        <BackLink href="/sales/leads">Leads</BackLink>
+        <div className="mt-2 flex items-start justify-between gap-2">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{lead.name}</h1>
             <p className="text-sm text-muted-foreground">

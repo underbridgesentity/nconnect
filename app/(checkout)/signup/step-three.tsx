@@ -94,7 +94,7 @@ export function StepThree({
   ricaPoaSaved,
   summary,
   address,
-  supportPhone,
+  whatsapp,
   otpSent,
   otpExpiresAt,
   otpResendAt,
@@ -107,7 +107,8 @@ export function StepThree({
   ricaPoaSaved: boolean;
   summary: Summary | null;
   address: Address | null;
-  supportPhone: string | null;
+  /** wa.me link, or null when settings carry no WhatsApp-capable mobile. */
+  whatsapp: string | null;
   /** A code has actually been sent, so the code screen is the right start. */
   otpSent: boolean;
   /** Epoch ms the live code dies, and when a new one may be requested. */
@@ -149,10 +150,6 @@ export function StepThree({
   const [resendAt, setResendAt] = useState(otpResendAt);
   const expiresIn = useCountdown(expiryAt);
   const resendIn = useCountdown(resendAt);
-
-  const whatsappHref = supportPhone
-    ? `https://wa.me/27${supportPhone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
 
   const run = (
     fn: () => Promise<{ ok: boolean; error?: string }>,
@@ -398,8 +395,8 @@ export function StepThree({
             >
               Wrong number? Go back
             </button>
-            {whatsappHref ? (
-              <a href={whatsappHref} className="hover:underline">
+            {whatsapp ? (
+              <a href={whatsapp} className="hover:underline">
                 Code not arriving? WhatsApp us
               </a>
             ) : null}
@@ -671,10 +668,10 @@ export function StepThree({
                 POPIA notice
               </a>
               .{" "}
-              {whatsappHref ? (
+              {whatsapp ? (
                 <>
                   Questions before you pay?{" "}
-                  <a href={whatsappHref} className="text-primary hover:underline">
+                  <a href={whatsapp} className="text-primary hover:underline">
                     WhatsApp us
                   </a>
                   .

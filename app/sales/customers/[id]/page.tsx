@@ -15,6 +15,7 @@ import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { isUuid } from "@/lib/utils";
+import { BackLink } from "../../back-link";
 
 export const metadata: Metadata = { title: "Customer" };
 
@@ -74,13 +75,8 @@ export default async function SalesCustomer360({
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          href="/sales/customers"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← My customers
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">{name}</h1>
+        <BackLink href="/sales/customers">My customers</BackLink>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">{name}</h1>
         <p className="text-sm text-muted-foreground">
           {customer.phone}
           {customer.email ? ` · ${customer.email}` : ""}

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -13,6 +12,7 @@ import {
 import { currentActor } from "@/lib/auth";
 import { getSettingOr } from "@/lib/domain/settings";
 import { quoteDetail } from "@/lib/domain/quotes";
+import { BackLink } from "../../back-link";
 import { QuoteBuilder } from "../builder";
 import type { QuoteDraftItem } from "../actions";
 
@@ -68,13 +68,8 @@ export default async function NewQuotePage({
   return (
     <div className="space-y-4">
       <div>
-        <Link
-          href="/sales/quotes"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← Quotes
-        </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <BackLink href="/sales/quotes">Quotes</BackLink>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight">
           {source ? `Quote based on ${source.quote.number}` : "New quote"}
         </h1>
         {source ? (

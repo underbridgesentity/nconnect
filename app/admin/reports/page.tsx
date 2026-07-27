@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Link from "next/link";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { Download } from "lucide-react";
@@ -20,6 +21,8 @@ import { FilterPillLink } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/format";
 import { actorLabel, planCategoryLabel } from "../labels";
+import { TableSkeleton } from "../skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   CompanyForm,
@@ -121,15 +124,62 @@ export default async function ReportsSettingsPage({
         ))}
       </div>
 
-      {tab === "reports" ? <ReportsTab /> : null}
-      {tab === "reconciliation" ? <ReconciliationTab provider={provider} /> : null}
-      {tab === "settings" ? <SettingsTab /> : null}
-      {tab === "staff" ? <StaffTab /> : null}
-      {tab === "integrations" ? (
-        <IntegrationsTab items={integrationStatus()} />
-      ) : null}
-      {tab === "templates" ? <TemplatesTab /> : null}
-      {tab === "audit" ? <AuditTab entity={entity} q={q} /> : null}
+      {/*
+        Only the tab body waits. The Reports tab alone runs five aggregate
+        queries and the reconciliation worksheet is slower still, so without
+        this the heading and the tab strip were held back by whichever tab
+        happened to be open. Keyed on the tab so switching tabs shows the
+        skeleton rather than freezing on the previous tab's numbers, which
+        would read as "the click did nothing".
+      */}
+      <Suspense key={tab} fallback={<TabBodySkeleton tab={tab} />}>
+        {tab === "reports" ? <ReportsTab /> : null}
+        {tab === "reconciliation" ? (
+          <ReconciliationTab provider={provider} />
+        ) : null}
+        {tab === "settings" ? <SettingsTab /> : null}
+        {tab === "staff" ? <StaffTab /> : null}
+        {tab === "integrations" ? (
+          <IntegrationsTab items={integrationStatus()} />
+        ) : null}
+        {tab === "templates" ? <TemplatesTab /> : null}
+        {tab === "audit" ? <AuditTab entity={entity} q={q} /> : null}
+      </Suspense>
+    </div>
+  );
+}
+
+/**
+ * Fallback for the tab body. The settings-shaped tabs are stacked forms and
+ * the rest are tables, so it picks between two shapes rather than flashing a
+ * table where a form is about to land.
+ */
+function TabBodySkeleton({ tab }: { tab: string }) {
+  const isForm = tab === "settings" || tab === "templates" || tab === "integrations";
+  return (
+    <div className="space-y-8" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading</span>
+      {isForm ? (
+        [0, 1].map((i) => (
+          <section key={i} className="space-y-3 rounded-lg border bg-card p-4">
+            <Skeleton className="h-4 w-40 max-w-full" />
+            <Skeleton className="h-8 w-full max-w-md rounded-lg pointer-coarse:h-11" />
+            <Skeleton className="h-8 w-full max-w-md rounded-lg pointer-coarse:h-11" />
+            <Skeleton className="h-8 w-28 rounded-full" />
+          </section>
+        ))
+      ) : (
+        <>
+          <section className="space-y-2">
+            <Skeleton className="h-4 w-56 max-w-full" />
+            <TableSkeleton columns={3} rows={5} />
+          </section>
+          <section className="space-y-2">
+            <Skeleton className="h-4 w-64 max-w-full" />
+            <TableSkeleton columns={4} rows={4} />
+          </section>
+        </>
+      )}
     </div>
   );
 }

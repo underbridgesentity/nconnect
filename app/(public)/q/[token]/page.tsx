@@ -258,7 +258,8 @@ export default async function QuotePage({
               rel="noreferrer"
               className="inline-flex text-sm font-medium text-amber-900 underline underline-offset-4"
             >
-              Rather sort it out on WhatsApp
+              Rather sort it out{repWhatsApp && rep?.name ? ` with ${rep.name}` : ""}{" "}
+              on WhatsApp
             </a>
           ) : null}
         </div>

@@ -26,6 +26,7 @@ import { maskedIdNumber } from "@/lib/domain/rica";
 import { todayInJohannesburg } from "@/lib/domain/services";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { actorLabel, paymentMethodLabel } from "../../labels";
+import { BackLink } from "../../back-link";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { cn, isUuid } from "@/lib/utils";
@@ -148,13 +149,8 @@ export default async function Customer360Page({
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link
-            href="/admin/customers"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            ← Customers
-          </Link>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          <BackLink href="/admin/customers">Customers</BackLink>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">
             {name || "(no name)"}
           </h1>
           <p className="text-sm text-muted-foreground">

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { currentActor } from "@/lib/auth";
 import { formatAge, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { BackLink } from "../back-link";
 import { ReplyBox, AssignSelect, StatusButtons, ScrollToNewest } from "./client";
 
 export const metadata: Metadata = { title: "Inbox" };
@@ -229,12 +230,17 @@ export default async function AdminInboxPage({
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
               <div className="min-w-0">
-                <Link
+                {/*
+                  The only way back to the list below md, where the rail is
+                  hidden. It was a 12px glyph in a corner, which is the one
+                  control on this screen an operator taps mid-conversation.
+                */}
+                <BackLink
                   href={hrefWith({ c: undefined })}
-                  className="text-xs text-muted-foreground hover:text-foreground md:hidden"
+                  className="mb-1.5 md:hidden"
                 >
-                  ← All conversations
-                </Link>
+                  All conversations
+                </BackLink>
                 <p className="truncate font-medium">
                   {name(selected.customer)}
                   {selected.customer ? (

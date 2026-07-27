@@ -3,6 +3,8 @@ import Link from "next/link";
 import { CheckCircle2, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FilterPillLink } from "@/components/ui/filter-pill";
+import { PendingSubmit } from "@/components/ui/pending-submit";
 import { PageHeader } from "@/components/public/page-header";
 import { coverageCheckAction } from "./actions";
 
@@ -117,29 +119,19 @@ export default async function CoveragePage({
           </p>
         ) : null}
 
-        <nav className="flex gap-2" aria-label="Service type">
-          <Link
-            href="/coverage?kind=lte"
-            aria-current={!isFibre ? "page" : undefined}
-            className={
-              !isFibre
-                ? "rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
-                : "rounded-full border px-5 py-2 text-sm text-muted-foreground hover:bg-accent"
-            }
-          >
+        {/*
+          The one platform filter pill (components/ui/filter-pill.tsx), which
+          carries the pointer-coarse 44px floor. The hand-rolled version this
+          replaced was a 36px box with no touch target, and choosing between
+          LTE and fibre is the first thing anyone does on this page.
+        */}
+        <nav className="flex flex-wrap gap-2" aria-label="Service type">
+          <FilterPillLink href="/coverage?kind=lte" active={!isFibre}>
             LTE / 5G
-          </Link>
-          <Link
-            href="/coverage?kind=fibre"
-            aria-current={isFibre ? "page" : undefined}
-            className={
-              isFibre
-                ? "rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground"
-                : "rounded-full border px-5 py-2 text-sm text-muted-foreground hover:bg-accent"
-            }
-          >
+          </FilterPillLink>
+          <FilterPillLink href="/coverage?kind=fibre" active={isFibre}>
             Fibre
-          </Link>
+          </FilterPillLink>
         </nav>
 
         <form action={coverageCheckAction} className="space-y-4">
@@ -238,12 +230,14 @@ export default async function CoveragePage({
             </div>
           )}
 
-          <button
-            type="submit"
+          <PendingSubmit
+            pendingLabel={
+              isFibre ? "Sending your details..." : "Checking coverage..."
+            }
             className="flex w-full touch-target items-center justify-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91] sm:w-auto"
           >
             {isFibre ? "Check fibre at my address" : "Check LTE/5G coverage"}
-          </button>
+          </PendingSubmit>
         </form>
       </div>
     </>
