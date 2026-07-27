@@ -32,7 +32,10 @@ export default async function proxy(req: NextRequest) {
   if (!token) {
     const url = req.nextUrl.clone();
     url.pathname = area.loginPath;
-    url.searchParams.set("next", pathname);
+    // Keep the query string: a customer following a link like
+    // /portal/billing?invoice=123 must land back on that exact view,
+    // not a bare /portal/billing with the context stripped.
+    url.searchParams.set("next", `${pathname}${req.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 

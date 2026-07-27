@@ -12,6 +12,7 @@ import { createServicesForPaidOrder } from "@/lib/domain/services";
 import { notify } from "@/lib/notify";
 import { renderInvoicePdf } from "@/lib/pdf/invoice";
 import { absoluteUrl } from "@/lib/config";
+import { parseZar } from "@/lib/money";
 
 /**
  * PayFast ITN webhook (spec §6.2): the only source of truth for payment
@@ -74,7 +75,20 @@ export async function POST(req: NextRequest) {
     return new NextResponse("OK", { status: 200 });
   }
 
-  const amountCents = Math.round(parseFloat(amountGross ?? "0") * 100);
+  // House rule: never float-parse money. PayFast sends amount_gross as a
+  // decimal string, and parseFloat(x) * 100 rounds through a binary double on
+  // the one number that must be exact, the amount actually charged.
+  let amountCents: number;
+  try {
+    amountCents = parseZar(amountGross ?? "0");
+  } catch {
+    console.error(
+      `payfast itn: unreadable amount_gross "${amountGross}" for ${mPaymentId}`
+    );
+    // 200 so PayFast stops retrying a payload we can never parse; the payment
+    // is left for manual reconciliation rather than being booked at a guess.
+    return new NextResponse("OK", { status: 200 });
+  }
 
   // Invoice pay-link payments carry an "inv:" prefix (§6.2).
   if (mPaymentId.startsWith("inv:")) {
