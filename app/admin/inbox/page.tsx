@@ -11,6 +11,7 @@ import {
 import { EmptyState } from "@/components/shared/empty-state";
 import { StatusPill } from "@/components/shared/status-pill";
 import { AutoRefresh } from "@/components/shared/auto-refresh";
+import { FilterPillLink } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { currentActor } from "@/lib/auth";
 import { formatAge, formatDateTime } from "@/lib/format";
@@ -82,34 +83,31 @@ export default async function AdminInboxPage({
     options: [string, string][]
   ) => (
     <div className="flex flex-wrap gap-1">
-      {options.map(([v, label]) => {
-        const active = (value ?? "") === v;
-        return (
-          <Link
-            key={label}
-            href={hrefWith({ [key]: v || undefined })}
-            className={cn(
-              "rounded-full px-2.5 py-0.5 text-xs",
-              active
-                ? "bg-primary font-medium text-primary-foreground"
-                : "border text-muted-foreground hover:bg-accent"
-            )}
-          >
-            {label}
-          </Link>
-        );
-      })}
+      {options.map(([v, label]) => (
+        <FilterPillLink
+          key={label}
+          href={hrefWith({ [key]: v || undefined })}
+          active={(value ?? "") === v}
+          size="sm"
+        >
+          {label}
+        </FilterPillLink>
+      ))}
     </div>
   );
 
   return (
     <div className="mx-auto flex h-[calc(100dvh-6rem)] max-w-6xl flex-col gap-4 md:flex-row">
-      {/* 15s, not 5s: two queries per tab every five seconds is a lot of
-          load for a queue that also updates over realtime. */}
-      <AutoRefresh seconds={15} />
       {/* Conversation list */}
       <div className={cn("flex w-full flex-col md:w-96", c && "hidden md:flex")}>
-        <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+          {/* 15s, not 5s: two queries per tab every five seconds is a lot of
+              load for a queue that also updates over realtime. The pause sits
+              on the list because that is what moves under an operator who is
+              part way through reading it. */}
+          <AutoRefresh seconds={15} control className="-mr-2.5 shrink-0" />
+        </div>
         <form method="get" action="/admin/inbox" className="mt-3">
           {status ? <input type="hidden" name="status" value={status} /> : null}
           {channel ? <input type="hidden" name="channel" value={channel} /> : null}

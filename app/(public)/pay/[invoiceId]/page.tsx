@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { and, eq } from "drizzle-orm";
-import { CheckCircle2, Lock, MessageCircle } from "lucide-react";
+import { CheckCircle2, Lock, MessageCircle, Undo2 } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { invoices, invoiceLines, customers, payments } from "@/lib/db/schema";
 import { verifyPayLinkToken } from "@/lib/domain/billing-engine";
@@ -11,38 +10,38 @@ import { add, subtract, type Cents } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
+import {
+  CTA,
+  CompanyLine,
+  ExpiredLink,
+  whatsappHref,
+  type Company,
+} from "../_lib/pay-chrome";
 
 export const metadata: Metadata = {
   title: "Pay invoice",
   robots: { index: false, follow: false },
 };
 
-type Company = {
-  legalName: string;
-  phone: string;
-  email: string;
-  vat: string;
-  reg: string;
-};
-
-const CTA =
-  "flex w-full touch-target items-center justify-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]";
-
 /**
  * Pay link (spec §6.2/§6.3): tokenised public URL sent in invoice and
  * dunning notifications. Server-rendered; the PayFast form posts directly.
  * It arrives by SMS or WhatsApp, so it has to look unmistakably like us:
  * legal name, registration, VAT and a support route on the page itself.
+ *
+ * `from=portal` is set by the portal's own pay buttons and only decides where
+ * PayFast sends the payer afterwards: back into the portal, rather than to the
+ * public outcome page a link recipient sees.
  */
 export default async function PayInvoicePage({
   params,
   searchParams,
 }: {
   params: Promise<{ invoiceId: string }>;
-  searchParams: Promise<{ t?: string; cancelled?: string }>;
+  searchParams: Promise<{ t?: string; cancelled?: string; from?: string }>;
 }) {
   const { invoiceId } = await params;
-  const { t } = await searchParams;
+  const { t, cancelled, from } = await searchParams;
   const company = await getSetting<Company>("company");
 
   if (!t || !verifyPayLinkToken(invoiceId, t)) {
@@ -82,12 +81,23 @@ export default async function PayInvoicePage({
   const balanceCents = subtract(invoice.totalCents, paidCents);
 
   const payable = invoice.status === "open" || invoice.status === "past_due";
+  // Card payments settle the whole invoice, so the button only appears when
+  // the full amount is still owed (see the part-paid branch below).
+  const canPayNow = payable && balanceCents > 0 && paidCents === 0;
   const customerName =
     customer?.companyName ??
     [customer?.firstName, customer?.lastName].filter(Boolean).join(" ");
-  const wa = company?.phone
-    ? `https://wa.me/27${company.phone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
+  const wa = whatsappHref(company?.phone);
+
+  // Where PayFast sends the payer next. A pay link lands on our own outcome
+  // page, which reads the invoice back rather than assuming the redirect means
+  // anything; somebody who started in the portal goes back to the portal.
+  const fromPortal = from === "portal";
+  const back = `/pay/${invoice.id}?t=${encodeURIComponent(t)}${fromPortal ? "&from=portal" : ""}`;
+  const returnPath = fromPortal
+    ? `/portal/billing?paid=${encodeURIComponent(invoice.number)}`
+    : `/pay/${invoice.id}/outcome?t=${encodeURIComponent(t)}`;
+  const cancelPath = `${back}&cancelled=1`;
 
   return (
     <div className="mx-auto max-w-md px-4 py-12">
@@ -95,6 +105,17 @@ export default async function PayInvoicePage({
         Invoice <span className="font-mono">{invoice.number}</span>
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">{customerName}</p>
+
+      {cancelled ? (
+        <p className="mt-4 flex gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <Undo2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            No payment was taken. PayFast returned you here without completing
+            the payment, so nothing was charged and this invoice is exactly as
+            it was.{canPayNow ? " You can try again below." : ""}
+          </span>
+        </p>
+      ) : null}
 
       <div className="mt-6 overflow-hidden rounded-2xl border bg-card">
         {lines.map((line) => (
@@ -167,6 +188,8 @@ export default async function PayInvoicePage({
           invoiceId={invoice.id}
           invoiceNumber={invoice.number}
           amountCents={balanceCents}
+          returnPath={returnPath}
+          cancelPath={cancelPath}
         />
       )}
 
@@ -193,11 +216,7 @@ export default async function PayInvoicePage({
             </span>
           </p>
         ) : null}
-        {company ? (
-          <p className="pt-1">
-            {company.legalName} | Reg {company.reg} | VAT {company.vat}
-          </p>
-        ) : null}
+        <CompanyLine company={company} />
       </div>
     </div>
   );
@@ -207,16 +226,22 @@ function PayForm({
   invoiceId,
   invoiceNumber,
   amountCents,
+  returnPath,
+  cancelPath,
 }: {
   invoiceId: string;
   invoiceNumber: string;
   amountCents: Cents;
+  returnPath: string;
+  cancelPath: string;
 }) {
   const checkout = buildCheckout({
     paymentId: `inv:${invoiceId}`,
     amountCents,
     itemName: `Needd Connect invoice ${invoiceNumber}`,
     tokenize: true,
+    returnPath,
+    cancelPath,
   });
   return (
     <form action={checkout.actionUrl} method="post" className="mt-6">
@@ -232,39 +257,5 @@ function PayForm({
         <span className="font-mono">{invoiceNumber}</span>.
       </p>
     </form>
-  );
-}
-
-function ExpiredLink({ company }: { company: Company | null }) {
-  const wa = company?.phone
-    ? `https://wa.me/27${company.phone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
-  return (
-    <div className="mx-auto max-w-md px-4 py-16 text-center">
-      <h1 className="text-2xl font-semibold">This payment link has expired</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Pay links are single-invoice and time-limited for your safety. Sign in
-        to your portal to see and pay everything outstanding, or ask us for a
-        fresh link.
-      </p>
-      <div className="mt-6 flex flex-wrap justify-center gap-3">
-        <Link href="/login" className={CTA}>
-          Sign in to your portal
-        </Link>
-        {wa ? (
-          <a
-            href={wa}
-            className="inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent"
-          >
-            WhatsApp us for a new link
-          </a>
-        ) : null}
-      </div>
-      {company ? (
-        <p className="mt-8 text-xs text-muted-foreground">
-          {company.legalName} | Reg {company.reg} | VAT {company.vat}
-        </p>
-      ) : null}
-    </div>
   );
 }

@@ -67,3 +67,62 @@ describe("payfast signature", () => {
     expect(verifyItnSignature(params)).toBe(false);
   });
 });
+
+/**
+ * ITN verification and redirect signing disagree about blank fields, and the
+ * difference decides whether real payments complete.
+ *
+ * PayFast's merchant-side ITN reference iterates every posted variable and
+ * includes empty ones as "key=". Live ITNs routinely carry blank optionals
+ * (name_last, custom_str1 to 5, token). Filtering them out, which is correct
+ * for the outgoing redirect, produces a different digest, so every genuine
+ * payment would fail verification and no order would ever be marked paid.
+ *
+ * The expected digests below were computed with an independent PHP-urlencode
+ * reference implementation, not with the code under test.
+ */
+describe("ITN signature verification with blank fields", () => {
+  const passphrase = "_/A1b2-test";
+  const itn: [string, string][] = [
+    ["m_payment_id", "019fa58e-2ad3-7a28-876c-dc21351933bc"],
+    ["pf_payment_id", "1089250"],
+    ["payment_status", "COMPLETE"],
+    ["item_name", "Needd Connect order NC-2026-00007"],
+    ["name_first", "Thandi"],
+    ["name_last", ""],
+    ["email_address", "thandi@example.com"],
+    ["amount_gross", "764.00"],
+    ["amount_fee", "-20.85"],
+    ["amount_net", "743.15"],
+    ["custom_str1", ""],
+    ["custom_str2", ""],
+    ["token", ""],
+  ];
+
+  it("signs every posted field, including the blanks", () => {
+    expect(signPayload(itn, passphrase, { skipEmpty: false })).toBe(
+      "1a08430d3571e5c43955b74891d3cf2d"
+    );
+  });
+
+  it("still skips blanks for the outgoing redirect signature", () => {
+    expect(signPayload(itn, passphrase)).toBe(
+      "8f35423b4b0fa2eb37010a6e67d3c978"
+    );
+  });
+
+  it("verifies a real-shaped ITN that carries blank optional fields", () => {
+    process.env.PAYFAST_MERCHANT_ID = "16240038";
+    process.env.PAYFAST_MERCHANT_KEY = "test-key";
+    process.env.PAYFAST_PASSPHRASE = passphrase;
+
+    const params = new URLSearchParams();
+    for (const [k, v] of itn) params.set(k, v);
+    params.set("signature", signPayload(itn, passphrase, { skipEmpty: false }));
+    expect(verifyItnSignature(params)).toBe(true);
+
+    // A signature computed the old way must not be accepted.
+    params.set("signature", signPayload(itn, passphrase));
+    expect(verifyItnSignature(params)).toBe(false);
+  });
+});

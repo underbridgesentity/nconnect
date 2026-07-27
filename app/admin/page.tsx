@@ -20,7 +20,7 @@ import { invoicesAwaitingDecision } from "@/lib/domain/billing";
 import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
 import { getSettingOr } from "@/lib/domain/settings";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { filterPillClass } from "@/components/ui/filter-pill";
 import {
   TaskCard,
   FeasibilityCard,
@@ -411,18 +411,20 @@ export default async function AdminTodayPage() {
           to see at a glance where the work is. */}
       <nav aria-label="Queue sections" className="flex flex-wrap gap-1.5">
         {sections.map((section) => (
+          // A plain anchor, not FilterPillLink: these jump within the page
+          // rather than filtering it, so nothing here is ever the current
+          // filter. Only the shared pill's shape and coarse-pointer floor
+          // are wanted, which is what filterPillClass gives.
           <a
             key={section.title}
             href={`#${sectionId(section.title)}`}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs",
-              section.count > 0
-                ? "font-medium text-foreground hover:bg-accent"
-                : "text-muted-foreground hover:bg-accent"
-            )}
+            className={filterPillClass(false, {
+              size: "sm",
+              className: section.count > 0 ? "font-medium text-foreground" : "",
+            })}
           >
             {section.title}
-            <span className="tnum ml-1.5">{section.count}</span>
+            <span className="tnum">{section.count}</span>
           </a>
         ))}
       </nav>

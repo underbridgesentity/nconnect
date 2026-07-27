@@ -16,6 +16,7 @@ import { getSetting, getSettingOr } from "@/lib/domain/settings";
 import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
 import { TEMPLATES } from "@/lib/notify/templates";
 import { MoneyText } from "@/components/shared/money-text";
+import { FilterPillLink } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/format";
 import { actorLabel, planCategoryLabel } from "../labels";
@@ -350,18 +351,13 @@ async function ReconciliationTab({ provider }: { provider: string }) {
       </p>
       <div className="flex flex-wrap gap-1.5">
         {providerRows.map((p) => (
-          <Link
+          <FilterPillLink
             key={p.id}
             href={`/admin/reports?tab=reconciliation&provider=${encodeURIComponent(p.name)}`}
-            className={cn(
-              "rounded-full px-3 py-1 text-sm",
-              provider === p.name
-                ? "bg-primary font-medium text-primary-foreground"
-                : "border text-muted-foreground hover:bg-accent"
-            )}
+            active={provider === p.name}
           >
             {p.name}
-          </Link>
+          </FilterPillLink>
         ))}
       </div>
 
@@ -547,30 +543,17 @@ async function AuditTab({ entity, q }: { entity?: string; q?: string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        <Link
-          href="/admin/reports?tab=audit"
-          className={cn(
-            "rounded-full px-3 py-1 text-sm",
-            !entity
-              ? "bg-primary font-medium text-primary-foreground"
-              : "border text-muted-foreground hover:bg-accent"
-          )}
-        >
+        <FilterPillLink href="/admin/reports?tab=audit" active={!entity}>
           All
-        </Link>
+        </FilterPillLink>
         {entities.map((e) => (
-          <Link
+          <FilterPillLink
             key={e}
             href={`/admin/reports?tab=audit&entity=${e}`}
-            className={cn(
-              "rounded-full px-3 py-1 text-sm",
-              entity === e
-                ? "bg-primary font-medium text-primary-foreground"
-                : "border text-muted-foreground hover:bg-accent"
-            )}
+            active={entity === e}
           >
             {e.replace("_", " ")}
-          </Link>
+          </FilterPillLink>
         ))}
       </div>
 

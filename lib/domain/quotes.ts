@@ -26,6 +26,7 @@ import {
   customers,
   users,
   notifications,
+  orders,
 } from "@/lib/db/schema";
 import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
@@ -850,6 +851,13 @@ export async function quoteDetail(actor: Actor, quoteId: string) {
  * Daily sweep: quotes past their validity date stop counting as live work.
  * Returns the number expired so the caller can log it. Accepted quotes are
  * never touched.
+ *
+ * Neither is a quote whose order is sitting at `pending_payment`: that
+ * customer has accepted and is at the PayFast page or on their way back to it.
+ * Expiring the quote underneath them would show them an expired quote after
+ * they paid, and `createOrderFromQuote` would refuse a retry. The sweep leaves
+ * those alone and collects them on a later run, once the order is paid (the
+ * quote is marked accepted) or cancelled.
  */
 export async function expireQuotes(): Promise<number> {
   const stale = await db
@@ -864,8 +872,30 @@ export async function expireQuotes(): Promise<number> {
     );
   if (stale.length === 0) return 0;
 
+  // Read-then-write is safe here: `createOrderFromQuote` already refuses a
+  // quote that is past its expiry date, so no new order can appear for any
+  // quote in `stale` between this check and the update below.
+  const midCheckout = new Set(
+    (
+      await db
+        .select({ quoteId: orders.quoteId })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.status, "pending_payment"),
+            inArray(
+              orders.quoteId,
+              stale.map((q) => q.id)
+            )
+          )
+        )
+    ).flatMap((row) => (row.quoteId ? [row.quoteId] : []))
+  );
+  const expiring = stale.filter((quote) => !midCheckout.has(quote.id));
+  if (expiring.length === 0) return 0;
+
   const eventIds: string[] = [];
-  for (const quote of stale) {
+  for (const quote of expiring) {
     const eventId = await db.transaction(async (tx) => {
       await tx
         .update(quotes)
@@ -887,7 +917,7 @@ export async function expireQuotes(): Promise<number> {
     eventIds.push(eventId);
   }
   for (const id of eventIds) await forwardDomainEvent(id);
-  return stale.length;
+  return expiring.length;
 }
 
 /**

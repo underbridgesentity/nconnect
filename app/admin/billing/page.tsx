@@ -12,6 +12,7 @@ import { paymentMethodLabel } from "../labels";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { EmptyState } from "@/components/shared/empty-state";
+import { FilterPillLink } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -165,18 +166,13 @@ export default async function AdminBillingPage({
 
           <div className="flex flex-wrap gap-2">
             {FILTERS.map((f) => (
-              <Link
+              <FilterPillLink
                 key={f.key}
                 href={`/admin/billing?tab=invoices&status=${f.key}${search ? `&q=${encodeURIComponent(search)}` : ""}`}
-                className={cn(
-                  "rounded-full px-3 py-1 text-sm",
-                  status === f.key
-                    ? "bg-primary font-medium text-primary-foreground"
-                    : "border text-muted-foreground hover:bg-accent"
-                )}
+                active={status === f.key}
               >
                 {f.label}
-              </Link>
+              </FilterPillLink>
             ))}
           </div>
 

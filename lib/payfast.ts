@@ -56,13 +56,28 @@ function pfEncode(value: string): string {
   return out;
 }
 
+/**
+ * MD5 over `key=value` pairs joined with `&`, with the passphrase appended.
+ *
+ * The two directions differ on blank fields, and getting this wrong breaks
+ * payments in a way that only shows up against the real gateway:
+ *
+ * - OUTGOING (the redirect form): PayFast's reference builder skips empty
+ *   values, and so must we, or the hosted page rejects the signature.
+ * - INCOMING (ITN verification): PayFast's merchant-side reference iterates
+ *   every posted field and includes blanks as `key=`. Real ITNs routinely post
+ *   empty optionals (name_last, custom_str1 to 5, token), so filtering them out
+ *   computes a different digest and every genuine payment fails to verify.
+ */
 export function signPayload(
   fields: [string, string][],
-  passphrase: string
+  passphrase: string,
+  opts: { skipEmpty?: boolean } = {}
 ): string {
-  const pairs = fields
-    .filter(([, v]) => v !== "")
-    .map(([k, v]) => `${k}=${pfEncode(v)}`);
+  const { skipEmpty = true } = opts;
+  const pairs = (skipEmpty ? fields.filter(([, v]) => v !== "") : fields).map(
+    ([k, v]) => `${k}=${pfEncode(v)}`
+  );
   if (passphrase) pairs.push(`passphrase=${pfEncode(passphrase)}`);
   return createHash("md5").update(pairs.join("&")).digest("hex");
 }
@@ -144,9 +159,9 @@ export function buildCheckout(req: CheckoutRequest): {
 }
 
 /**
- * Verify an ITN post: signature over the received fields (in received order,
- * minus `signature`), amount match is the caller's job. Returns true only on
- * an exact signature match.
+ * Verify an ITN post: signature over the received fields in received order,
+ * minus `signature`, keeping blank values. Amount match is the caller's job.
+ * Returns true only on an exact signature match.
  */
 export function verifyItnSignature(params: URLSearchParams): boolean {
   const { passphrase } = config();
@@ -156,7 +171,8 @@ export function verifyItnSignature(params: URLSearchParams): boolean {
     if (key === "signature") continue;
     fields.push([key, value]);
   }
-  const expected = signPayload(fields, passphrase);
+  // skipEmpty: false, see signPayload. PayFast signs every field it posts.
+  const expected = signPayload(fields, passphrase, { skipEmpty: false });
   return expected === received;
 }
 
@@ -202,15 +218,26 @@ export async function chargeToken(req: {
     ["item_name", req.itemName.slice(0, 100)],
     ["m_payment_id", req.paymentId],
   ];
-  // Signature for the tokenisation API: merchant-id, version, timestamp +
-  // body fields, alphabetised.
+  /*
+   * The tokenisation API signs differently from the redirect form. The redirect
+   * takes the fields in payload order with the passphrase appended last; the
+   * API takes the header fields plus the body fields PLUS the passphrase, all
+   * sorted alphabetically together. `passphrase` sorts between `merchant-id`
+   * and `timestamp`, so appending it last (which signPayload does by default)
+   * produces a digest PayFast rejects, and every recurring card charge fails.
+   * Hence signing with an empty passphrase here and carrying it as an ordinary
+   * sorted field.
+   */
   const sigFields: [string, string][] = [
     ...bodyFields,
     ["merchant-id", merchantId],
     ["timestamp", timestamp],
     ["version", version],
+    ...(passphrase
+      ? ([["passphrase", passphrase]] as [string, string][])
+      : []),
   ].sort(([a], [b]) => a.localeCompare(b)) as [string, string][];
-  const signature = signPayload(sigFields, passphrase);
+  const signature = signPayload(sigFields, "");
 
   const host =
     process.env.PAYFAST_MODE === "live"

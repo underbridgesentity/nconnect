@@ -112,7 +112,7 @@ export function AssignSelect({
       }
       disabled={pending}
     >
-      <SelectTrigger className="h-8 w-36 text-xs" aria-label="Assign to">
+      <SelectTrigger className="w-36" aria-label="Assign to">
         <SelectValue placeholder="Unassigned" />
       </SelectTrigger>
       <SelectContent>

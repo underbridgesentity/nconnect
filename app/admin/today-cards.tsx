@@ -93,22 +93,29 @@ export function TaskCard({ task }: { task: TaskCardData }) {
           ) : null}
           <ul className="space-y-1.5">
             {task.checklist.map((item, i) => (
-              <li key={i} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={item.done}
-                  disabled={pending}
-                  onCheckedChange={(v) =>
-                    startTransition(async () => {
-                      const r = await toggleChecklistAction(task.id, i, v === true);
-                      if (!r.ok) toast.error(r.error);
-                      else router.refresh();
-                    })
-                  }
-                  aria-label={item.label}
-                />
-                <span className={item.done ? "text-muted-foreground line-through" : ""}>
-                  {item.label}
-                </span>
+              <li key={i}>
+                {/*
+                 * The whole row is the target, not the 16px box: a label wraps
+                 * both, so the text toggles the item too, and the coarse
+                 * pointer floor gives a finger the project's 44px minimum
+                 * without loosening the list on a desktop.
+                 */}
+                <label className="flex cursor-pointer items-center gap-2 text-sm pointer-coarse:min-h-11">
+                  <Checkbox
+                    checked={item.done}
+                    disabled={pending}
+                    onCheckedChange={(v) =>
+                      startTransition(async () => {
+                        const r = await toggleChecklistAction(task.id, i, v === true);
+                        if (!r.ok) toast.error(r.error);
+                        else router.refresh();
+                      })
+                    }
+                  />
+                  <span className={item.done ? "text-muted-foreground line-through" : ""}>
+                    {item.label}
+                  </span>
+                </label>
               </li>
             ))}
           </ul>

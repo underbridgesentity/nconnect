@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { Router } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,17 +15,56 @@ import { cn } from "@/lib/utils";
  * grey box reading "image coming soon": a deliberate placeholder, not an
  * unfinished page.
  */
+
+/**
+ * How wide the plate really renders, per layout, so a phone downloads a phone
+ * sized image instead of the full upload. Product photography goes into the
+ * public `catalogue` bucket at whatever resolution the supplier sent it, and
+ * the image optimiser can only pick a size if it is told the slot width.
+ *
+ * The two values come from the actual call sites:
+ *
+ * - 4/3 is the card grids. Hardware index: max-w-6xl, sm:grid-cols-2,
+ *   lg:grid-cols-4, so about 200px inside the card padding on a wide screen.
+ *   Plan suggestions: max-w-5xl, sm:grid-cols-3, about 250px.
+ * - 1/1 is the product page hero: max-w-5xl, md:grid-cols-2, so half the
+ *   container from md up and the full width below it.
+ *
+ * They deliberately round up. Asking for slightly more than the slot costs a
+ * few kilobytes; asking for less puts a soft image in front of a customer
+ * deciding whether to buy the router.
+ */
+const PLATE_SIZES = {
+  "4/3": "(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw",
+  "1/1": "(min-width: 768px) 50vw, 100vw",
+} as const;
+
 export function ProductImage({
   src,
   alt,
   ratio = "4/3",
   className,
+  sizes,
+  priority = false,
 }: {
+  /**
+   * A `fileUrl("catalogue", ...)` URL, or null when the device has no
+   * photograph yet. The host has to be allowlisted in next.config.ts, so this
+   * is not the place for an arbitrary external image.
+   */
   src: string | null;
   alt: string;
   ratio?: "4/3" | "1/1";
   className?: string;
+  /** Override the slot width hint when the plate sits in a different layout. */
+  sizes?: string;
+  /** Set on an above-the-fold hero so it is not lazy-loaded. */
+  priority?: boolean;
 }) {
+  // next/image throws on an empty src, which would take a whole catalogue page
+  // down over one bad row. A missing photograph is the placeholder's job.
+  const source = src && src.trim() ? src : null;
+
   return (
     <div
       className={cn(
@@ -33,14 +73,23 @@ export function ProductImage({
         className
       )}
     >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element -- signed storage URLs
-        <img
-          src={src}
-          alt={alt}
-          loading="lazy"
-          className="max-h-full w-auto max-w-full object-contain"
-        />
+      {source ? (
+        /*
+         * `fill` positions the image against the padding box of the nearest
+         * positioned ancestor, which would swallow the plate's padding (and
+         * the p-8 the product page passes). This inner box is the grid area,
+         * so it is exactly the content box, and the inset survives.
+         */
+        <div className="relative h-full w-full">
+          <Image
+            src={source}
+            alt={alt}
+            fill
+            sizes={sizes ?? PLATE_SIZES[ratio]}
+            priority={priority}
+            className="object-contain"
+          />
+        </div>
       ) : (
         <>
           <Router

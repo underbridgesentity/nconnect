@@ -37,7 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { MoreHorizontal, Pencil, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { FilterPillButton } from "@/components/ui/filter-pill";
 import {
   savePlanAction,
   saveHardwareAction,
@@ -706,20 +706,13 @@ export function CostPriceTable({ rows }: { rows: CostRow[] }) {
           [true, `Missing cost (${missingCount})`],
           [false, `Everything (${rows.length})`],
         ].map(([value, label]) => (
-          <button
+          <FilterPillButton
             key={String(label)}
-            type="button"
             onClick={() => setMissingOnly(Boolean(value))}
-            aria-pressed={missingOnly === value}
-            className={cn(
-              "rounded-full px-3 py-1 text-sm",
-              missingOnly === value
-                ? "bg-primary font-medium text-primary-foreground"
-                : "border text-muted-foreground hover:bg-accent"
-            )}
+            active={missingOnly === value}
           >
             {String(label)}
-          </button>
+          </FilterPillButton>
         ))}
         <Button type="submit" size="sm" disabled={pending} className="ml-auto">
           {pending ? "Saving…" : "Save all cost prices"}

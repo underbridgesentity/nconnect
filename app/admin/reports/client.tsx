@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
+import { FilterPillButton } from "@/components/ui/filter-pill";
 import { cn } from "@/lib/utils";
 import { RECON_FLAG_LABELS } from "../labels";
 import {
@@ -189,7 +190,7 @@ export function StaffRow({
           }
           disabled={pending}
         >
-          <SelectTrigger className="h-8 w-24 text-xs" aria-label="Role">
+          <SelectTrigger className="w-24" aria-label="Role">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -430,20 +431,13 @@ export function ReconcileWorksheet({
               [true, `Flagged only (${flaggedCount})`],
               [false, `Every line (${result.rows.length})`],
             ].map(([value, label]) => (
-              <button
+              <FilterPillButton
                 key={String(label)}
-                type="button"
                 onClick={() => setFlaggedOnly(Boolean(value))}
-                aria-pressed={flaggedOnly === value}
-                className={cn(
-                  "rounded-full px-3 py-1 text-sm",
-                  flaggedOnly === value
-                    ? "bg-primary font-medium text-primary-foreground"
-                    : "border text-muted-foreground hover:bg-accent"
-                )}
+                active={flaggedOnly === value}
               >
                 {String(label)}
-              </button>
+              </FilterPillButton>
             ))}
             <Button
               type="button"

@@ -62,6 +62,14 @@ marked **dev** are configuration/deploy work.
 - [ ] **dev — Confirm tokenisation** (card charge on file) against the
       client's account settings; the ad-hoc token endpoint requires the
       feature enabled on the PayFast account.
+      **Verify the API signature specifically.** The tokenisation API signs
+      differently from the redirect form: header and body fields *and* the
+      passphrase are sorted alphabetically together, where the redirect appends
+      the passphrase last. `chargeToken` was appending it and is now sorting it,
+      but that path cannot be exercised without a real stored token, so the
+      first live ad-hoc charge must be watched. A signature mismatch there
+      fails every recurring collection while leaving first payments working,
+      so it would surface a month after launch rather than on day one.
 
 ## WhatsApp (Meta Cloud API)
 

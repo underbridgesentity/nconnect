@@ -46,6 +46,11 @@ async function main() {
     ["amount_net", (parseFloat(amount) - 2.5).toFixed(2)],
     ["merchant_id", process.env.PAYFAST_MERCHANT_ID ?? "10000100"],
     ["token", `TOK-${randomBytes(8).toString("hex")}`],
+    // Real ITNs carry blank optionals, and PayFast signs them as "key=".
+    // Keeping them here means the end-to-end path exercises the same
+    // signature rule as production rather than a tidier synthetic payload.
+    ["name_last", ""],
+    ["custom_str1", ""],
   ];
   const passphrase = process.env.PAYFAST_PASSPHRASE ?? "";
   const pairs = fields.map(([k, v]) => `${k}=${pfEncode(v)}`);

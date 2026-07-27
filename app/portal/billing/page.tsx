@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { CreditCard, Receipt, FileDown } from "lucide-react";
+import { CheckCircle2, Clock, CreditCard, Receipt, FileDown } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { invoices, payments, paymentMethods } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
@@ -18,15 +18,33 @@ import { Button } from "@/components/ui/button";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { EmptyState } from "@/components/shared/empty-state";
-import { paidCentsByInvoice, withBalance, isOpen } from "../_lib/balances";
+import {
+  paidCentsByInvoice,
+  withBalance,
+  isOpen,
+  type InvoiceWithBalance,
+} from "../_lib/balances";
 import { outstandingLine } from "../_lib/invoice-copy";
 
 export const metadata: Metadata = { title: "Billing" };
 
-export default async function PortalBillingPage() {
+/**
+ * Pay links opened from the portal come back to the portal, not to the public
+ * pay-link outcome page, so a signed-in customer stays inside the app.
+ */
+function portalPayLink(invoiceId: string): string {
+  return `${payLinkFor(invoiceId)}&from=portal`;
+}
+
+export default async function PortalBillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ paid?: string; checked?: string }>;
+}) {
   const actor = await currentActor();
   if (!actor?.customerId) redirect("/login");
   const customerId = actor.customerId;
+  const { paid, checked } = await searchParams;
 
   const [invoiceRows, openRows, method, paymentRows, paidByInvoice, dunning] =
     await Promise.all([
@@ -88,9 +106,72 @@ export default async function PortalBillingPage() {
   )[0];
   const today = todayInJohannesburg();
 
+  // PayFast has returned a payer to us. The redirect is not proof of anything,
+  // so the banner reports what is actually recorded against that invoice and
+  // says plainly when the confirmation has not landed yet.
+  const returnedNumber = paid?.trim().slice(0, 32) || null;
+  let returned: InvoiceWithBalance | null = null;
+  if (returnedNumber) {
+    // The list above is capped, and the number is always scoped to this
+    // customer so one person's reference can never surface another's invoice.
+    returned = rows.find((row) => row.invoice.number === returnedNumber) ?? null;
+    if (!returned) {
+      const [row] = await db
+        .select()
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.customerId, customerId),
+            eq(invoices.number, returnedNumber)
+          )
+        )
+        .limit(1);
+      returned = row ? withBalance(row, paidByInvoice.get(row.id)) : null;
+    }
+  }
+  const returnSettled =
+    returned !== null &&
+    (returned.invoice.status === "paid" || returned.balanceCents <= 0);
+  const checkAttempt = Number.isFinite(Number(checked))
+    ? Math.max(0, Number(checked))
+    : 0;
+
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-semibold tracking-tight">Billing</h1>
+
+      {returned ? (
+        returnSettled ? (
+          <p className="flex gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              PayFast has confirmed your payment and invoice{" "}
+              <span className="font-mono">{returned.invoice.number}</span> is
+              settled. Thank you.
+            </span>
+          </p>
+        ) : (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="flex gap-2">
+              <Clock className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>
+                You are back from PayFast, which on its own does not tell us
+                whether the payment went through. Invoice{" "}
+                <span className="font-mono">{returned.invoice.number}</span> is
+                still showing{" "}
+                <MoneyText cents={returned.balanceCents} /> outstanding here.
+                Confirmation usually reaches us within seconds.
+              </span>
+            </p>
+            <Link
+              href={`/portal/billing?paid=${encodeURIComponent(returned.invoice.number)}&checked=${checkAttempt + 1}`}
+              className="mt-3 flex touch-target items-center justify-center rounded-full border border-amber-300 bg-white px-5 text-sm font-medium hover:bg-amber-100"
+            >
+              Check again
+            </Link>
+          </div>
+        )
+      ) : null}
 
       {dueCents > 0 && oldest ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
@@ -127,7 +208,7 @@ export default async function PortalBillingPage() {
             </Button>
           ) : (
             <a
-              href={payLinkFor(oldest.invoice.id)}
+              href={portalPayLink(oldest.invoice.id)}
               className="mt-3 flex touch-target items-center justify-center rounded-full bg-red-600 px-5 text-sm font-medium text-white transition-colors hover:bg-red-700"
             >
               Pay <MoneyText cents={oldest.balanceCents} /> now
@@ -212,7 +293,7 @@ export default async function PortalBillingPage() {
                   </a>
                   {isOpen(invoice) && balanceCents > 0 && !partiallyPaid ? (
                     <a
-                      href={payLinkFor(invoice.id)}
+                      href={portalPayLink(invoice.id)}
                       aria-label={`Pay invoice ${invoice.number} online`}
                       className="text-xs font-medium text-primary hover:underline"
                     >
