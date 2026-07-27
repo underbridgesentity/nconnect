@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 /**
  * Scroll-reveal wrapper (spec §11 motion rules): a single 500ms ease-out
  * fade-and-rise as sections enter the viewport, staggered via `delay`.
- * Implemented with IntersectionObserver plus a scroll-position fallback so
- * content can never be left invisible, and prefers-reduced-motion renders
- * statically (the global CSS also zeroes transitions).
+ *
+ * Progressive enhancement: the hidden state lives in CSS behind `.js`, which
+ * the inline head script adds. The server HTML is therefore fully visible,
+ * which matters because public pages must render complete HTML server-side
+ * and because crawlers and no-JS visitors must never see a blank page.
+ *
+ * `className` lands on this wrapper, so grid/flex child classes (col-span,
+ * h-full) applied by callers actually take effect on the real grid child.
  */
 export function Reveal({
   children,
@@ -60,12 +66,14 @@ export function Reveal({
   return (
     <div
       ref={ref}
-      className={className}
-      style={{
-        opacity: shown ? 1 : 0,
-        transform: shown ? "none" : `translateY(${y}px)`,
-        transition: `opacity 500ms cubic-bezier(0.21,0.65,0.36,1) ${delay}s, transform 500ms cubic-bezier(0.21,0.65,0.36,1) ${delay}s`,
-      }}
+      className={cn("reveal", className)}
+      data-shown={shown ? "true" : "false"}
+      style={
+        {
+          "--reveal-y": `${y}px`,
+          "--reveal-delay": `${delay}s`,
+        } as React.CSSProperties
+      }
     >
       {children}
     </div>
