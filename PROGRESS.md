@@ -436,3 +436,67 @@ dark-hero style of the current needdconnect.co.za:
   rule for all future copy).
 
 Checks after the pass: typecheck, lint and all 29 vitest tests green.
+
+## Platform enhancement rounds (post-M8, 2026-07-27)
+
+A multi-agent audit and implementation loop against the brief "ultra premium,
+top notch features, easy to use for all users". Ten specialist auditors produced
+144 findings (19 critical, 60 high); three implementation rounds fixed them in
+file-partitioned parallel batches, with typecheck, lint, unit and end-to-end
+tests green at every commit.
+
+### Correctness bugs found and fixed
+
+- **parseZar read the app's own money format 100x wrong.** It stripped commas
+  unconditionally, so "R1 234,56" (what formatCents prints, en-ZA) parsed as
+  R123 456,00. It sits behind admin manual payment capture and catalogue cost
+  entry, so an operator pasting a displayed amount would post a hundredfold
+  payment. Now resolves the decimal separator by position and accepts both SA
+  and international grouping. Locked in by tests that round-trip formatCents.
+- **The payment webhook float-parsed money.** amount_gross went through
+  parseFloat(x) * 100 on the one number that must be exact. Now parseZar, with
+  an unreadable amount logged for reconciliation rather than booked at a guess.
+- **Scroll reveals shipped opacity:0 in the server HTML**, so crawlers and any
+  no-JS visitor received a blank page, against the rule that public pages render
+  complete HTML server-side. The hidden state now lives in CSS behind
+  `@media (scripting: enabled)`: no inline script, so no hydration mismatch.
+- **APP_URL had eleven localhost fallbacks.** On the live domain a missing
+  variable would silently ship localhost into the sitemap, canonicals,
+  notification links and PayFast return URLs. lib/config.ts resolves it once and
+  throws in production when unset or not https.
+- **Quotes were marked accepted and leads won at order creation**, before any
+  money landed, so abandoned checkouts counted as won revenue.
+- **Portal balances ignored partial payments**, overstating what a customer owed.
+- **PayFast return URLs were hardcoded to /signup/success**, so paying an invoice
+  from the portal crashed on a page that could not find the order.
+- **claimLeadAction had no authorize call, ownership guard or audit row.**
+- **proxy.ts dropped the query string** when bouncing to login, losing deep links.
+- Admin and sales detail routes now 404 on a malformed id instead of letting
+  Postgres throw on an invalid uuid.
+
+### Product and design
+
+- Twelve public pages that had missed the design pass gained photographic header
+  bands, one CTA and card language, and a proper reading measure. Real 1200x630
+  Open Graph image, BreadcrumbList / Product / Offer / FAQ structured data.
+- The mobile header drops from about 110px to 65px: the horizontally scrolling
+  pill strip becomes a full-height ink sheet that traps focus, closes on Escape
+  and on route change, and falls back to a plain link list without JavaScript.
+- Signup states what is charged today versus monthly, itemises the once-off fee,
+  keeps input on validation errors, and offers OTP resend with an expiry
+  countdown. Sign-in reached the same standard and honours the deep link.
+- Admin Today became a triage queue with counted filter chips; Billing gained
+  search (the trigram indexes existed and were unused), invoice void and
+  write-off, and an outstanding column.
+- WhatsApp links are validated against real SA mobile ranges. The seeded
+  086 share-call number cannot receive WhatsApp, so the affordance stays hidden
+  until `company.whatsapp` is set in Settings.
+- Accessibility: WCAG focus ring with an ink-surface variant, skip links and main
+  landmarks on all four shells, accessible names on icon-only navigation, and a
+  44px coarse-pointer floor via pointer-coarse variants that leaves desktop
+  density untouched.
+
+State: typecheck, lint, 42 vitest tests and 4 Playwright end-to-end tests green.
+Two harness bugs were fixed along the way: simulate-itn.ts hardcoded port 3000
+(delivering the ITN to an unrelated app when that port was taken), and the pay
+button matcher expected an unlocalised amount.
