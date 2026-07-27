@@ -55,10 +55,15 @@ export function appUrl(): string {
     return cached;
   }
 
-  if (process.env.NODE_ENV === "production" && process.env.VERCEL) {
+  if (process.env.NODE_ENV === "production") {
+    // Deliberately not gated on Vercel: a self-hosted or containerised
+    // production deploy has no VERCEL_* variables either, and that is exactly
+    // the case where a silent localhost fallback would be baked into canonical
+    // URLs and emailed payment links with nothing to reveal it.
     throw new Error(
-      "APP_URL is not set. The deployed app needs its public origin for " +
-        "canonical URLs, notification links and PayFast return and notify URLs."
+      "APP_URL is not set. The app needs its public origin for canonical URLs, " +
+        "notification links and PayFast return and notify URLs. Set it to the " +
+        "public host, for example https://needdconnect.co.za."
     );
   }
 

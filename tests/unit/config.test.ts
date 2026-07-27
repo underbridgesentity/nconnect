@@ -48,9 +48,10 @@ describe("appUrl", () => {
     expect((await load())()).toBe("https://needdconnect.co.za");
   });
 
-  it("throws when deployed with no origin at all", async () => {
+  it("throws in production with no origin, on or off Vercel", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    process.env.VERCEL = "1";
+    // No VERCEL_* variables: a self-hosted deploy is exactly the case where a
+    // silent localhost fallback would go unnoticed.
     await expect(async () => (await load())()).rejects.toThrow(/APP_URL is not set/);
     vi.unstubAllEnvs();
   });
