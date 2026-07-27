@@ -13,7 +13,13 @@ export default async function AdminLayout({
   const session = await auth();
   return (
     <div className="flex min-h-dvh w-full">
-      <aside className="hidden w-60 shrink-0 flex-col bg-[#121829] md:flex">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
+      <aside
+        data-surface="ink"
+        className="hidden w-60 shrink-0 flex-col bg-[#121829] md:flex"
+      >
         <div className="flex h-16 items-center px-5">
           <Link href="/admin">
             <Image
@@ -45,7 +51,9 @@ export default async function AdminLayout({
             <SignOutButton compact />
           </span>
         </header>
-        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+        <main id="main-content" className="min-w-0 flex-1 p-4 md:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

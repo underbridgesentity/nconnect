@@ -150,6 +150,22 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /*
+   * WCAG 2.2 focus appearance: every keyboard-focused control gets a visible
+   * 2px ring with a contrasting offset, so the indicator stays legible on both
+   * the light surfaces and the ink (#121829) ones. Mouse users are unaffected
+   * because this is :focus-visible, not :focus.
+   */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  /* On ink surfaces the brand blue ring is too low-contrast, use white. */
+  .on-ink :focus-visible,
+  [data-surface="ink"] :focus-visible {
+    outline-color: #ffffff;
+  }
   body {
     @apply bg-background text-foreground antialiased;
   }
@@ -167,6 +183,29 @@
   .touch-target {
     min-height: 44px;
     min-width: 44px;
+  }
+  /*
+   * Skip link: visually hidden until focused, then pinned top-left so a
+   * keyboard user can jump past the navigation on every shell.
+   */
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 100;
+  }
+  .skip-link:focus {
+    left: 0.75rem;
+    top: 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 1.25rem;
+    border-radius: 9999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
   }
   /*
    * Scroll reveal, progressive enhancement (spec §11 motion, and the house

@@ -13,6 +13,9 @@ export default async function SalesLayout({
   const session = await auth();
   return (
     <div className="flex min-h-dvh flex-col">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b bg-card/95 px-3 backdrop-blur md:px-6">
         <div className="flex items-center gap-4">
           <Link href="/sales">
@@ -34,7 +37,10 @@ export default async function SalesLayout({
           <SignOutButton compact />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 p-4 md:p-6">
+      <main
+        id="main-content"
+        className="mx-auto w-full max-w-5xl flex-1 p-4 md:p-6"
+      >
         {children}
       </main>
     </div>

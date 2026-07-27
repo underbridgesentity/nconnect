@@ -13,6 +13,9 @@ export default function PortalLayout({
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-lg flex-col">
       <ServiceWorkerRegister />
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <header className="sticky top-0 z-10 flex h-14 items-center justify-center border-b bg-card/95 backdrop-blur">
         <Link href="/portal">
           <Image
@@ -27,7 +30,9 @@ export default function PortalLayout({
           <NotificationBell />
         </span>
       </header>
-      <main className="flex-1 p-4 pb-32">{children}</main>
+      <main id="main-content" className="flex-1 p-4 pb-32">
+        {children}
+      </main>
       <PortalTabs />
     </div>
   );

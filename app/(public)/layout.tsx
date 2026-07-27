@@ -30,6 +30,9 @@ export default async function PublicLayout({
 
   return (
     <div className="flex min-h-dvh flex-col">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       <header className="sticky top-0 z-20 border-b bg-card/95 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
           <Link href="/" aria-label="Needd Connect home">
@@ -87,7 +90,9 @@ export default async function PublicLayout({
         </nav>
       </header>
 
-      <main className="flex-1">{children}</main>
+      <main id="main-content" className="flex-1">
+        {children}
+      </main>
 
       <footer className="border-t bg-card">
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
