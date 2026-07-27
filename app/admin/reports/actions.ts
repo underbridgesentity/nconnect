@@ -84,6 +84,7 @@ export async function updateCompanyAction(form: FormData): Promise<Result> {
       legalName: String(form.get("legalName")),
       website: String(form.get("website")),
       phone: String(form.get("phone")),
+      whatsapp: String(form.get("whatsapp") ?? ""),
       email: String(form.get("email")),
       vat: String(form.get("vat")),
       reg: String(form.get("reg")),

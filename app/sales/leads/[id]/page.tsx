@@ -10,6 +10,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
 import { ActivityForm, LeadStatusButtons } from "../client";
+import { isUuid } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Lead" };
 
@@ -19,6 +20,9 @@ export default async function LeadDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // A malformed id would reach Postgres as an invalid uuid and throw a
+  // 500 instead of the 404 the visitor should see.
+  if (!isUuid(id)) notFound();
   const actor = await currentActor();
   if (!actor) redirect("/staff-login");
 

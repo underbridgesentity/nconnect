@@ -4,6 +4,20 @@ Honest state of what must happen between this build and taking live traffic
 on needdconnect.co.za. Items marked **client** need Needd's people; items
 marked **dev** are configuration/deploy work.
 
+## Go-live configuration (do these first)
+
+- [ ] **dev — Set `APP_URL=https://needdconnect.co.za`** in Vercel production.
+      This is now the single source for canonical URLs, the sitemap, every
+      notification link, staff setup links and PayFast's return, cancel and
+      notify URLs. `lib/config.ts` throws at first use in production if it is
+      unset or not https, so a missing value fails the deploy loudly instead
+      of silently shipping localhost links to customers.
+- [ ] **client — Set the WhatsApp number** in Settings, Company details.
+      WhatsApp is the headline support promise on the public site, but wa.me
+      cannot deliver to the seeded 086 share-call number, so every WhatsApp
+      button stays hidden until a real mobile (06x, 07x, 081 to 084) is saved.
+      Nothing is broken while it is blank, the affordance simply does not render.
+
 ## Money and catalogue
 
 - [ ] **client — Confirm hardware retail pricing conflict.** The previous

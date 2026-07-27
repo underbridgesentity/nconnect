@@ -14,6 +14,7 @@ import { currentActor } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
+import { isUuid } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Customer" };
 
@@ -24,6 +25,9 @@ export default async function SalesCustomer360({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // A malformed id would reach Postgres as an invalid uuid and throw a
+  // 500 instead of the 404 the visitor should see.
+  if (!isUuid(id)) notFound();
   const actor = await currentActor();
   if (!actor) redirect("/staff-login");
 

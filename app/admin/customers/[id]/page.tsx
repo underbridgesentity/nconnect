@@ -28,7 +28,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { actorLabel, paymentMethodLabel } from "../../labels";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
-import { cn } from "@/lib/utils";
+import { cn, isUuid } from "@/lib/utils";
 import {
   EditDetailsSheet,
   AssignRepSelect,
@@ -59,6 +59,9 @@ export default async function Customer360Page({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
+  // A malformed id would reach Postgres as an invalid uuid and throw a
+  // 500 instead of the 404 the visitor should see.
+  if (!isUuid(id)) notFound();
   const { tab = "overview" } = await searchParams;
 
   const [customer] = await db

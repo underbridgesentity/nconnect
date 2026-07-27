@@ -45,10 +45,15 @@ function useRun() {
 
 export function CompanyForm({ company }: { company: Record<string, string> }) {
   const { pending, run } = useRun();
-  const fields: [string, string][] = [
+  const fields: [string, string, string?][] = [
     ["legalName", "Legal name"],
     ["website", "Website"],
     ["phone", "Phone"],
+    [
+      "whatsapp",
+      "WhatsApp number",
+      "Must be a real mobile (06x, 07x, 081 to 084). The WhatsApp buttons across the public site stay hidden until this is set, because wa.me cannot deliver to an 086 share-call number.",
+    ],
     ["email", "Email"],
     ["vat", "VAT number"],
     ["reg", "Company registration"],
@@ -60,7 +65,7 @@ export function CompanyForm({ company }: { company: Record<string, string> }) {
       action={(form) => run(() => updateCompanyAction(form), "Company details saved")}
     >
       <h2 className="text-sm font-semibold">Company details</h2>
-      {fields.map(([name, label]) => (
+      {fields.map(([name, label, hint]) => (
         <div key={name} className="space-y-1">
           <Label htmlFor={`company-${name}`} className="text-xs">
             {label}
@@ -69,7 +74,16 @@ export function CompanyForm({ company }: { company: Record<string, string> }) {
             id={`company-${name}`}
             name={name}
             defaultValue={company[name] ?? ""}
+            aria-describedby={hint ? `company-${name}-hint` : undefined}
           />
+          {hint ? (
+            <p
+              id={`company-${name}-hint`}
+              className="text-xs leading-5 text-muted-foreground"
+            >
+              {hint}
+            </p>
+          ) : null}
         </div>
       ))}
       <Button type="submit" size="sm" disabled={pending}>

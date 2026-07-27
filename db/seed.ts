@@ -388,6 +388,11 @@ async function main() {
     legalName: "Needd Technology Solutions (Pty) Ltd",
     website: "www.needd.co.za",
     phone: "086 686 3078",
+    // wa.me cannot deliver to an 086 share-call number, so the public
+    // WhatsApp buttons stay hidden until a real mobile is set here or in
+    // Settings. Left blank deliberately rather than shipping a link that
+    // opens "phone number is invalid".
+    whatsapp: "",
     email: "info@needd.co.za",
     vat: "4290292087",
     reg: "2014/063733/07",
