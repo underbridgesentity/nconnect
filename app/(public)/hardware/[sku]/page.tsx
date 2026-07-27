@@ -15,6 +15,7 @@ import {
 import { PageHeader } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { ProductImage } from "@/components/public/product-image";
+import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
@@ -67,7 +68,7 @@ export default async function HardwareDetailPage({
   const item = await publishedHardwareBySku(sku);
   if (!item) notFound();
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   const imageUrl = item.imagePath
     ? await fileUrl("catalogue", item.imagePath)
     : null;
@@ -82,10 +83,10 @@ export default async function HardwareDetailPage({
           name: item.name,
           sku: item.sku,
           description: item.description ?? undefined,
-          url: `${appUrl}/hardware/${item.sku}`,
+          url: `${base}/hardware/${item.sku}`,
           ...(schemaImage ? { image: [schemaImage] } : {}),
           offers: offerJsonLd({
-            appUrl,
+            appUrl: base,
             path: `/hardware/${item.sku}`,
             priceCents: item.priceCents,
             inStock: item.stockQty > 0,
@@ -93,7 +94,7 @@ export default async function HardwareDetailPage({
         }}
       />
       <JsonLd
-        data={breadcrumbJsonLd(appUrl, [
+        data={breadcrumbJsonLd(base, [
           { name: "Home", path: "/" },
           { name: "Hardware", path: "/hardware" },
           { name: item.name, path: `/hardware/${item.sku}` },

@@ -18,6 +18,7 @@ import { PillLink } from "@/components/public/pill";
 import { bundleSavingCents } from "@/components/public/bundle-pricing";
 import { WhatsAppPill } from "@/components/public/whatsapp-link";
 import { whatsappHref, type CompanySettings } from "@/components/public/whatsapp";
+import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
@@ -108,7 +109,7 @@ const FAQS = [
 ];
 
 export default async function HomePage() {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   const [allPlans, bundles, company] = await Promise.all([
     publishedPlans(),
     bundlesWithItems({ publishedOnly: true }).then((b) =>
@@ -134,7 +135,7 @@ export default async function HomePage() {
 
   return (
     <>
-      <JsonLd data={organizationJsonLd(appUrl, company)} />
+      <JsonLd data={organizationJsonLd(base, company)} />
       <JsonLd
         data={{
           "@context": "https://schema.org",

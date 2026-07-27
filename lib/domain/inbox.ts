@@ -14,6 +14,7 @@ import { emitDomainEvent } from "./events";
 import { broadcast } from "@/lib/realtime";
 import { sendWhatsAppText, whatsappEnabled } from "@/lib/notify/whatsapp";
 import { sendEmail } from "@/lib/notify/email";
+import { absoluteUrl } from "@/lib/config";
 
 /**
  * Unified inbox (spec §4.5, §9.4.5): portal and WhatsApp conversations in
@@ -191,8 +192,8 @@ async function deliverStaffReply(
       subject: conv.subject
         ? `Re: ${conv.subject}, Needd Connect`
         : "New reply from Needd Connect support",
-      html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>${body.replace(/\n/g, "<br/>")}</p><p style="margin-top:24px;font-size:13px"><a href="${process.env.APP_URL}/portal/help/${conversationId}">Reply in your portal</a></p></div>`,
-      text: `${body}\n\nReply in your portal: ${process.env.APP_URL}/portal/help/${conversationId}`,
+      html: `<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>${body.replace(/\n/g, "<br/>")}</p><p style="margin-top:24px;font-size:13px"><a href="${absoluteUrl(`/portal/help/${conversationId}`)}">Reply in your portal</a></p></div>`,
+      text: `${body}\n\nReply in your portal: ${absoluteUrl(`/portal/help/${conversationId}`)}`,
     });
   }
 }

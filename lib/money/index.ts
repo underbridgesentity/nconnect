@@ -140,17 +140,62 @@ export function formatCents(
   return zarFormatter.format(rands);
 }
 
-/** Parse a human ZAR string ("R1 833", "1833.50") into cents. Throws on junk. */
+/**
+ * Parse a human ZAR string into cents. Throws on junk.
+ *
+ * Both South African and international grouping are accepted, because the two
+ * conventions disagree about which separator means what, and operators paste
+ * amounts from bank statements, invoices and this app's own screens:
+ *
+ *   "R1 833"   "1833.50"   "R1 234,56"   "1.234,56"   "1,234.56"
+ *
+ * Whichever separator appears last, with one or two digits after it, is the
+ * decimal separator; every other separator is a thousands mark. This matters:
+ * formatCents renders en-ZA, so the app itself prints "R1 234,56", and naively
+ * stripping commas read that back as R123 456,00, a hundredfold error on a
+ * real payment. Accounting exports also write the minus sign after the number.
+ */
 export function parseZar(input: string): Cents {
-  const cleaned = input.replace(/[R\s, ]/g, "");
-  if (!/^-?\d+(\.\d{1,2})?$/.test(cleaned)) {
+  let value = input.trim();
+  let negative = false;
+  if (value.startsWith("-")) {
+    negative = true;
+    value = value.slice(1);
+  }
+  if (value.endsWith("-")) {
+    negative = true;
+    value = value.slice(0, -1);
+  }
+  // Strip the currency mark and every kind of space, including the non-breaking
+  // and narrow non-breaking spaces Intl uses as the en-ZA thousands separator.
+  value = value.replace(/^(ZAR|R)\s*/i, "").replace(/[\s\u00a0\u202f]/g, "");
+
+  // Reject anything that is not sanely grouped, so "1.2.3.4" is an error rather
+  // than being quietly read as R123.40.
+  const grouped = /^\d{1,3}([.,]\d{3})*([.,]\d{1,2})?$/;
+  const plain = /^\d+([.,]\d{1,2})?$/;
+  if (!grouped.test(value) && !plain.test(value)) {
     throw new TypeError(`cannot parse "${input}" as ZAR`);
   }
-  const [rands, centsPart = ""] = cleaned.split(".");
-  const sign = cleaned.startsWith("-") ? -1 : 1;
+
+  const lastComma = value.lastIndexOf(",");
+  const lastDot = value.lastIndexOf(".");
+  let decimalAt = -1;
+  if (lastComma >= 0 && lastDot >= 0) {
+    decimalAt = Math.max(lastComma, lastDot);
+  } else if (lastComma >= 0) {
+    decimalAt = /,\d{1,2}$/.test(value) ? lastComma : -1;
+  } else if (lastDot >= 0) {
+    decimalAt = /\.\d{1,2}$/.test(value) ? lastDot : -1;
+  }
+
+  const whole =
+    (decimalAt >= 0 ? value.slice(0, decimalAt) : value).replace(/[.,]/g, "") ||
+    "0";
+  const fraction = decimalAt >= 0 ? value.slice(decimalAt + 1) : "";
   const cents =
-    Math.abs(parseInt(rands, 10)) * 100 + parseInt(centsPart.padEnd(2, "0") || "0", 10);
-  return sign * cents;
+    parseInt(whole, 10) * 100 + parseInt(fraction.padEnd(2, "0") || "0", 10);
+  return negative ? -cents : cents;
 }
 
 /** Rands (integer) to cents, convenience for seeds and settings. */

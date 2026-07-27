@@ -19,6 +19,7 @@ import {
   bundleComponentTotalCents,
   bundleSavingCents,
 } from "@/components/public/bundle-pricing";
+import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
@@ -61,7 +62,7 @@ export default async function BundleDetailPage({
   const bundle = await publishedBundleBySlug(slug);
   if (!bundle) notFound();
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   const separately = bundleComponentTotalCents(bundle);
   const saving = bundleSavingCents(bundle);
 
@@ -83,9 +84,9 @@ export default async function BundleDetailPage({
           "@type": "Product",
           name: bundle.name,
           description: bundle.description ?? undefined,
-          url: `${appUrl}/bundles/${bundle.slug}`,
+          url: `${base}/bundles/${bundle.slug}`,
           offers: offerJsonLd({
-            appUrl,
+            appUrl: base,
             path: `/bundles/${bundle.slug}`,
             priceCents: bundle.priceCents,
             ...(bundle.validUntil ? { priceValidUntil: bundle.validUntil } : {}),
@@ -93,7 +94,7 @@ export default async function BundleDetailPage({
         }}
       />
       <JsonLd
-        data={breadcrumbJsonLd(appUrl, [
+        data={breadcrumbJsonLd(base, [
           { name: "Home", path: "/" },
           { name: "Bundles", path: "/bundles" },
           { name: bundle.name, path: `/bundles/${bundle.slug}` },

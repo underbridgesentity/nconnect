@@ -18,6 +18,7 @@ import { PageHeader, type HeaderStat } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { ProductImage } from "@/components/public/product-image";
 import { fileUrl } from "@/lib/storage";
+import { appUrl } from "@/lib/config";
 
 export const revalidate = 3600;
 
@@ -111,7 +112,7 @@ export default async function PlanDetailPage({
   const plan = await publishedPlanBySlug(slug);
   if (!plan) notFound();
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   const category = categoryOf(plan.category);
   const suggestionCategories = HW_SUGGESTIONS[plan.category] ?? [];
   const allHw = await publishedHardware();
@@ -187,17 +188,17 @@ export default async function PlanDetailPage({
           name: plan.name,
           description: plan.description ?? plan.dataAllocation ?? undefined,
           brand: { "@type": "Brand", name: plan.provider.name },
-          url: `${appUrl}/plans/${plan.slug}`,
-          image: [`${appUrl}${category.image}`],
+          url: `${base}/plans/${plan.slug}`,
+          image: [`${base}${category.image}`],
           offers: offerJsonLd({
-            appUrl,
+            appUrl: base,
             path: `/plans/${plan.slug}`,
             priceCents: plan.priceCents,
           }),
         }}
       />
       <JsonLd
-        data={breadcrumbJsonLd(appUrl, [
+        data={breadcrumbJsonLd(base, [
           { name: "Home", path: "/" },
           { name: category.label, path: category.path },
           { name: plan.name, path: `/plans/${plan.slug}` },

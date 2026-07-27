@@ -110,3 +110,41 @@ describe("formatting and parsing", () => {
     expect(() => rands(388.5)).toThrow(TypeError);
   });
 });
+
+/**
+ * parseZar must read back what formatCents writes. en-ZA uses a comma decimal
+ * separator and a non-breaking space for thousands, so an operator pasting an
+ * amount off any screen in this app hands parseZar "R1 234,56". Reading that
+ * as R123 456,00 would post a hundredfold payment against a customer account.
+ */
+describe("parseZar across both grouping conventions", () => {
+  it("reads South African formatting, including the app's own output", () => {
+    expect(parseZar("R1 234,56")).toBe(123456);
+    expect(parseZar("1.234,56")).toBe(123456);
+    expect(parseZar("1 234,56")).toBe(123456);
+    expect(parseZar(formatCents(123456))).toBe(123456);
+    expect(parseZar(formatCents(183300, { whole: true }))).toBe(183300);
+  });
+
+  it("reads international formatting", () => {
+    expect(parseZar("1,234.56")).toBe(123456);
+    expect(parseZar("R1,234.56")).toBe(123456);
+    expect(parseZar("1234.56")).toBe(123456);
+  });
+
+  it("treats a lone three-digit group as thousands, not decimals", () => {
+    expect(parseZar("1,833")).toBe(183300);
+    expect(parseZar("1.833")).toBe(183300);
+  });
+
+  it("handles negatives written either side", () => {
+    expect(parseZar("-1 234,56")).toBe(-123456);
+    expect(parseZar("1 234,56-")).toBe(-123456);
+  });
+
+  it("still rejects junk rather than guessing", () => {
+    for (const bad of ["abc", "1.2.3.4", "12,34,56", "R", ""]) {
+      expect(() => parseZar(bad)).toThrow(TypeError);
+    }
+  });
+});

@@ -11,6 +11,7 @@ import { markOrderPaid } from "@/lib/domain/orders";
 import { createServicesForPaidOrder } from "@/lib/domain/services";
 import { notify } from "@/lib/notify";
 import { renderInvoicePdf } from "@/lib/pdf/invoice";
+import { absoluteUrl } from "@/lib/config";
 
 /**
  * PayFast ITN webhook (spec §6.2): the only source of truth for payment
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
           customerId: order.customerId,
           amountCents: order.totalCents,
           reference: order.number,
-          link: `${process.env.APP_URL}/portal`,
+          link: absoluteUrl("/portal"),
           attachments: pdf
             ? [{ filename: `${order.number}-invoice.pdf`, content: pdf }]
             : undefined,

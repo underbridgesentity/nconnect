@@ -20,6 +20,7 @@ import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { getConnector, type ServiceContext } from "@/lib/connectors";
 import { notify } from "@/lib/notify";
+import { absoluteUrl } from "@/lib/config";
 
 /**
  * Service lifecycle state machine (spec §5), the ONLY path for status
@@ -457,7 +458,7 @@ export async function completeProvisioningTask(
       await notify("service_activated", {
         customerId: ctx.customerId,
         serviceName: ctx.planName,
-        link: `${process.env.APP_URL}/portal`,
+        link: absoluteUrl("/portal"),
       });
     } else if (taskType === "reactivate") {
       await notify("service_reactivated", {
@@ -576,7 +577,7 @@ export async function requestCancellation(
   await notify("cancellation_scheduled", {
     customerId: result.ctx.customerId,
     serviceName: result.ctx.planName,
-    link: `${process.env.APP_URL}/portal`,
+    link: absoluteUrl("/portal"),
     extra: { effectiveDate: result.effectiveDate },
   });
   return { effectiveDate: result.effectiveDate };

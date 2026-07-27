@@ -5,9 +5,10 @@ import {
   bundlesWithItems,
 } from "@/lib/domain/catalogue";
 import { allPosts } from "@/lib/blog";
+import { appUrl } from "@/lib/config";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   const [plans, hardware, bundles, posts] = await Promise.all([
     publishedPlans(),
     publishedHardware(),
@@ -33,7 +34,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/legal/terms",
     "/legal/rica",
   ].map((path) => ({
-    url: `${appUrl}${path}`,
+    url: `${base}${path}`,
     changeFrequency: "weekly" as const,
     priority: path === "" ? 1 : 0.7,
   }));
@@ -41,22 +42,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     ...staticPages,
     ...plans.map((p) => ({
-      url: `${appUrl}/plans/${p.slug}`,
+      url: `${base}/plans/${p.slug}`,
       changeFrequency: "weekly" as const,
       priority: 0.8,
     })),
     ...hardware.map((h) => ({
-      url: `${appUrl}/hardware/${h.sku}`,
+      url: `${base}/hardware/${h.sku}`,
       changeFrequency: "weekly" as const,
       priority: 0.5,
     })),
     ...bundles.map((b) => ({
-      url: `${appUrl}/bundles/${b.slug}`,
+      url: `${base}/bundles/${b.slug}`,
       changeFrequency: "weekly" as const,
       priority: 0.8,
     })),
     ...posts.map((post) => ({
-      url: `${appUrl}/blog/${post.slug}`,
+      url: `${base}/blog/${post.slug}`,
       lastModified: new Date(post.date),
       changeFrequency: "monthly" as const,
       priority: 0.4,

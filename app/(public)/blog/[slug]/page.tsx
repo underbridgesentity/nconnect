@@ -7,6 +7,7 @@ import { JsonLd, breadcrumbJsonLd } from "@/components/public/json-ld";
 import { PageHeader } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { Prose } from "@/components/public/prose";
+import { appUrl } from "@/lib/config";
 
 export async function generateStaticParams() {
   const posts = await allPosts();
@@ -46,7 +47,7 @@ export default async function BlogPostPage({
   const post = await postBySlug(slug);
   if (!post) notFound();
 
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
 
   return (
     <>
@@ -63,17 +64,17 @@ export default async function BlogPostPage({
             name: "Needd Connect",
             logo: {
               "@type": "ImageObject",
-              url: `${appUrl}/brand/icon-512.png`,
+              url: `${base}/brand/icon-512.png`,
             },
           },
           mainEntityOfPage: {
             "@type": "WebPage",
-            "@id": `${appUrl}/blog/${post.slug}`,
+            "@id": `${base}/blog/${post.slug}`,
           },
         }}
       />
       <JsonLd
-        data={breadcrumbJsonLd(appUrl, [
+        data={breadcrumbJsonLd(base, [
           { name: "Home", path: "/" },
           { name: "Blog", path: "/blog" },
           { name: post.title, path: `/blog/${post.slug}` },

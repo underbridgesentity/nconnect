@@ -37,6 +37,7 @@ import { formatDateLong } from "@/lib/format";
 import { sendEmail } from "@/lib/notify/email";
 import { getSmsAdapter } from "@/lib/notify/sms";
 import { sendWhatsAppTemplate, whatsappEnabled } from "@/lib/notify/whatsapp";
+import { appUrl } from "@/lib/config";
 
 /**
  * Quotes (spec §4.6, §9.5, §10.4). Prices snapshot at creation; per-line
@@ -255,7 +256,7 @@ export interface QuoteSendResult {
 }
 
 export function quoteShareLink(shareToken: string): string {
-  const base = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
   return `${base}/q/${shareToken}`;
 }
 

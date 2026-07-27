@@ -8,21 +8,36 @@ const jakarta = Plus_Jakarta_Sans({
   display: "swap",
 });
 import { Toaster } from "@/components/ui/sonner";
+import { appUrl } from "@/lib/config";
 import "./globals.css";
 
-const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+const DESCRIPTION =
+  "Uncapped LTE, 5G, fibre and business VoIP across South Africa. One provider, one bill, real local support on WhatsApp.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(appUrl),
+  metadataBase: new URL(appUrl()),
   title: {
     default: "Needd Connect, One provider, one bill, local support",
     template: "%s | Needd Connect",
   },
-  description:
-    "Uncapped LTE, 5G, fibre and business VoIP across South Africa. One provider, one bill, real local support on WhatsApp.",
+  description: DESCRIPTION,
   applicationName: "Needd Connect",
   icons: {
     apple: "/brand/apple-touch-icon.png",
+  },
+  // Inherited by every route, so a page only overrides what differs.
+  openGraph: {
+    type: "website",
+    siteName: "Needd Connect",
+    locale: "en_ZA",
+    url: appUrl(),
+    title: "Needd Connect, One provider, one bill, local support",
+    description: DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Needd Connect, One provider, one bill, local support",
+    description: DESCRIPTION,
   },
 };
 

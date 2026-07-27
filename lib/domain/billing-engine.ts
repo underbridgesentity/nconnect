@@ -31,6 +31,7 @@ import { getConnector } from "@/lib/connectors";
 import { chargeToken } from "@/lib/payfast";
 import { notify } from "@/lib/notify";
 import { renderInvoicePdf } from "@/lib/pdf/invoice";
+import { appUrl } from "@/lib/config";
 
 /**
  * The billing engine (spec §6). Anniversary billing on each service's
@@ -265,8 +266,8 @@ export function payLinkToken(invoiceId: string): string {
 }
 
 export function payLinkFor(invoiceId: string): string {
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
-  return `${appUrl}/pay/${invoiceId}?t=${payLinkToken(invoiceId)}`;
+  const base = appUrl();
+  return `${base}/pay/${invoiceId}?t=${payLinkToken(invoiceId)}`;
 }
 
 export function verifyPayLinkToken(invoiceId: string, token: string): boolean {

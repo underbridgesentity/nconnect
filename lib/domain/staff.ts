@@ -8,6 +8,7 @@ import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
 import { sha256 } from "@/lib/crypto";
 import { sendEmail } from "@/lib/notify/email";
+import { absoluteUrl } from "@/lib/config";
 
 /**
  * Staff management (spec §9.4.6, §10.1): invite by email with a one-time
@@ -55,7 +56,7 @@ export async function inviteStaff(
     });
   });
 
-  const link = `${process.env.APP_URL}/setup?token=${token}`;
+  const link = absoluteUrl(`/setup?token=${token}`);
   await sendEmail({
     to: email,
     subject: "You've been invited to Needd Connect",

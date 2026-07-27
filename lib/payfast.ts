@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { appUrl } from "@/lib/config";
 
 /**
  * PayFast integration (spec §3, §6.2): redirect checkout + ITN verification.
@@ -85,14 +86,14 @@ export function buildCheckout(req: CheckoutRequest): {
   fields: Record<string, string>;
 } {
   const { merchantId, merchantKey, passphrase } = config();
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const base = appUrl();
 
   const ordered: [string, string][] = [
     ["merchant_id", merchantId],
     ["merchant_key", merchantKey],
-    ["return_url", `${appUrl}/signup/success?ref=${req.paymentId}`],
-    ["cancel_url", `${appUrl}/signup/cancelled?ref=${req.paymentId}`],
-    ["notify_url", `${appUrl}/api/webhooks/payfast`],
+    ["return_url", `${base}/signup/success?ref=${req.paymentId}`],
+    ["cancel_url", `${base}/signup/cancelled?ref=${req.paymentId}`],
+    ["notify_url", `${base}/api/webhooks/payfast`],
   ];
   if (req.customerFirstName) ordered.push(["name_first", req.customerFirstName]);
   if (req.customerLastName) ordered.push(["name_last", req.customerLastName]);
