@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getSetting } from "@/lib/domain/settings";
+import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
 import { JsonLd } from "@/components/public/json-ld";
 import { PageHeader } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
@@ -86,7 +86,7 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
 ];
 
 export default async function HelpPage() {
-  const company = await getSetting<CompanySettings>("company");
+  const company = await getSettingForDisplay<CompanySettings>("company");
   const wa = whatsappHref(
     company,
     "Hi Needd Connect, I could not find the answer on your help page."

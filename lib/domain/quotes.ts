@@ -274,6 +274,35 @@ export function describeChannels(channels: QuoteChannel[]): string {
   return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
 }
 
+export type OrderStatus = (typeof orders.$inferSelect)["status"];
+
+/**
+ * Why a quote cannot be sent again, in the rep's words, naming the order and
+ * the state it is actually in. Every status in the enum is spelled out: a new
+ * one has to be added here before it compiles, so no unpaid or retired order
+ * can ever be reported as paid.
+ */
+function describeQuoteInFlight(
+  quoteNumber: string,
+  order: { number: string; status: OrderStatus } | null
+): string {
+  if (!order) {
+    return `Quote ${quoteNumber} is already reserved against an order. Duplicate it as a new quote to send fresh pricing.`;
+  }
+  switch (order.status) {
+    case "pending_payment":
+      return `Quote ${quoteNumber} has been accepted and order ${order.number} is waiting for payment. The customer's existing link takes them straight back to the payment page, so resending the quote would only confuse them.`;
+    case "paid":
+      return `Quote ${quoteNumber} has been accepted and paid, order ${order.number}.`;
+    case "processing":
+      return `Quote ${quoteNumber} has been accepted and paid. Order ${order.number} is being prepared.`;
+    case "fulfilled":
+      return `Quote ${quoteNumber} has been accepted and paid. Order ${order.number} is complete.`;
+    case "cancelled":
+      return `Quote ${quoteNumber} was accepted, then order ${order.number} was cancelled and nothing was charged. Duplicate it as a new quote to send fresh pricing.`;
+  }
+}
+
 /**
  * Send the quote share link. Delivery is attempted first and the status only
  * moves to `sent` once a channel has accepted the message, so a Sent pill in
@@ -293,8 +322,20 @@ export async function sendQuote(
   if (!quote) throw new Error("Quote not found");
   authorize(actor, "quote.send", { ownerUserId: quote.createdBy });
 
-  if (quote.status === "accepted") {
-    throw new Error("This quote has already been accepted");
+  // Acceptance is recorded on the confirmed payment (`acceptQuoteOnPayment`,
+  // inside `markOrderPaid`), not when the order is created, so
+  // `status === "accepted"` is only ever true once the money has landed and
+  // guarding on it alone let a rep resend a quote the customer was already
+  // checking out. The real signal that a quote is spoken for is the order
+  // reserved against it by `createOrderFromQuote`, which is also what makes a
+  // second acceptance impossible.
+  if (quote.acceptedOrderId) {
+    const [existing] = await db
+      .select({ number: orders.number, status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, quote.acceptedOrderId))
+      .limit(1);
+    throw new Error(describeQuoteInFlight(quote.number, existing ?? null));
   }
   if (quote.expiresAt && quote.expiresAt.getTime() < Date.now()) {
     throw new Error(
@@ -675,6 +716,8 @@ export interface QuoteCompany {
   legalName: string;
   website: string;
   phone: string;
+  /** Mobile that can actually receive WhatsApp; `phone` is a share-call line. */
+  whatsapp?: string;
   email: string;
   vat: string;
   reg: string;

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getSetting } from "@/lib/domain/settings";
+import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
 import { PageHeader, type HeaderStat } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { Prose } from "@/components/public/prose";
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AboutPage() {
-  const company = await getSetting<CompanySettings>("company");
+  const company = await getSettingForDisplay<CompanySettings>("company");
 
   const stats: HeaderStat[] = [
     { label: "Established", value: <span className="tnum">2014</span> },

@@ -50,6 +50,12 @@ export function whatsappNumber(
   );
 }
 
+/** The one place a wa.me URL is built. Takes a number already proven mobile. */
+function waLink(e164: string, message?: string): string {
+  const query = message ? `?text=${encodeURIComponent(message)}` : "";
+  return `https://wa.me/${e164}${query}`;
+}
+
 /**
  * A wa.me link, optionally pre-filled with the first message, or null when no
  * usable mobile is configured. Callers must render nothing when this is null.
@@ -60,8 +66,23 @@ export function whatsappHref(
 ): string | null {
   const number = whatsappNumber(company);
   if (!number) return null;
-  const query = message ? `?text=${encodeURIComponent(message)}` : "";
-  return `https://wa.me/${number}${query}`;
+  return waLink(number, message);
+}
+
+/**
+ * The same guarantee for one person's number rather than the company's: a
+ * sales rep on a quote, whose `users.phone` may well be a landline. Null when
+ * the number is not a mobile WhatsApp can deliver to, so callers render
+ * nothing instead of a link that opens "phone number shared via url is
+ * invalid".
+ */
+export function whatsappHrefFor(
+  phone: string | null | undefined,
+  message?: string
+): string | null {
+  const number = toMobileE164(phone);
+  if (!number) return null;
+  return waLink(number, message);
 }
 
 /** "082 123 4567" for display next to a WhatsApp link. */

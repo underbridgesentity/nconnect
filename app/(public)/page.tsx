@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { publishedPlans, bundlesWithItems } from "@/lib/domain/catalogue";
-import { getSetting } from "@/lib/domain/settings";
+import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
 import { MoneyText } from "@/components/shared/money-text";
 import { Reveal } from "@/components/shared/reveal";
 import { JsonLd, organizationJsonLd } from "@/components/public/json-ld";
@@ -115,7 +115,7 @@ export default async function HomePage() {
     bundlesWithItems({ publishedOnly: true }).then((b) =>
       b.filter((x) => x.featured)
     ),
-    getSetting<CompanySettings>("company"),
+    getSettingForDisplay<CompanySettings>("company"),
   ]);
 
   const featured = allPlans.filter((p) => p.featured).slice(0, 3);

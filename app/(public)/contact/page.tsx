@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Phone, Mail, MessageCircle, LifeBuoy } from "lucide-react";
-import { getSetting } from "@/lib/domain/settings";
+import { getSetting, getSettingForDisplay } from "@/lib/domain/settings";
 import { PageHeader } from "@/components/public/page-header";
 import { PillLink } from "@/components/public/pill";
 import { WhatsAppPill } from "@/components/public/whatsapp-link";
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ContactPage() {
-  const company = await getSetting<CompanySettings>("company");
+  const company = await getSettingForDisplay<CompanySettings>("company");
   const phone = company?.phone ?? null;
   const email = company?.email ?? null;
   const wa = whatsappHref(

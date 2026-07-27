@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getSetting } from "@/lib/domain/settings";
+import { getSettingForDisplay } from "@/lib/domain/settings";
 import {
   COMPANY_NAV,
   LEGAL_NAV,
@@ -30,7 +30,7 @@ const LINK =
  * an unseeded install must show nothing rather than a placeholder VAT number.
  */
 export async function SiteFooter() {
-  const company = await getSetting<Company>("company");
+  const company = await getSettingForDisplay<Company>("company");
 
   return (
     <footer data-surface="ink" className="bg-[#121829] text-white">
