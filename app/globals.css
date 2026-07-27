@@ -254,13 +254,30 @@
     transform: scale(1.04);
   }
   /* Ink hero gradient */
+  /*
+   * Hero scrim. On wide viewports the text occupies the left half, so the
+   * gradient runs left to right and lets the photograph breathe on the right.
+   * On narrow viewports the text spans the full width, so a horizontal fade
+   * would leave it sitting over the light end: there the scrim runs vertically
+   * and stays dark enough to keep white text above 4.5:1.
+   */
   .hero-scrim {
     background: linear-gradient(
-      to right,
-      rgb(18 24 41 / 0.92) 0%,
-      rgb(18 24 41 / 0.78) 42%,
-      rgb(18 24 41 / 0.35) 100%
+      to bottom,
+      rgb(18 24 41 / 0.72) 0%,
+      rgb(18 24 41 / 0.82) 55%,
+      rgb(18 24 41 / 0.92) 100%
     );
+  }
+  @media (min-width: 768px) {
+    .hero-scrim {
+      background: linear-gradient(
+        to right,
+        rgb(18 24 41 / 0.92) 0%,
+        rgb(18 24 41 / 0.78) 42%,
+        rgb(18 24 41 / 0.35) 100%
+      );
+    }
   }
 }
 

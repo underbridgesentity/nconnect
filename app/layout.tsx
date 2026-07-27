@@ -30,6 +30,9 @@ export const viewport: Viewport = {
   themeColor: "#136fb0",
   width: "device-width",
   initialScale: 1,
+  // Required for env(safe-area-inset-*) to resolve, which the portal tab bar
+  // and the admin mobile bar both rely on to clear the home indicator.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
