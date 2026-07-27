@@ -10,6 +10,7 @@ import {
   collectionAttempts,
   customers,
 } from "@/lib/db/schema";
+import { subtract, type Cents } from "@/lib/money";
 import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
@@ -25,13 +26,35 @@ import { notify } from "@/lib/notify";
  * writing off, or appending a negative adjustment line, all audited.
  */
 
+/**
+ * What a customer actually owes, in integer cents.
+ *
+ * Invoices carry no amount_paid column and a part payment deliberately leaves
+ * the invoice open, so summing `total_cents` tells somebody who has already
+ * paid half that they still owe the lot. Every open invoice counts for its
+ * total minus the payments completed against it, floored at zero so an
+ * over-allocated invoice can never wipe out another invoice's debt. This is
+ * the same rule as `app/portal/_lib/balances.ts`, which shows the customer
+ * their side of the identical figure.
+ */
 export async function customerBalanceCents(customerId: string): Promise<number> {
+  const paidPerInvoice = sql<number>`coalesce((
+    select sum(${payments.amountCents})
+    from ${payments}
+    where ${payments.invoiceId} = ${invoices.id}
+      and ${payments.status} = 'complete'
+  ), 0)`;
   const [row] = await db
     .select({
-      due: sql<number>`coalesce(sum(${invoices.totalCents}) filter (where ${invoices.status} in ('open','past_due')), 0)::int`,
+      due: sql<number>`coalesce(sum(greatest(${invoices.totalCents} - ${paidPerInvoice}, 0)), 0)::int`,
     })
     .from(invoices)
-    .where(eq(invoices.customerId, customerId));
+    .where(
+      and(
+        eq(invoices.customerId, customerId),
+        inArray(invoices.status, ["open", "past_due"])
+      )
+    );
   return row.due;
 }
 
@@ -44,15 +67,39 @@ const reasonSchema = z
   .min(4, "Give a reason of at least 4 characters")
   .max(500);
 
-/** Completed payments already banked against an invoice, in cents. */
-async function paidCentsFor(tx: Tx, invoiceId: string): Promise<number> {
+/** Money banked, ignoring initiated and failed attempts. One definition. */
+const completedPaymentTotal = sql<number>`coalesce(sum(${payments.amountCents}) filter (where ${payments.status} = 'complete'), 0)::int`;
+
+/**
+ * Completed payments already banked against an invoice, in cents. Exported
+ * so the billing engine banks a gateway payment against the same figure the
+ * manual-EFT path uses; call it inside the transaction that will write the
+ * payment, so the row lock covers the read.
+ */
+export async function paidCentsFor(tx: Tx, invoiceId: string): Promise<Cents> {
   const [row] = await tx
-    .select({
-      total: sql<number>`coalesce(sum(${payments.amountCents}) filter (where ${payments.status} = 'complete'), 0)::int`,
-    })
+    .select({ total: completedPaymentTotal })
     .from(payments)
     .where(eq(payments.invoiceId, invoiceId));
   return row.total;
+}
+
+/** The same read outside a transaction, for read-only callers. */
+export async function paidCentsForInvoice(invoiceId: string): Promise<Cents> {
+  const [row] = await db
+    .select({ total: completedPaymentTotal })
+    .from(payments)
+    .where(eq(payments.invoiceId, invoiceId));
+  return row.total;
+}
+
+/**
+ * What is still owed on one invoice. Floored at zero: an over-allocated
+ * invoice is a data problem to investigate, never a credit to spend.
+ */
+export function outstandingCents(totalCents: Cents, paidCents: Cents): Cents {
+  const balance = subtract(totalCents, paidCents);
+  return balance > 0 ? balance : 0;
 }
 
 /**
@@ -179,7 +226,7 @@ export async function recordManualPayment(
     // Nothing may over-pay an invoice: financial rows can never be deleted,
     // so a fat-fingered amount would be permanent (§16.4).
     const alreadyPaid = await paidCentsFor(tx, invoice.id);
-    const outstanding = invoice.totalCents - alreadyPaid;
+    const outstanding = outstandingCents(invoice.totalCents, alreadyPaid);
     if (input.amountCents > outstanding) {
       throw new Error(
         `Amount exceeds the R${(outstanding / 100).toFixed(2)} still outstanding on this invoice`
@@ -374,7 +421,7 @@ export async function adjustInvoice(
   const outcome = await db.transaction(async (tx) => {
     const invoice = await lockedOpenInvoice(tx, input.invoiceId);
     const paid = await paidCentsFor(tx, invoice.id);
-    const outstanding = invoice.totalCents - paid;
+    const outstanding = outstandingCents(invoice.totalCents, paid);
     if (input.amountCents > outstanding) {
       throw new Error(
         `Credit exceeds the R${(outstanding / 100).toFixed(2)} still outstanding on this invoice`

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { AuthError } from "next-auth";
 import { signIn } from "@/lib/auth";
+import { safeCallbackUrl } from "@/lib/auth/callback-url";
 
 const schema = z.object({
   email: z.string().email(),
@@ -22,11 +23,14 @@ export async function staffLoginAction(
   if (!parsed.success) {
     return { error: "Enter your email and password" };
   }
+  // Deep link first, role router second: proxy.ts records the page that
+  // bounced you here, and /after-login sorts by role when it did not.
+  const destination = safeCallbackUrl(formData.get("callbackUrl"));
   try {
     await signIn("staff", {
       email: parsed.data.email,
       password: parsed.data.password,
-      redirectTo: "/after-login",
+      redirectTo: destination ?? "/after-login",
     });
     return {};
   } catch (err) {

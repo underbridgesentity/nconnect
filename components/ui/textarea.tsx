@@ -2,6 +2,10 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * `min-h-16` is 64px, already clear of the 44px touch minimum, so unlike the
+ * other controls this one needs no `pointer-coarse` floor.
+ */
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea

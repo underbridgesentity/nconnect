@@ -14,10 +14,10 @@ import {
   users,
   notifications,
 } from "@/lib/db/schema";
-import { add, prorataComplement } from "@/lib/money";
+import { add, formatCents, prorataComplement, type Cents } from "@/lib/money";
 import { authorize, type Actor } from "@/lib/auth/authorize";
 import { writeAudit } from "./audit";
-import { emitDomainEvent } from "./events";
+import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { nextNumber } from "./sequences";
 import { getSettingOr } from "./settings";
 import {
@@ -26,7 +26,12 @@ import {
   nextMonthOnAnchor,
   todayInJohannesburg,
 } from "./services";
-import { maybeReactivateAfterSettlement } from "./billing";
+import {
+  maybeReactivateAfterSettlement,
+  outstandingCents,
+  paidCentsFor,
+  paidCentsForInvoice,
+} from "./billing";
 import { getConnector } from "@/lib/connectors";
 import { chargeToken } from "@/lib/payfast";
 import { notify } from "@/lib/notify";
@@ -277,28 +282,129 @@ export function verifyPayLinkToken(invoiceId: string, token: string): boolean {
 // ------------------------------------------------- gateway invoice payment
 
 /**
- * Mark an invoice paid from a gateway payment (ITN pay-link or token
- * charge). Idempotent on gateway ref; clears dunning; auto-reactivates.
+ * Pure settlement rule for one gateway payment, kept separate from the
+ * database so it can be reasoned about and tested on its own.
+ *
+ * Money that arrives for less than the full invoice is still money: it is
+ * banked and the invoice stays open for the rest. Only money that arrives for
+ * more than is owed is refused, because financial rows are never deleted
+ * (§16.4) and an over-allocation would be permanent.
+ */
+export function gatewayPaymentOutcome(input: {
+  totalCents: Cents;
+  alreadyPaidCents: Cents;
+  amountCents: Cents;
+}):
+  | {
+      accepted: true;
+      outstandingCents: Cents;
+      paidTotalCents: Cents;
+      settles: boolean;
+    }
+  | { accepted: false; reason: string } {
+  const outstanding = outstandingCents(input.totalCents, input.alreadyPaidCents);
+  if (input.amountCents <= 0) {
+    return { accepted: false, reason: "Payment amount must be more than R0.00" };
+  }
+  if (outstanding === 0) {
+    return {
+      accepted: false,
+      reason: "Nothing is outstanding on this invoice, so the payment was not banked",
+    };
+  }
+  if (input.amountCents > outstanding) {
+    return {
+      accepted: false,
+      reason:
+        `Payment of ${formatCents(input.amountCents)} exceeds the ` +
+        `${formatCents(outstanding)} outstanding on this invoice`,
+    };
+  }
+  const paidTotalCents = add(input.alreadyPaidCents, input.amountCents);
+  return {
+    accepted: true,
+    outstandingCents: outstanding,
+    paidTotalCents,
+    settles: paidTotalCents >= input.totalCents,
+  };
+}
+
+/**
+ * Bank a gateway payment against an invoice (ITN pay-link or token charge).
+ * Idempotent on the gateway ref; clears dunning and auto-reactivates once the
+ * invoice is settled.
+ *
+ * The amount does not have to equal the invoice total. A customer paying the
+ * outstanding balance of a part-paid invoice, or paying what they can afford,
+ * must have that money recorded rather than met with an error after the card
+ * has already been debited.
  */
 export async function markInvoicePaidFromGateway(input: {
   invoiceId: string;
   gatewayRef: string;
   amountCents: number;
   method: "payfast_card" | "payfast_token";
-}): Promise<{ ok: boolean; alreadyPaid?: boolean }> {
+}): Promise<{
+  ok: boolean;
+  alreadyPaid: boolean;
+  settled: boolean;
+  paidCents: Cents;
+  outstandingCents: Cents;
+}> {
+  const eventIds: string[] = [];
   const outcome = await db.transaction(async (tx) => {
+    // Row lock: an ITN and a token charge landing together must not both read
+    // the same balance and both bank a payment against it.
     const [invoice] = await tx
       .select()
       .from(invoices)
       .where(eq(invoices.id, input.invoiceId))
-      .limit(1);
+      .limit(1)
+      .for("update");
     if (!invoice) throw new Error("Invoice not found");
-    if (invoice.status === "paid") return { alreadyPaid: true as const, invoice };
-    if (input.amountCents !== invoice.totalCents) {
+
+    const alreadyPaidCents = await paidCentsFor(tx, invoice.id);
+
+    if (invoice.status === "paid") {
+      return {
+        invoice,
+        alreadyPaid: true,
+        settled: true,
+        paidCents: alreadyPaidCents,
+      };
+    }
+    if (invoice.status === "void" || invoice.status === "written_off") {
       throw new Error(
-        `Amount mismatch: got ${input.amountCents}, expected ${invoice.totalCents}`
+        `Invoice ${invoice.number} is ${invoice.status.replace(
+          "_",
+          " "
+        )}, so this payment needs a person to allocate it`
       );
     }
+
+    // The gateway ref is the idempotency key: a replayed ITN or a retried
+    // token charge must never bank the same money twice.
+    const [duplicate] = await tx
+      .select({ id: payments.id })
+      .from(payments)
+      .where(eq(payments.gatewayRef, input.gatewayRef))
+      .limit(1);
+    if (duplicate) {
+      return {
+        invoice,
+        alreadyPaid: true,
+        settled: alreadyPaidCents >= invoice.totalCents,
+        paidCents: alreadyPaidCents,
+      };
+    }
+
+    const decision = gatewayPaymentOutcome({
+      totalCents: invoice.totalCents,
+      alreadyPaidCents,
+      amountCents: input.amountCents,
+    });
+    if (!decision.accepted) throw new Error(decision.reason);
+
     await tx.insert(payments).values({
       invoiceId: invoice.id,
       method: input.method,
@@ -306,34 +412,59 @@ export async function markInvoicePaidFromGateway(input: {
       status: "complete",
       gatewayRef: input.gatewayRef,
     });
-    await tx
-      .update(invoices)
-      .set({ status: "paid", paidAt: new Date() })
-      .where(eq(invoices.id, invoice.id));
-    await tx
-      .update(collectionAttempts)
-      .set({ result: "skipped", detail: "invoice settled" })
-      .where(
-        and(
-          eq(collectionAttempts.invoiceId, invoice.id),
-          isNull(collectionAttempts.executedAt)
-        )
-      );
+
+    if (decision.settles) {
+      await tx
+        .update(invoices)
+        .set({ status: "paid", paidAt: new Date() })
+        .where(eq(invoices.id, invoice.id));
+      await tx
+        .update(collectionAttempts)
+        .set({ result: "skipped", detail: "invoice settled" })
+        .where(
+          and(
+            eq(collectionAttempts.invoiceId, invoice.id),
+            isNull(collectionAttempts.executedAt)
+          )
+        );
+    }
+
     await writeAudit(tx, {
       actor: null,
-      action: "invoice.paid",
+      action: decision.settles ? "invoice.paid" : "invoice.part_paid",
       entity: "invoice",
       entityId: invoice.id,
-      after: { method: input.method, gatewayRef: input.gatewayRef },
+      before: { status: invoice.status, paidCents: alreadyPaidCents },
+      after: {
+        status: decision.settles ? "paid" : invoice.status,
+        method: input.method,
+        gatewayRef: input.gatewayRef,
+        amountCents: input.amountCents,
+        paidCents: decision.paidTotalCents,
+        outstandingCents: outstandingCents(
+          invoice.totalCents,
+          decision.paidTotalCents
+        ),
+      },
     });
-    await emitDomainEvent(tx, "payment.received", {
-      invoiceId: invoice.id,
-      customerId: invoice.customerId,
-      amountCents: input.amountCents,
-      method: input.method,
-    });
-    return { alreadyPaid: false as const, invoice };
+    eventIds.push(
+      await emitDomainEvent(tx, "payment.received", {
+        invoiceId: invoice.id,
+        customerId: invoice.customerId,
+        amountCents: input.amountCents,
+        method: input.method,
+        settled: decision.settles,
+      })
+    );
+    return {
+      invoice,
+      alreadyPaid: false,
+      settled: decision.settles,
+      paidCents: decision.paidTotalCents,
+    };
   });
+
+  for (const id of eventIds) await forwardDomainEvent(id);
 
   if (!outcome.alreadyPaid) {
     await notify("payment_received", {
@@ -341,9 +472,20 @@ export async function markInvoicePaidFromGateway(input: {
       amountCents: input.amountCents,
       reference: outcome.invoice.number,
     });
-    await maybeReactivateAfterSettlement(outcome.invoice.customerId);
+    if (outcome.settled) {
+      await maybeReactivateAfterSettlement(outcome.invoice.customerId);
+    }
   }
-  return { ok: true, alreadyPaid: outcome.alreadyPaid };
+  return {
+    ok: true,
+    alreadyPaid: outcome.alreadyPaid,
+    settled: outcome.settled,
+    paidCents: outcome.paidCents,
+    outstandingCents: outstandingCents(
+      outcome.invoice.totalCents,
+      outcome.paidCents
+    ),
+  };
 }
 
 // ----------------------------------------------------------- token charges
@@ -361,8 +503,22 @@ export async function attemptTokenCharge(
     .from(invoices)
     .where(eq(invoices.id, invoiceId))
     .limit(1);
-  if (!invoice || invoice.status === "paid" || invoice.status === "void") {
+  if (
+    !invoice ||
+    invoice.status === "paid" ||
+    invoice.status === "void" ||
+    invoice.status === "written_off"
+  ) {
     return { result: "skipped", detail: "invoice not chargeable" };
+  }
+  // Charge what is still owed, not the invoice total: an invoice that has been
+  // part-paid by EFT would otherwise be debited for the whole amount again.
+  const dueCents = outstandingCents(
+    invoice.totalCents,
+    await paidCentsForInvoice(invoice.id)
+  );
+  if (dueCents === 0) {
+    return { result: "skipped", detail: "nothing outstanding" };
   }
   const [method] = await db
     .select()
@@ -391,7 +547,7 @@ export async function attemptTokenCharge(
 
   const charge = await charger({
     token: method.payfastToken,
-    amountCents: invoice.totalCents,
+    amountCents: dueCents,
     itemName: `Needd Connect invoice ${invoice.number}`,
     paymentId: `inv:${invoice.id}:${attemptNo}`,
   });
@@ -404,7 +560,7 @@ export async function attemptTokenCharge(
     await markInvoicePaidFromGateway({
       invoiceId,
       gatewayRef: charge.gatewayRef,
-      amountCents: invoice.totalCents,
+      amountCents: dueCents,
       method: "payfast_token",
     });
     return { result: "success" };
@@ -416,7 +572,7 @@ export async function attemptTokenCharge(
     .where(eq(collectionAttempts.id, attemptId));
   await notify("payment_failed", {
     customerId: invoice.customerId,
-    amountCents: invoice.totalCents,
+    amountCents: dueCents,
     reference: invoice.number,
     link: payLinkFor(invoiceId),
   });
@@ -476,6 +632,12 @@ export async function runDunning(
 
     // past_due at +pastDueDay with the 3-day warning (§6.3).
     if (age >= dunning.pastDueDay && current.status === "open") {
+      // What we tell the customer they owe is the balance, not the total: a
+      // part payment leaves the invoice open on purpose (§6.2).
+      const dueCents = outstandingCents(
+        current.totalCents,
+        await paidCentsForInvoice(current.id)
+      );
       await db.transaction(async (tx) => {
         await tx
           .update(invoices)
@@ -491,7 +653,7 @@ export async function runDunning(
       });
       await notify("past_due_warning", {
         customerId: current.customerId,
-        amountCents: current.totalCents,
+        amountCents: dueCents,
         reference: current.number,
         link: payLinkFor(invoice.id),
       });

@@ -38,7 +38,16 @@ export function SalesNav() {
             )}
           >
             <item.icon className="size-4" aria-hidden />
-            <span className="hidden sm:inline">{item.label}</span>
+            {/*
+              Below sm the label is visually hidden rather than removed. It was
+              `hidden sm:inline`, which is display:none, so all four links were
+              bare glyphs with no accessible name at all: a screen reader read
+              four nameless links and a sighted rep had to guess the icons.
+              sr-only keeps the name in the accessibility tree at every width.
+            */}
+            <span className="sr-only sm:not-sr-only sm:inline">
+              {item.label}
+            </span>
           </Link>
         );
       })}

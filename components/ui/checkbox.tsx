@@ -5,6 +5,15 @@ import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
 import { cn } from "@/lib/utils"
 import { CheckIcon } from "lucide-react"
 
+/**
+ * Deliberately not given a `pointer-coarse` floor. The hit area here is the
+ * absolutely positioned `after` overlay, and pushing it to 44px would make it
+ * spill past its own row: in a tight checklist the overlay of the row below
+ * would sit on top of the row above and swallow its taps, so the fix would
+ * cost more mis-taps than it saves. Every checkbox in the product is either
+ * inside a `<label>`, which already gives the whole row as a target, or in a
+ * list row that should carry `min-h-11` itself.
+ */
 function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
   return (
     <CheckboxPrimitive.Root

@@ -17,7 +17,14 @@ export function SetupForm({ token }: { token: string }) {
       <input type="hidden" name="token" value={token} />
       <div className="space-y-1.5">
         <Label htmlFor="name">Your name</Label>
-        <Input id="name" name="name" autoComplete="name" required />
+        <Input
+          id="name"
+          name="name"
+          autoComplete="name"
+          required
+          aria-describedby="setup-status"
+          className="touch-target"
+        />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="password">Password (min 10 characters)</Label>
@@ -28,13 +35,19 @@ export function SetupForm({ token }: { token: string }) {
           autoComplete="new-password"
           minLength={10}
           required
+          aria-describedby="setup-status"
+          className="touch-target"
         />
       </div>
-      {state.error ? (
-        <p className="text-sm text-destructive">{state.error}</p>
-      ) : null}
+      <div id="setup-status" aria-live="polite">
+        {state.error ? (
+          <p className="rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {state.error}
+          </p>
+        ) : null}
+      </div>
       <Button type="submit" className="w-full touch-target" disabled={pending}>
-        {pending ? "Setting up…" : "Activate my account"}
+        {pending ? "Setting up..." : "Activate my account"}
       </Button>
     </form>
   );

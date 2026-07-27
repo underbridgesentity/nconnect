@@ -3,8 +3,9 @@ import Credentials from "next-auth/providers/credentials";
 import { verify as argon2Verify } from "@node-rs/argon2";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users, customers } from "@/lib/db/schema";
+import { users } from "@/lib/db/schema";
 import { verifyOtp } from "./otp";
+import { findCustomerAccount } from "./customer-account";
 import type { Role } from "./permissions";
 import type { Actor } from "./authorize";
 
@@ -82,30 +83,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const result = await verifyOtp(phone, code);
         if (!result.ok) return null;
 
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.phone, result.phone))
-          .limit(1);
-        if (!user || user.status === "disabled") return null;
-        if (user.role !== "customer") return null;
-
-        const [customer] = await db
-          .select({ id: customers.id })
-          .from(customers)
-          .where(eq(customers.userId, user.id))
-          .limit(1);
+        const account = await findCustomerAccount(result.phone);
+        if (account.status !== "ok") return null;
 
         await db
           .update(users)
           .set({ lastLoginAt: new Date(), status: "active" })
-          .where(eq(users.id, user.id));
+          .where(eq(users.id, account.userId));
 
         return {
-          id: user.id,
-          name: user.name,
+          id: account.userId,
+          name: account.name,
           role: "customer" as const,
-          customerId: customer?.id,
+          customerId: account.customerId,
         };
       },
     }),

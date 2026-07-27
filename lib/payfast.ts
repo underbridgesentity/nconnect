@@ -78,6 +78,32 @@ export interface CheckoutRequest {
   customerPhone?: string;
   /** Request card tokenisation for recurring billing (spec §6.2). */
   tokenize?: boolean;
+  /**
+   * Where PayFast sends the customer after a successful payment, site-relative
+   * and including any query string the destination needs, for example
+   * `/pay/{invoiceId}/thank-you`. Defaults to the signup success page, which is
+   * only ever correct for a checkout that created an order: an invoice paid
+   * from the portal or a pay link has no signup to look up.
+   */
+  returnPath?: string;
+  /** Same, for the customer who abandons the PayFast page. */
+  cancelPath?: string;
+}
+
+/**
+ * Return and cancel URLs are ours, never the customer's: a value that is not
+ * site-relative would hand PayFast an off-site redirect. Callers pass literal
+ * paths, so a bad one is a programming error and says so straight away.
+ */
+function checkoutUrl(base: string, path: string | undefined, fallback: string): string {
+  if (path === undefined) return `${base}${fallback}`;
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
+    throw new Error(
+      `PayFast return and cancel paths must be site-relative and start with "/", got "${path}"`
+    );
+  }
+  return `${base}${trimmed}`;
 }
 
 /** Build the fields + action URL for the PayFast redirect form. */
@@ -91,8 +117,14 @@ export function buildCheckout(req: CheckoutRequest): {
   const ordered: [string, string][] = [
     ["merchant_id", merchantId],
     ["merchant_key", merchantKey],
-    ["return_url", `${base}/signup/success?ref=${req.paymentId}`],
-    ["cancel_url", `${base}/signup/cancelled?ref=${req.paymentId}`],
+    [
+      "return_url",
+      checkoutUrl(base, req.returnPath, `/signup/success?ref=${req.paymentId}`),
+    ],
+    [
+      "cancel_url",
+      checkoutUrl(base, req.cancelPath, `/signup/cancelled?ref=${req.paymentId}`),
+    ],
     ["notify_url", `${base}/api/webhooks/payfast`],
   ];
   if (req.customerFirstName) ordered.push(["name_first", req.customerFirstName]);

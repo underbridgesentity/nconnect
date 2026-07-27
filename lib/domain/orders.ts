@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/lib/db/client";
+import { db, type Tx } from "@/lib/db/client";
 import {
   customers,
   addresses,
@@ -605,7 +605,8 @@ export async function createOrder(input: {
  * The single paid-path for orders, called by the ITN webhook and by
  * admin-assisted "mark paid". Idempotent on the order status; creates the
  * order invoice + payment record and emits order.paid (M3 provisions from
- * that event).
+ * that event). If the order came from a quote, this is also where the quote
+ * is won: accepted, attributed to the rep, lead marked won (§9.5).
  */
 export async function markOrderPaid(input: {
   orderId: string;
@@ -768,6 +769,19 @@ export async function markOrderPaid(input: {
       })
     );
 
+    // An order that came from a quote wins the quote here, at the payment,
+    // and not when the order was created (§9.5).
+    if (order.quoteId) {
+      eventIds.push(
+        ...(await acceptQuoteOnPayment(tx, {
+          quoteId: order.quoteId,
+          orderId: order.id,
+          orderNumber: order.number,
+          customerId: order.customerId,
+        }))
+      );
+    }
+
     return { ok: true, invoiceId: invoice.id };
   });
 
@@ -783,8 +797,14 @@ function sqlDecrement(by: number) {
 
 /**
  * Create an order from a quote's snapshots (spec §9.5, §10.4): pricing is
- * locked to the quote (including per-line discounts), the customer is
- * attributed to the rep, and the lead (if any) flips to won on payment.
+ * locked to the quote, including per-line discounts.
+ *
+ * Creating the order does not win the quote. The customer still has to pay,
+ * and until the payment is confirmed the quote keeps its own status, the rep
+ * keeps no attribution and the lead stays where it is. `markOrderPaid`
+ * records all three. The only thing written on the quote here is the order it
+ * belongs to, which is what stops a second acceptance and what lets a
+ * customer who abandoned PayFast return to the same checkout.
  */
 export async function createOrderFromQuote(input: {
   quoteId: string;
@@ -898,42 +918,127 @@ export async function createOrderFromQuote(input: {
       });
     }
 
-    // Attribution: the quoted customer belongs to the rep (spec §9.5).
-    await tx
-      .update(customers)
-      .set({ assignedSalesId: quote.createdBy })
-      .where(eq(customers.id, input.customerId));
+    // The quote is reserved against this order so nobody can accept it twice
+    // and the customer can return to the payment page. It is not yet
+    // "accepted", the rep is not yet credited and the lead has not been won:
+    // the customer is on their way to PayFast and may never arrive. All of
+    // that happens in `markOrderPaid` once the money is confirmed (§9.5).
     await tx
       .update(quotes)
-      .set({ status: "accepted", acceptedOrderId: order.id, customerId: input.customerId })
+      .set({ acceptedOrderId: order.id, customerId: input.customerId })
       .where(eq(quotes.id, input.quoteId));
-    if (quote.leadId) {
-      const { leads, leadActivities } = await import("@/lib/db/schema");
-      await tx
-        .update(leads)
-        .set({ status: "won", convertedCustomerId: input.customerId })
-        .where(eq(leads.id, quote.leadId));
-      await tx.insert(leadActivities).values({
-        leadId: quote.leadId,
-        kind: "status_change",
-        body: `Quote ${quote.number} accepted, order ${number}`,
-        createdBy: quote.createdBy,
-      });
-    }
 
     await writeAudit(tx, {
       actor: null,
-      action: "quote.accept",
+      action: "order.create",
+      entity: "order",
+      entityId: order.id,
+      after: {
+        number,
+        customerId: input.customerId,
+        quoteId: input.quoteId,
+        quoteNumber: quote.number,
+        totalCents,
+        items: items.map((i) => ({ name: i.nameSnapshot, qty: i.qty })),
+      },
+    });
+    await writeAudit(tx, {
+      actor: null,
+      action: "quote.order_created",
       entity: "quote",
       entityId: input.quoteId,
-      after: { orderId: order.id, orderNumber: number, totalCents },
-    });
-    await emitDomainEvent(tx, "quote.accepted", {
-      quoteId: input.quoteId,
-      orderId: order.id,
-      createdBy: quote.createdBy,
+      before: { status: quote.status, acceptedOrderId: null },
+      after: {
+        status: quote.status,
+        orderId: order.id,
+        orderNumber: number,
+        totalCents,
+        note: "Order created, awaiting payment",
+      },
     });
 
     return { orderId: order.id, orderNumber: number, totalCents };
   });
+}
+
+// -------------------------------------------- quote accepted once it is paid
+
+/**
+ * Record a quote as won, on the confirmed payment and never before.
+ *
+ * `createOrderFromQuote` only reserves the quote against its order, because a
+ * quote abandoned at the payment page is not revenue and a rep should not be
+ * credited for it. This runs inside the `markOrderPaid` transaction and does
+ * the rest: the accepted status, the attribution to the rep, and the lead
+ * flipped to won. Idempotent, so a replayed ITN writes it once.
+ */
+async function acceptQuoteOnPayment(
+  tx: Tx,
+  input: {
+    quoteId: string;
+    orderId: string;
+    orderNumber: string;
+    customerId: string;
+  }
+): Promise<string[]> {
+  const { quotes, leads, leadActivities } = await import("@/lib/db/schema");
+  const [quote] = await tx
+    .select()
+    .from(quotes)
+    .where(eq(quotes.id, input.quoteId))
+    .limit(1);
+  if (!quote || quote.status === "accepted") return [];
+
+  await tx
+    .update(quotes)
+    .set({
+      status: "accepted",
+      acceptedOrderId: input.orderId,
+      customerId: input.customerId,
+    })
+    .where(eq(quotes.id, input.quoteId));
+
+  // Attribution: the customer who paid a quote belongs to the rep (§9.5).
+  await tx
+    .update(customers)
+    .set({ assignedSalesId: quote.createdBy })
+    .where(eq(customers.id, input.customerId));
+
+  if (quote.leadId) {
+    await tx
+      .update(leads)
+      .set({ status: "won", convertedCustomerId: input.customerId })
+      .where(eq(leads.id, quote.leadId));
+    await tx.insert(leadActivities).values({
+      leadId: quote.leadId,
+      kind: "status_change",
+      body: `Quote ${quote.number} paid, order ${input.orderNumber}`,
+      createdBy: quote.createdBy,
+    });
+  }
+
+  await writeAudit(tx, {
+    actor: null,
+    action: "quote.accept",
+    entity: "quote",
+    entityId: quote.id,
+    before: { status: quote.status },
+    after: {
+      status: "accepted",
+      orderId: input.orderId,
+      orderNumber: input.orderNumber,
+      totalCents: quote.totalCents,
+      note: "Recorded on confirmed payment",
+    },
+  });
+
+  return [
+    await emitDomainEvent(tx, "quote.accepted", {
+      quoteId: quote.id,
+      orderId: input.orderId,
+      customerId: input.customerId,
+      leadId: quote.leadId,
+      createdBy: quote.createdBy,
+    }),
+  ];
 }

@@ -15,6 +15,12 @@ function RadioGroup({ className, ...props }: RadioGroupPrimitive.Props) {
   )
 }
 
+/**
+ * Same reasoning as Checkbox: the hit area is an absolutely positioned `after`
+ * overlay, and stretching it to 44px would overlap the neighbouring option in
+ * a `gap-2` group and hand taps to the wrong radio. Give the wrapping label or
+ * row the 44px instead.
+ */
 function RadioGroupItem({ className, ...props }: RadioPrimitive.Root.Props) {
   return (
     <RadioPrimitive.Root
