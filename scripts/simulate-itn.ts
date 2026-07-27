@@ -57,7 +57,17 @@ async function main() {
     .map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%20/g, "+")}`)
     .join("&");
 
-  const res = await fetch("http://localhost:3000/api/webhooks/payfast", {
+  // The dev server does not always own port 3000 (another project may hold it,
+  // and `next dev` will pick a free port). Posting the ITN blindly at :3000 can
+  // therefore hit an unrelated app, which answers 200 and leaves the order
+  // sitting in pending_payment with no error to explain it.
+  const target =
+    process.env.ITN_TARGET ??
+    process.env.E2E_BASE_URL ??
+    process.env.APP_URL ??
+    "http://localhost:3000";
+
+  const res = await fetch(`${target}/api/webhooks/payfast`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -65,7 +75,7 @@ async function main() {
     },
     body,
   });
-  console.log(`ITN response: ${res.status} ${await res.text()}`);
+  console.log(`ITN response: ${res.status} ${await res.text()} (${target})`);
   await client.end();
 }
 

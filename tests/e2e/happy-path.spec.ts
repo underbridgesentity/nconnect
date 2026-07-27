@@ -60,7 +60,11 @@ test("stranger signs up for VoIP on a phone and reaches payment", async ({
     console.log("PAGE STATE:", (await page.locator("body").innerText()).slice(0, 600));
     throw err;
   }
-  await page.getByRole("button", { name: /Pay R764 securely/ }).click();
+  // formatCents renders en-ZA, so the amount carries a non-breaking space
+  // ("R 764"). Playwright normalises that to a plain space in the
+  // accessible name, hence the optional whitespace: matching "R764" would only
+  // ever pass against a hardcoded, unlocalised label.
+  await page.getByRole("button", { name: /Pay R\s?764 securely/ }).click();
   // The PayFast form is prepared; the order now exists as pending_payment.
   await expect(page.getByText(/Taking you to PayFast/)).toBeVisible({
     timeout: 20_000,
