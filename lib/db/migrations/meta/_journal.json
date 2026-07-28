@@ -43,6 +43,13 @@
       "when": 1784377767694,
       "tag": "0005_trigram_search",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784377768694,
+      "tag": "0006_invoice_period_unique",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 
 /**
@@ -629,6 +630,19 @@ export const invoices = pgTable(
     index("invoices_order_id_idx").on(t.orderId),
     index("invoices_status_idx").on(t.status),
     index("invoices_due_date_idx").on(t.dueDate),
+    /*
+     * Double-billing backstop (spec §6.1). Invoice generation already reads
+     * for an existing period and locks the service row, but the last line of
+     * defence against billing a customer twice for one month belongs in the
+     * database, not in whichever caller happens to run next.
+     *
+     * Partial: adjustment invoices (plan changes) and order invoices carry no
+     * service_id or no period_start and are legitimately many per service.
+     * Applied by lib/db/migrations/0006_invoice_period_unique.sql.
+     */
+    uniqueIndex("invoices_service_period_unique")
+      .on(t.serviceId, t.periodStart)
+      .where(sql`${t.serviceId} is not null and ${t.periodStart} is not null`),
   ]
 );
 

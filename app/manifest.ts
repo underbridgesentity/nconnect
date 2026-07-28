@@ -45,6 +45,19 @@ export default function manifest(): MetadataRoute.Manifest {
         type: "image/png",
         purpose: "any",
       },
+      /*
+       * Android crops a home-screen icon to whatever shape the launcher uses,
+       * and anything outside the central 80% circle can be cut off. Without a
+       * maskable entry the platform falls back to the "any" icon on a white
+       * plate it draws itself, which clips the mark. This one is drawn with
+       * the N inside the safe zone.
+       */
+      {
+        src: "/brand/icon-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
     ],
     // Long-press the home screen icon. Every target is a real portal route.
     shortcuts: [

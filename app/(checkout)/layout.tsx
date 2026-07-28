@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import { Lock, MessageCircle, Phone } from "lucide-react";
-import { getSetting } from "@/lib/domain/settings";
+import { getSettingForDisplay } from "@/lib/domain/settings";
 import {
   whatsappHref,
   type CompanySettings,
@@ -68,7 +68,10 @@ export default async function CheckoutLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const company = await getSetting<CompanySettings>("company");
+  // Chrome only (legal name, support routes). A settings read that throws
+  // must not take the checkout down with it: the wizard below can still
+  // price and sell, and losing the support phone number is survivable.
+  const company = await getSettingForDisplay<CompanySettings>("company");
   const wa = whatsappHref(
     company,
     "Hi Needd Connect, I need a hand finishing my order."
