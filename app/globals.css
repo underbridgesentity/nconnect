@@ -179,10 +179,26 @@
 }
 
 @layer utilities {
-  /* 44px minimum touch target helper for mobile primary actions */
+  /*
+   * 44px minimum touch target (WCAG 2.2 target size), for mobile primary
+   * actions and any control a thumb has to find.
+   *
+   * This is a floor, and it has to behave like one. It sits in the utilities
+   * layer alongside Tailwind's own `min-h-*` / `min-w-*`, at the same
+   * specificity and later in source order, so it used to win outright: an
+   * element carrying `min-h-[56px] touch-target` measured 56px in the markup
+   * and 44px on screen, and the taller value was silently thrown away.
+   *
+   * max() takes the larger of the two instead of letting source order pick,
+   * so the floor can only ever raise a target, never shrink one. A control
+   * that needs more than 44px asks for it through the variables, e.g.
+   * `[--touch-h:56px]`, which cascades independently and therefore cannot be
+   * clobbered. A `min-h-*` utility on the same element still loses, so use
+   * the variables here rather than mixing the two.
+   */
   .touch-target {
-    min-height: 44px;
-    min-width: 44px;
+    min-height: max(44px, var(--touch-h, 0px));
+    min-width: max(44px, var(--touch-w, 0px));
   }
   /*
    * Skip link: visually hidden until focused, then pinned top-left so a

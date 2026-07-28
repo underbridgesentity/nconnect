@@ -20,6 +20,22 @@ marked **dev** are configuration/deploy work.
 
 ## Money and catalogue
 
+- [ ] **client + dev — VAT treatment: invoices are not currently valid tax
+      invoices.** The company VAT number is seeded and prints on every invoice
+      footer, and the terms page says prices are "Rands including VAT where
+      applicable", but nothing in the system computes VAT: there is no rate, no
+      VAT amount and no exclusive/inclusive split on an invoice or its line
+      items. A South African tax invoice must show the VAT amount and rate, so
+      printing a VAT number beside a total with no breakdown is worse than
+      printing neither.
+      The client must confirm three things before this can be built: whether
+      Needd is VAT registered, whether catalogue prices are VAT inclusive
+      (they read as inclusive today), and the rate to apply. Then it needs
+      `vat_rate_basis_points` and `vat_cents` on invoices and invoice lines, the
+      split computed in integer cents through `lib/money` (inclusive VAT is
+      `total * rate / (100 + rate)`, never a float), and the invoice PDF and
+      portal updated to show subtotal, VAT and total. Do not guess the rate.
+
 - [ ] **client — Confirm hardware retail pricing conflict.** The previous
       live site sold some routers higher than the May 2026 catalogue now
       seeded: Cudy GP1200 R999 vs R417, GP3000 R1 499 vs R550, LT500

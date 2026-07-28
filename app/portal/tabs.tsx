@@ -18,7 +18,15 @@ function isActive(pathname: string, href: string) {
     : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Floating pill tab bar, thumb-reachable, with an active-route state. */
+/**
+ * Floating pill tab bar, thumb-reachable, with an active-route state.
+ *
+ * The 56px height is asked for with `--touch-h`, not `min-h-[56px]`. Both the
+ * utility and `.touch-target` set min-height in the same cascade layer at the
+ * same specificity, so one of them was always going to be discarded, and the
+ * one being discarded was the taller: these tabs rendered at 44px. The
+ * variable feeds `.touch-target`'s own max() instead of competing with it.
+ */
 export function PortalTabs() {
   const pathname = usePathname();
   return (
@@ -35,7 +43,7 @@ export function PortalTabs() {
               href={tab.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-[56px] flex-1 touch-target flex-col items-center justify-center gap-0.5 rounded-full text-xs font-medium transition-colors",
+                "flex flex-1 touch-target [--touch-h:56px] flex-col items-center justify-center gap-0.5 rounded-full text-xs font-medium transition-colors",
                 active
                   ? "text-primary"
                   : "text-muted-foreground hover:text-primary"
