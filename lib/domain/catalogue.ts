@@ -21,6 +21,35 @@ import { writeAudit } from "./audit";
 
 // ---------------------------------------------------------------- queries
 
+/**
+ * Let a catalogue read fail the build softly, and only the build.
+ *
+ * Public pages are prerendered, so a database that is unreachable while Vercel
+ * builds takes the whole deployment down: an unrelated hotfix cannot ship
+ * because the catalogue was briefly unavailable. During the build a failed read
+ * therefore degrades to an empty list, the page renders its honest empty state,
+ * and ISR fills it in from the live database on the first request afterwards.
+ *
+ * At RUNTIME the error is rethrown, deliberately. An empty catalogue rendered
+ * to a customer is a lie that looks like a working page, and with a one hour
+ * revalidate it would keep lying long after the database came back. Far better
+ * to show the branded error boundary and let the next request try again.
+ */
+const isBuild = process.env.NEXT_PHASE === "phase-production-build";
+
+async function catalogueRead<T>(what: string, run: () => Promise<T>, empty: T) {
+  try {
+    return await run();
+  } catch (err) {
+    if (!isBuild) throw err;
+    console.error(
+      `catalogue: could not read ${what} during the build, deferring to ISR:`,
+      err
+    );
+    return empty;
+  }
+}
+
 export type PlanWithProvider = typeof plans.$inferSelect & {
   provider: typeof providers.$inferSelect;
 };
@@ -28,58 +57,66 @@ export type PlanWithProvider = typeof plans.$inferSelect & {
 export async function publishedPlans(
   category?: (typeof plans.category.enumValues)[number]
 ): Promise<PlanWithProvider[]> {
-  const rows = await db
-    .select()
-    .from(plans)
-    .innerJoin(providers, eq(plans.providerId, providers.id))
-    .where(
-      category
-        ? and(eq(plans.status, "published"), eq(plans.category, category))
-        : eq(plans.status, "published")
-    )
-    .orderBy(asc(plans.sortOrder), asc(plans.priceCents));
-  return rows.map((r) => ({ ...r.plans, provider: r.providers }));
+  return catalogueRead("plans", async () => {
+    const rows = await db
+      .select()
+      .from(plans)
+      .innerJoin(providers, eq(plans.providerId, providers.id))
+      .where(
+        category
+          ? and(eq(plans.status, "published"), eq(plans.category, category))
+          : eq(plans.status, "published")
+      )
+      .orderBy(asc(plans.sortOrder), asc(plans.priceCents));
+    return rows.map((r) => ({ ...r.plans, provider: r.providers }));
+  }, []);
 }
 
 export async function publishedPlanBySlug(
   slug: string
 ): Promise<PlanWithProvider | null> {
-  const rows = await db
-    .select()
-    .from(plans)
-    .innerJoin(providers, eq(plans.providerId, providers.id))
-    .where(and(eq(plans.slug, slug), eq(plans.status, "published")))
-    .limit(1);
-  if (!rows[0]) return null;
-  return { ...rows[0].plans, provider: rows[0].providers };
+  return catalogueRead("plan by slug", async () => {
+    const rows = await db
+      .select()
+      .from(plans)
+      .innerJoin(providers, eq(plans.providerId, providers.id))
+      .where(and(eq(plans.slug, slug), eq(plans.status, "published")))
+      .limit(1);
+    if (!rows[0]) return null;
+    return { ...rows[0].plans, provider: rows[0].providers };
+  }, null);
 }
 
 export async function publishedHardware(
   category?: (typeof hardwareProducts.category.enumValues)[number]
 ) {
-  return db
-    .select()
-    .from(hardwareProducts)
-    .where(
-      category
-        ? and(
-            eq(hardwareProducts.status, "published"),
-            eq(hardwareProducts.category, category)
-          )
-        : eq(hardwareProducts.status, "published")
-    )
-    .orderBy(asc(hardwareProducts.sortOrder), asc(hardwareProducts.priceCents));
+  return catalogueRead("hardware", () =>
+    db
+      .select()
+      .from(hardwareProducts)
+      .where(
+        category
+          ? and(
+              eq(hardwareProducts.status, "published"),
+              eq(hardwareProducts.category, category)
+            )
+          : eq(hardwareProducts.status, "published")
+      )
+      .orderBy(asc(hardwareProducts.sortOrder), asc(hardwareProducts.priceCents)),
+  []);
 }
 
 export async function publishedHardwareBySku(sku: string) {
-  const rows = await db
-    .select()
-    .from(hardwareProducts)
-    .where(
-      and(eq(hardwareProducts.sku, sku), eq(hardwareProducts.status, "published"))
-    )
-    .limit(1);
-  return rows[0] ?? null;
+  return catalogueRead("hardware by sku", async () => {
+    const rows = await db
+      .select()
+      .from(hardwareProducts)
+      .where(
+        and(eq(hardwareProducts.sku, sku), eq(hardwareProducts.status, "published"))
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  }, null);
 }
 
 export type BundleWithItems = typeof bundles.$inferSelect & {
@@ -92,6 +129,7 @@ export type BundleWithItems = typeof bundles.$inferSelect & {
 export async function bundlesWithItems(opts: {
   publishedOnly: boolean;
 }): Promise<BundleWithItems[]> {
+  return catalogueRead("bundles", async () => {
   const bundleRows = await db
     .select()
     .from(bundles)
@@ -130,6 +168,7 @@ export async function bundlesWithItems(opts: {
           : null,
       })),
   }));
+  }, []);
 }
 
 export async function publishedBundleBySlug(
