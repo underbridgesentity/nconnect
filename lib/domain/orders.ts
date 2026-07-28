@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Tx } from "@/lib/db/client";
 import {
@@ -15,10 +15,11 @@ import {
   orderItems,
   invoices,
   invoiceLines,
+  notifications,
   payments,
   ricaRecords,
 } from "@/lib/db/schema";
-import { add, multiply, subtract } from "@/lib/money";
+import { add, formatCents, multiply, subtract, type Cents } from "@/lib/money";
 import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { nextNumber } from "./sequences";
@@ -601,12 +602,356 @@ export async function createOrder(input: {
 
 // ------------------------------------------------------------ mark as paid
 
+/** Order statuses, as the database defines them. */
+type OrderStatusValue = (typeof orders.$inferSelect)["status"];
+
+/**
+ * A payment this system can never bank, however many times it is presented:
+ * an order id that does not exist, an amount where no money moved, a card
+ * payment with no gateway reference to key idempotency on. A caller answering
+ * a gateway must read this as "do not retry", because a retry produces the
+ * identical answer while the debit stays unrecorded.
+ */
+export class UnprocessablePayment extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnprocessablePayment";
+  }
+}
+
+/** Any uuid shape, whatever version generated it. */
+const ORDER_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * How money that arrived relates to the order it names.
+ *
+ * `applied` is the ordinary case, the checkout total arriving once. `overpaid`
+ * settles the order and leaves change over. `unallocated` is money the order
+ * cannot absorb: it is short of the total, or the order was settled already.
+ * All three are banked. The difference is only whether a person has to decide
+ * where the money goes.
+ */
+export type OrderPaymentDisposition = "applied" | "overpaid" | "unallocated";
+
+export type OrderPaymentDecision =
+  | {
+      accepted: true;
+      disposition: OrderPaymentDisposition;
+      /** Completed payments against the order once this one is banked. */
+      paidTotalCents: Cents;
+      /** The part of this payment the order could not absorb. */
+      unallocatedCents: Cents;
+      /** This payment takes the order to paid. */
+      settles: boolean;
+      /** Plain words for the audit trail and the operator's queue. */
+      note?: string;
+    }
+  | { accepted: false; reason: string };
+
+/**
+ * Pure settlement rule for one order payment, kept away from the database so
+ * it can be reasoned about and tested on its own. It is the order-side twin of
+ * `gatewayPaymentOutcome` in the billing engine and follows the same law.
+ *
+ * The governing fact is that the card has already been debited by the time
+ * this runs. Refusing the money does not hand it back to the customer, it only
+ * removes our record of having taken it. So the only payment refused here is
+ * one where nothing moved, an amount of zero or less.
+ *
+ * Everything else is banked. Money that covers the order total settles the
+ * order, with anything over flagged. Money that falls short settles nothing,
+ * because half a checkout is not a service anybody can provision, and money
+ * that lands on an order already settled belongs to no line on it. Those last
+ * two are still recorded against the order, and raised for a person to take
+ * the balance, allocate the money elsewhere or refund it.
+ */
+export function orderPaymentOutcome(input: {
+  status: OrderStatusValue;
+  totalCents: Cents;
+  alreadyPaidCents: Cents;
+  amountCents: Cents;
+}): OrderPaymentDecision {
+  if (input.amountCents <= 0) {
+    return { accepted: false, reason: "Payment amount must be more than R0.00" };
+  }
+  const paidTotalCents = add(input.alreadyPaidCents, input.amountCents);
+
+  // A cancelled order is still settleable: the customer may have had the
+  // PayFast page open when we retired it, and money that covers this order is
+  // money for this order. Paid, processing and fulfilled orders are not, so a
+  // second debit on them is banked without touching the order.
+  const settleable =
+    input.status === "pending_payment" || input.status === "cancelled";
+
+  if (!settleable) {
+    return {
+      accepted: true,
+      disposition: "unallocated",
+      paidTotalCents,
+      unallocatedCents: input.amountCents,
+      settles: false,
+      note:
+        `${formatCents(input.amountCents)} arrived for an order that is ` +
+        `already ${input.status.replace("_", " ")}, so none of it could be ` +
+        `applied to it. It needs allocating to another invoice or refunding.`,
+    };
+  }
+
+  if (paidTotalCents < input.totalCents) {
+    return {
+      accepted: true,
+      disposition: "unallocated",
+      paidTotalCents,
+      unallocatedCents: input.amountCents,
+      settles: false,
+      note:
+        `${formatCents(input.amountCents)} arrived against ` +
+        `${formatCents(input.totalCents)} due on the order, which leaves ` +
+        `${formatCents(subtract(input.totalCents, paidTotalCents))} short. ` +
+        `The order is not settled and nothing is provisioned until somebody ` +
+        `takes the balance or refunds what was paid.`,
+    };
+  }
+
+  const unallocatedCents = subtract(paidTotalCents, input.totalCents);
+  return {
+    accepted: true,
+    disposition: unallocatedCents > 0 ? "overpaid" : "applied",
+    paidTotalCents,
+    unallocatedCents,
+    settles: true,
+    note:
+      unallocatedCents > 0
+        ? `${formatCents(input.amountCents)} arrived against ` +
+          `${formatCents(input.totalCents)} due on the order. The order is ` +
+          `settled and the ${formatCents(unallocatedCents)} over needs ` +
+          `allocating or refunding.`
+        : undefined,
+  };
+}
+
+/** Money banked, ignoring initiated and failed attempts. One definition. */
+const completedPaymentTotal = sql<number>`coalesce(sum(${payments.amountCents}) filter (where ${payments.status} = 'complete'), 0)::int`;
+
+/**
+ * Completed payments already banked against an order, across every invoice
+ * raised for it. Call it inside the transaction that will write the payment so
+ * the order's row lock covers the read.
+ */
+async function paidCentsForOrder(tx: Tx, orderId: string): Promise<Cents> {
+  const [row] = await tx
+    .select({ total: completedPaymentTotal })
+    .from(payments)
+    .innerJoin(invoices, eq(payments.invoiceId, invoices.id))
+    .where(eq(invoices.orderId, orderId));
+  return row.total;
+}
+
+/**
+ * Bell rows for every active admin, written inside the caller's transaction.
+ *
+ * An admin who has not yet read the bell for this exact exception does not get
+ * a second one: a webhook PayFast replays five times is one problem, not five.
+ * Once it has been read the next occurrence rings again, because a problem
+ * that comes back after somebody looked at it is news.
+ */
+async function flagForOperator(
+  tx: Tx,
+  input: { type: string; title: string; body: string; link: string }
+): Promise<void> {
+  const admins = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.role, "admin"), eq(users.status, "active")));
+  if (admins.length === 0) {
+    console.error(`no active admin to flag: ${input.title}`);
+    return;
+  }
+  const outstanding = await tx
+    .select({ userId: notifications.userId })
+    .from(notifications)
+    .where(
+      and(eq(notifications.type, input.type), isNull(notifications.readAt))
+    );
+  const alreadyTold = new Set(outstanding.map((n) => n.userId));
+  const rows = admins
+    .filter((a) => !alreadyTold.has(a.id))
+    .map((a) => ({
+      userId: a.id,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      link: input.link,
+    }));
+  if (rows.length > 0) await tx.insert(notifications).values(rows);
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The invoice lines for an order, mirroring what the customer saw at
+ * checkout: a plan's first month and its once-off fee are separate lines. The
+ * split is only shown when the catalogue still reconciles exactly to the price
+ * we charged, so a line can never contradict the amount taken.
+ */
+async function orderInvoiceLines(
+  tx: Tx,
+  invoiceId: string,
+  items: (typeof orderItems.$inferSelect)[]
+): Promise<(typeof invoiceLines.$inferInsert)[]> {
+  const planIds = items.flatMap((i) =>
+    i.itemType === "plan" && i.planId ? [i.planId] : []
+  );
+  const planRows = planIds.length
+    ? await tx.select().from(plans).where(inArray(plans.id, planIds))
+    : [];
+
+  const lineValues: (typeof invoiceLines.$inferInsert)[] = [];
+  for (const item of items) {
+    const suffix = item.qty > 1 ? ` × ${item.qty}` : "";
+    const plan = planRows.find((p) => p.id === item.planId);
+    const splits =
+      plan &&
+      plan.onceOffCents > 0 &&
+      add(plan.priceCents, plan.onceOffCents) === item.unitPriceCentsSnapshot;
+    if (splits && plan) {
+      lineValues.push({
+        invoiceId,
+        kind: "subscription",
+        description: `${item.nameSnapshot}${suffix}, first month`,
+        amountCents: multiply(plan.priceCents, item.qty),
+        qty: item.qty,
+      });
+      lineValues.push({
+        invoiceId,
+        kind: "once_off",
+        description: `${item.nameSnapshot}${suffix}, ${onceOffLabelFor(
+          plan.metadata
+        ).toLowerCase()}`,
+        amountCents: multiply(plan.onceOffCents, item.qty),
+        qty: item.qty,
+      });
+      continue;
+    }
+    lineValues.push({
+      invoiceId,
+      kind:
+        item.itemType === "hardware"
+          ? ("hardware" as const)
+          : ("once_off" as const),
+      description: `${item.nameSnapshot}${suffix}`,
+      amountCents: multiply(item.unitPriceCentsSnapshot, item.qty),
+      qty: item.qty,
+    });
+  }
+  return lineValues;
+}
+
+/**
+ * The one invoice an order's money hangs on, created here if it does not
+ * exist yet. A payment row cannot exist without an invoice, so money that
+ * arrives for an order we are not settling still needs one: it is raised as a
+ * draft, which no dunning sweep and no automatic charge will ever touch, and
+ * an operator decides what becomes of it. When a later payment does settle the
+ * order, that same draft is the invoice that flips to paid, so an order never
+ * ends up with two invoices for one checkout.
+ */
+async function ensureOrderInvoice(
+  tx: Tx,
+  order: typeof orders.$inferSelect,
+  items: (typeof orderItems.$inferSelect)[],
+  settling: boolean,
+  now: Date
+): Promise<{
+  id: string;
+  number: string;
+  created: boolean;
+  /** The invoice status at the moment this money landed. */
+  statusOnArrival: string;
+}> {
+  const [existing] = await tx
+    .select()
+    .from(invoices)
+    .where(eq(invoices.orderId, order.id))
+    .orderBy(asc(invoices.createdAt))
+    .limit(1);
+
+  if (existing) {
+    if (settling && existing.status !== "paid") {
+      await tx
+        .update(invoices)
+        .set({ status: "paid", paidAt: now })
+        .where(eq(invoices.id, existing.id));
+    }
+    return {
+      id: existing.id,
+      number: existing.number,
+      created: false,
+      statusOnArrival: existing.status,
+    };
+  }
+
+  const number = await nextNumber(tx, "INV");
+  const today = now.toISOString().slice(0, 10);
+  const [invoice] = await tx
+    .insert(invoices)
+    .values({
+      number,
+      customerId: order.customerId,
+      orderId: order.id,
+      issueDate: today,
+      dueDate: today,
+      status: settling ? "paid" : "draft",
+      subtotalCents: order.subtotalCents,
+      totalCents: order.totalCents,
+      paidAt: settling ? now : null,
+    })
+    .returning({ id: invoices.id });
+
+  const lineValues = await orderInvoiceLines(tx, invoice.id, items);
+  if (lineValues.length > 0) await tx.insert(invoiceLines).values(lineValues);
+
+  return {
+    id: invoice.id,
+    number,
+    created: true,
+    statusOnArrival: settling ? "paid" : "draft",
+  };
+}
+
+export interface OrderPaymentResult {
+  ok: boolean;
+  /** This gateway ref was already banked; nothing was written this time. */
+  alreadyPaid: boolean;
+  /** This call took the order to paid. */
+  settled: boolean;
+  /** The order is in the paid state now, by this call or an earlier one. */
+  orderPaid: boolean;
+  disposition: OrderPaymentDisposition | "duplicate";
+  /** Banked money the order could not absorb, waiting on an operator. */
+  unallocatedCents: Cents;
+  /** The invoice the money is recorded against, when there is one. */
+  invoiceId?: string;
+}
+
 /**
  * The single paid-path for orders, called by the ITN webhook and by
- * admin-assisted "mark paid". Idempotent on the order status; creates the
- * order invoice + payment record and emits order.paid (M3 provisions from
- * that event). If the order came from a quote, this is also where the quote
- * is won: accepted, attributed to the rep, lead marked won (§9.5).
+ * admin-assisted "mark paid". Creates or reuses the order invoice, banks the
+ * payment and, when the money covers the order, settles it and emits
+ * order.paid. If the order came from a quote, this is also where the quote is
+ * won: accepted, attributed to the rep, lead marked won (§9.5).
+ *
+ * The one rule this function will not break is that money PayFast says it took
+ * is always written down. Idempotency is on the gateway reference and nothing
+ * else, never on the order status: a replayed ITN carries a reference already
+ * banked and writes nothing, while a customer who paid twice in two tabs
+ * carries a new one, and that second debit is as real as the first. An amount
+ * that is not the order total is a permanent condition no retry can fix, so it
+ * is banked against the order and raised for a person rather than thrown at
+ * the gateway until it gives up.
  */
 export async function markOrderPaid(input: {
   orderId: string;
@@ -614,9 +959,27 @@ export async function markOrderPaid(input: {
   amountCents: number;
   method: "payfast_card" | "eft_manual";
   recordedBy?: string | null;
-}): Promise<{ ok: boolean; alreadyPaid?: boolean; invoiceId?: string }> {
+}): Promise<OrderPaymentResult> {
+  // An id the database cannot even be asked about. Postgres raises on a
+  // malformed uuid, which would read as a fault worth retrying, when in truth
+  // no retry will ever turn this reference into an order of ours.
+  if (!ORDER_ID_PATTERN.test(input.orderId)) {
+    throw new UnprocessablePayment(
+      `"${input.orderId}" is not an order reference this system issued`
+    );
+  }
+
+  const gatewayRef = input.gatewayRef?.trim() || null;
+  if (!gatewayRef && input.method !== "eft_manual") {
+    // Without a reference there is no idempotency key and a retry would bank
+    // the same money twice. Refuse before anything is written.
+    throw new UnprocessablePayment(
+      "A gateway reference is required to bank a card payment"
+    );
+  }
+
   const eventIds: string[] = [];
-  const result = await db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     // Row lock, like every other money path. A PayFast ITN and an operator
     // clicking "mark paid" can land together; without the lock both read
     // pending_payment, both write an invoice and the customer is billed for
@@ -627,156 +990,213 @@ export async function markOrderPaid(input: {
       .where(eq(orders.id, input.orderId))
       .limit(1)
       .for("update");
-    if (!order) throw new Error("Order not found");
-    // A cancelled order still gets honoured: the customer may have had the
-    // PayFast page open when we retired it, and money that arrives for the
-    // exact total of this order is money for this order. The amount check
-    // below is what makes that safe.
-    const wasCancelled = order.status === "cancelled";
-    if (order.status !== "pending_payment" && !wasCancelled) {
-      return { ok: true, alreadyPaid: true as const };
+    if (!order) throw new UnprocessablePayment("Order not found");
+
+    // The gateway ref is the idempotency key, so it is checked first and on
+    // its own. A replayed ITN carries a ref we have already banked. A genuine
+    // second debit carries a new one, and that money is real whatever state
+    // the order happens to be in.
+    if (gatewayRef) {
+      const [duplicate] = await tx
+        .select({ id: payments.id })
+        .from(payments)
+        .where(eq(payments.gatewayRef, gatewayRef))
+        .limit(1);
+      if (duplicate) {
+        const [invoice] = await tx
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(eq(invoices.orderId, order.id))
+          .orderBy(asc(invoices.createdAt))
+          .limit(1);
+        return {
+          order,
+          alreadyPaid: true as const,
+          disposition: "duplicate" as const,
+          settled: false,
+          unallocatedCents: 0,
+          invoiceId: invoice?.id,
+        };
+      }
     }
-    if (input.amountCents !== order.totalCents) {
+
+    const alreadyPaidCents = await paidCentsForOrder(tx, order.id);
+    if (!gatewayRef && alreadyPaidCents > 0) {
+      // Manual capture with no reference on an order that already has money
+      // banked. There is nothing to tell a fresh deposit from a double click,
+      // and no money is lost by asking: the operator has the bank reference in
+      // front of them.
       throw new Error(
-        `Amount mismatch: got ${input.amountCents}, expected ${order.totalCents}`
+        "This order already has a payment recorded. Enter the bank reference " +
+          "for the new deposit so it can be recorded on its own."
       );
     }
 
-    const now = new Date();
-    await tx
-      .update(orders)
-      .set({ status: "paid", paidAt: now, payfastRef: input.gatewayRef })
-      .where(eq(orders.id, order.id));
+    const decision = orderPaymentOutcome({
+      status: order.status,
+      totalCents: order.totalCents,
+      alreadyPaidCents,
+      amountCents: input.amountCents,
+    });
+    // Only a zero or negative amount gets here, which means no money moved.
+    if (!decision.accepted) throw new UnprocessablePayment(decision.reason);
 
+    const now = new Date();
     const items = await tx
       .select()
       .from(orderItems)
       .where(eq(orderItems.orderId, order.id));
-
-    const invNumber = await nextNumber(tx, "INV");
-    const today = now.toISOString().slice(0, 10);
-    const [invoice] = await tx
-      .insert(invoices)
-      .values({
-        number: invNumber,
-        customerId: order.customerId,
-        orderId: order.id,
-        issueDate: today,
-        dueDate: today,
-        status: "paid",
-        subtotalCents: order.subtotalCents,
-        totalCents: order.totalCents,
-        paidAt: now,
-      })
-      .returning({ id: invoices.id });
-
-    // Invoice lines mirror what the customer saw at checkout: a plan's first
-    // month and its once-off fee are separate lines. The split is only shown
-    // when the catalogue still reconciles exactly to the price we charged,
-    // so a line can never contradict the amount taken.
-    const planIds = items.flatMap((i) =>
-      i.itemType === "plan" && i.planId ? [i.planId] : []
+    const invoice = await ensureOrderInvoice(
+      tx,
+      order,
+      items,
+      decision.settles,
+      now
     );
-    const planRows = planIds.length
-      ? await tx.select().from(plans).where(inArray(plans.id, planIds))
-      : [];
 
-    const lineValues: (typeof invoiceLines.$inferInsert)[] = [];
-    for (const item of items) {
-      const suffix = item.qty > 1 ? ` × ${item.qty}` : "";
-      const plan = planRows.find((p) => p.id === item.planId);
-      const splits =
-        plan &&
-        plan.onceOffCents > 0 &&
-        add(plan.priceCents, plan.onceOffCents) === item.unitPriceCentsSnapshot;
-      if (splits && plan) {
-        lineValues.push({
-          invoiceId: invoice.id,
-          kind: "subscription",
-          description: `${item.nameSnapshot}${suffix}, first month`,
-          amountCents: multiply(plan.priceCents, item.qty),
-          qty: item.qty,
-        });
-        lineValues.push({
-          invoiceId: invoice.id,
-          kind: "once_off",
-          description: `${item.nameSnapshot}${suffix}, ${onceOffLabelFor(
-            plan.metadata
-          ).toLowerCase()}`,
-          amountCents: multiply(plan.onceOffCents, item.qty),
-          qty: item.qty,
-        });
-        continue;
-      }
-      lineValues.push({
+    const [payment] = await tx
+      .insert(payments)
+      .values({
         invoiceId: invoice.id,
-        kind:
-          item.itemType === "hardware"
-            ? ("hardware" as const)
-            : ("once_off" as const),
-        description: `${item.nameSnapshot}${suffix}`,
-        amountCents: multiply(item.unitPriceCentsSnapshot, item.qty),
-        qty: item.qty,
+        method: input.method,
+        amountCents: input.amountCents,
+        status: "complete",
+        gatewayRef,
+        recordedBy: input.recordedBy ?? null,
+      })
+      .returning({ id: payments.id });
+
+    // The identity an operator resolves the exception against. Normally the
+    // gateway reference, which is unique across payments; a manual capture
+    // with no reference falls back to the payment row, so the queue can still
+    // close exactly one exception.
+    const paymentIdentity = gatewayRef ?? payment.id;
+
+    const actor = input.recordedBy
+      ? { userId: input.recordedBy, role: "admin" as const }
+      : null;
+
+    if (decision.settles) {
+      await tx
+        .update(orders)
+        .set({
+          status: "paid",
+          paidAt: now,
+          payfastRef: gatewayRef ?? order.payfastRef,
+        })
+        .where(eq(orders.id, order.id));
+
+      // Decrement hardware stock now that it's sold.
+      for (const item of items) {
+        if (item.hardwareId) {
+          await tx
+            .update(hardwareProducts)
+            .set({ stockQty: sqlDecrement(item.qty) })
+            .where(eq(hardwareProducts.id, item.hardwareId));
+        }
+      }
+
+      await writeAudit(tx, {
+        actor,
+        action: "order.paid",
+        entity: "order",
+        entityId: order.id,
+        before: { status: order.status, paidCents: alreadyPaidCents },
+        after: {
+          status: "paid",
+          method: input.method,
+          gatewayRef,
+          amountCents: input.amountCents,
+          paidCents: decision.paidTotalCents,
+          unallocatedCents: decision.unallocatedCents,
+          disposition: decision.disposition,
+          invoiceNumber: invoice.number,
+          ...(order.status === "cancelled"
+            ? { note: "Payment arrived for an order that had been retired" }
+            : {}),
+        },
+      });
+
+      eventIds.push(
+        await emitDomainEvent(tx, "order.paid", {
+          orderId: order.id,
+          customerId: order.customerId,
+          invoiceId: invoice.id,
+        })
+      );
+    } else {
+      await writeAudit(tx, {
+        actor,
+        action: "payment.unallocated",
+        entity: "order",
+        entityId: order.id,
+        before: { status: order.status, paidCents: alreadyPaidCents },
+        after: {
+          status: order.status,
+          method: input.method,
+          gatewayRef,
+          amountCents: input.amountCents,
+          paidCents: decision.paidTotalCents,
+          unallocatedCents: decision.unallocatedCents,
+          disposition: decision.disposition,
+          invoiceNumber: invoice.number,
+          note: decision.note ?? "",
+        },
       });
     }
-    await tx.insert(invoiceLines).values(lineValues);
-
-    await tx.insert(payments).values({
-      invoiceId: invoice.id,
-      method: input.method,
-      amountCents: input.amountCents,
-      status: "complete",
-      gatewayRef: input.gatewayRef,
-      recordedBy: input.recordedBy ?? null,
-    });
-
-    // Decrement hardware stock now that it's sold.
-    for (const item of items) {
-      if (item.hardwareId) {
-        await tx
-          .update(hardwareProducts)
-          .set({
-            stockQty: sqlDecrement(item.qty),
-          })
-          .where(eq(hardwareProducts.id, item.hardwareId));
-      }
-    }
-
-    await writeAudit(tx, {
-      actor: input.recordedBy
-        ? { userId: input.recordedBy, role: "admin" }
-        : null,
-      action: "order.paid",
-      entity: "order",
-      entityId: order.id,
-      before: { status: order.status },
-      after: {
-        status: "paid",
-        gatewayRef: input.gatewayRef,
-        invoiceNumber: invNumber,
-        ...(wasCancelled
-          ? { note: "Payment arrived for an order that had been retired" }
-          : {}),
-      },
-    });
 
     eventIds.push(
-      await emitDomainEvent(tx, "order.paid", {
-        orderId: order.id,
-        customerId: order.customerId,
-        invoiceId: invoice.id,
-      }),
       await emitDomainEvent(tx, "payment.received", {
         invoiceId: invoice.id,
         orderId: order.id,
         customerId: order.customerId,
         amountCents: input.amountCents,
+        method: input.method,
+        settled: decision.settles,
+        disposition: decision.disposition,
+        unallocatedCents: decision.unallocatedCents,
       })
     );
 
-    // An order that came from a quote wins the quote here, at the payment,
-    // and not when the order was created (§9.5).
-    if (order.quoteId) {
+    if (decision.unallocatedCents > 0) {
+      eventIds.push(
+        // Same shape the invoice path emits, because the operator's
+        // unallocated queue (§16.4) reads these events and one queue has to
+        // show every payment nobody could apply, whatever it arrived for.
+        await emitDomainEvent(tx, "payment.unallocated", {
+          orderId: order.id,
+          orderNumber: order.number,
+          invoiceId: invoice.id,
+          invoiceStatus: invoice.statusOnArrival,
+          customerId: order.customerId,
+          gatewayRef: paymentIdentity,
+          paymentId: payment.id,
+          method: input.method,
+          amountCents: input.amountCents,
+          unallocatedCents: decision.unallocatedCents,
+          orderStatus: order.status,
+          reason: decision.note ?? "",
+        })
+      );
+      await flagForOperator(tx, {
+        type: `payment_unallocated:${paymentIdentity}`,
+        title: decision.settles
+          ? `Allocate ${formatCents(decision.unallocatedCents)} received on order ${order.number}`
+          : `${formatCents(input.amountCents)} received on order ${order.number} needs a decision`,
+        body: decision.note ?? "",
+        link: `/admin/customers/${order.customerId}?tab=billing`,
+      });
+      console.warn(
+        `unallocated payment: order=${order.id} number=${order.number} ` +
+          `status=${order.status} gatewayRef=${gatewayRef ?? "none"} ` +
+          `amountCents=${input.amountCents} ` +
+          `unallocatedCents=${decision.unallocatedCents}`
+      );
+    }
+
+    // An order that came from a quote wins the quote here, at the confirmed
+    // payment that settles it, and not when the order was created (§9.5).
+    if (decision.settles && order.quoteId) {
       eventIds.push(
         ...(await acceptQuoteOnPayment(tx, {
           quoteId: order.quoteId,
@@ -787,15 +1207,166 @@ export async function markOrderPaid(input: {
       );
     }
 
-    return { ok: true, invoiceId: invoice.id };
+    return {
+      order,
+      alreadyPaid: false,
+      disposition: decision.disposition,
+      settled: decision.settles,
+      unallocatedCents: decision.unallocatedCents,
+      invoiceId: invoice.id,
+    };
   });
 
   for (const id of eventIds) await forwardDomainEvent(id);
-  return result;
+
+  return {
+    ok: true,
+    alreadyPaid: outcome.alreadyPaid,
+    settled: outcome.settled,
+    orderPaid: outcome.settled || outcome.order.status === "paid",
+    disposition: outcome.disposition,
+    unallocatedCents: outcome.unallocatedCents,
+    invoiceId: outcome.invoiceId,
+  };
 }
 
 function sqlDecrement(by: number) {
   return sql`greatest(stock_qty - ${by}, 0)`;
+}
+
+// ------------------------------------------- provisioning a paid order
+
+/**
+ * Create the services a paid order bought, and make a failure something a
+ * person can see and act on.
+ *
+ * The money is already banked by the time this runs, so a transient fault here
+ * leaves a customer who has paid and has no service. It is never swallowed
+ * into a log line: it lands as an audit row, a domain event that can be
+ * replayed, and a bell for every operator. The work itself is idempotent, so a
+ * replayed ITN or an operator retrying is a safe second chance.
+ */
+export async function provisionPaidOrder(orderId: string): Promise<{
+  ok: boolean;
+  serviceIds: string[];
+  error?: string;
+}> {
+  try {
+    const { createServicesForPaidOrder } = await import("./services");
+    return { ok: true, serviceIds: await createServicesForPaidOrder(orderId) };
+  } catch (err) {
+    await recordProvisioningFailure(orderId, errorText(err));
+    return { ok: false, serviceIds: [], error: errorText(err) };
+  }
+}
+
+async function recordProvisioningFailure(
+  orderId: string,
+  detail: string
+): Promise<void> {
+  console.error(`ORDER NOT PROVISIONED: order=${orderId}: ${detail}`);
+  const eventIds: string[] = [];
+  try {
+    await db.transaction(async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(1);
+      const label = order?.number ?? orderId;
+      await writeAudit(tx, {
+        actor: null,
+        action: "order.provisioning_failed",
+        entity: "order",
+        entityId: orderId,
+        after: { orderNumber: order?.number ?? null, detail },
+      });
+      eventIds.push(
+        await emitDomainEvent(tx, "order.provisioning_failed", {
+          orderId,
+          orderNumber: order?.number ?? null,
+          customerId: order?.customerId ?? null,
+          detail,
+        })
+      );
+      await flagForOperator(tx, {
+        type: `order_provisioning_failed:${orderId}`,
+        title: `Order ${label} is paid but has no services yet`,
+        body:
+          `Creating the services for this paid order failed: ${detail}. The ` +
+          `payment is recorded. Once the cause is fixed, provisioning can be ` +
+          `run again for this order.`,
+        link: order
+          ? `/admin/customers/${order.customerId}?tab=services`
+          : "/admin",
+      });
+    });
+  } catch (err) {
+    // The bell itself failed. Nothing else can be done from here, but the log
+    // above already carries the order id and the original cause.
+    console.error(`could not record provisioning failure for ${orderId}:`, err);
+  }
+  for (const id of eventIds) await forwardDomainEvent(id);
+}
+
+/**
+ * Money the gateway confirms that this system cannot attach to anything: an
+ * order id it does not know, an amount of zero, an amount that cannot be read
+ * at all. There is no invoice to hang a payment row on, so the record is an
+ * audit row, a domain event and a bell, which is what a person needs to find
+ * the debit at PayFast and place it by hand. Amount 0 means "unknown", never
+ * "nothing".
+ */
+export async function recordUnbankablePayment(input: {
+  gatewayRef: string;
+  amountCents: number;
+  reference: string;
+  detail: string;
+}): Promise<void> {
+  const amount =
+    input.amountCents > 0
+      ? formatCents(input.amountCents)
+      : "An amount we could not read";
+  const eventIds: string[] = [];
+  try {
+    await db.transaction(async (tx) => {
+      await writeAudit(tx, {
+        actor: null,
+        action: "payment.exception",
+        entity: "payment",
+        entityId: input.gatewayRef,
+        after: {
+          gatewayRef: input.gatewayRef,
+          amountCents: input.amountCents,
+          reference: input.reference,
+          detail: input.detail,
+        },
+      });
+      eventIds.push(
+        await emitDomainEvent(tx, "payment.exception", {
+          gatewayRef: input.gatewayRef,
+          amountCents: input.amountCents,
+          reference: input.reference,
+          detail: input.detail,
+        })
+      );
+      await flagForOperator(tx, {
+        type: `payment_exception:${input.gatewayRef}`,
+        title: `${amount} was received and could not be recorded`,
+        body:
+          `PayFast confirmed a payment under ${input.gatewayRef} for ` +
+          `${input.reference} that could not be banked: ${input.detail}. Find ` +
+          `it at PayFast and place it by hand.`,
+        link: "/admin/billing?tab=payments",
+      });
+    });
+  } catch (err) {
+    console.error(
+      `could not record unbankable payment ${input.gatewayRef}:`,
+      err
+    );
+  }
+  for (const id of eventIds) await forwardDomainEvent(id);
 }
 
 // ------------------------------------------------ order from accepted quote

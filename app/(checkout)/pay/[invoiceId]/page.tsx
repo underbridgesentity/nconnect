@@ -11,7 +11,6 @@ import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { PendingSubmit } from "@/components/ui/pending-submit";
-import { PillLink } from "@/components/public/pill";
 import {
   CTA,
   ExpiredLink,
@@ -82,9 +81,11 @@ export default async function PayInvoicePage({
   const balanceCents = subtract(invoice.totalCents, paidCents);
 
   const payable = invoice.status === "open" || invoice.status === "past_due";
-  // Card payments settle the whole invoice, so the button only appears when
-  // the full amount is still owed (see the part-paid branch below).
-  const canPayNow = payable && balanceCents > 0 && paidCents === 0;
+  // The button always collects the outstanding balance, never the total. A
+  // part-paid invoice is therefore payable like any other: the form is built
+  // with balanceCents, and markInvoicePaidFromGateway banks a payment for
+  // less than the total and leaves the invoice open for the rest.
+  const canPayNow = payable && balanceCents > 0;
   const customerName =
     customer?.companyName ??
     [customer?.firstName, customer?.lastName].filter(Boolean).join(" ");
@@ -169,33 +170,12 @@ export default async function PayInvoicePage({
           We have received the full amount for this invoice and are busy
           allocating it. Nothing further is due.
         </p>
-      ) : paidCents > 0 ? (
-        // Card payments settle the whole invoice, so we never put a button on
-        // screen that would take more than the customer owes.
-        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-medium">
-            Balance of <MoneyText cents={balanceCents} /> outstanding
-          </p>
-          <p className="mt-1">
-            Because part of this invoice is already paid, card payment here
-            would take the full amount again. Message us and we will take the
-            balance only, or pay it by EFT using reference {invoice.number}.
-          </p>
-          {wa ? (
-            // The label is a sentence carrying an invoice number, so it is
-            // allowed to wrap: the pill's default nowrap would push it out of
-            // this card on a 360px phone, which is most of the people who open
-            // a pay link.
-            <PillLink href={wa} className="mt-3 flex w-full whitespace-normal">
-              WhatsApp us to settle {invoice.number}
-            </PillLink>
-          ) : null}
-        </div>
       ) : (
         <PayForm
           invoiceId={invoice.id}
           invoiceNumber={invoice.number}
           amountCents={balanceCents}
+          alreadyPaidCents={paidCents}
           returnPath={returnPath}
           cancelPath={cancelPath}
         />
@@ -250,12 +230,16 @@ function PayForm({
   invoiceId,
   invoiceNumber,
   amountCents,
+  alreadyPaidCents,
   returnPath,
   cancelPath,
 }: {
   invoiceId: string;
   invoiceNumber: string;
+  /** The outstanding balance, which is what the card is charged. */
   amountCents: Cents;
+  /** Completed payments already banked against this invoice. */
+  alreadyPaidCents: Cents;
   returnPath: string;
   cancelPath: string;
 }) {
@@ -284,6 +268,13 @@ function PayForm({
         Pay <MoneyText cents={amountCents} className="mx-1" /> securely with
         PayFast
       </PendingSubmit>
+      {alreadyPaidCents > 0 ? (
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          This is the outstanding balance only. The{" "}
+          <MoneyText cents={alreadyPaidCents} /> already received stays on the
+          invoice and is not charged again.
+        </p>
+      ) : null}
       <p className="mt-2 text-center text-xs text-muted-foreground">
         Prefer EFT? The banking details are on your invoice PDF, reference{" "}
         <span className="font-mono">{invoiceNumber}</span>.

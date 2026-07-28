@@ -1,6 +1,7 @@
 import "server-only";
-import { and, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { createHmac } from "node:crypto";
+import { z } from "zod";
 import { db, type Tx } from "@/lib/db/client";
 import {
   services,
@@ -13,6 +14,7 @@ import {
   customers,
   users,
   notifications,
+  auditLog,
 } from "@/lib/db/schema";
 import {
   add,
@@ -40,7 +42,11 @@ import {
   paidCentsForInvoice,
 } from "./billing";
 import { getConnector } from "@/lib/connectors";
-import { chargeToken } from "@/lib/payfast";
+import {
+  chargeToken,
+  derivedGatewayRef,
+  isDerivedGatewayRef,
+} from "@/lib/payfast";
 import { notify } from "@/lib/notify";
 import { renderInvoicePdf } from "@/lib/pdf/invoice";
 import { appUrl } from "@/lib/config";
@@ -506,12 +512,26 @@ export interface GatewayPaymentResult {
  *
  * Idempotency is on the gateway ref and nothing else, so replays are free and
  * genuinely new debits are never mistaken for them.
+ *
+ * One charge can reach here under two different references. A token charge
+ * PayFast confirms without naming a transaction is banked under a reference
+ * derived from its `m_payment_id`; PayFast then posts an ITN for that same
+ * debit carrying its own `pf_payment_id`. Those are different keys for one
+ * movement of money, so callers that know the `m_payment_id` PayFast echoed
+ * pass it as `merchantRef`, and the derived reference is checked as an
+ * idempotency key too. Where it matches, the placeholder is replaced by
+ * PayFast's own reference and the money is banked once.
  */
 export async function markInvoicePaidFromGateway(input: {
   invoiceId: string;
   gatewayRef: string;
   amountCents: number;
   method: "payfast_card" | "payfast_token";
+  /**
+   * The `m_payment_id` PayFast echoed back, when the caller has it. Only used
+   * to recognise a charge already banked under a reference derived from it.
+   */
+  merchantRef?: string;
 }): Promise<GatewayPaymentResult> {
   const gatewayRef = input.gatewayRef?.trim();
   if (!gatewayRef) {
@@ -519,6 +539,13 @@ export async function markInvoicePaidFromGateway(input: {
     // the same money twice. Refuse before anything is written.
     throw new Error("A gateway reference is required to bank a payment");
   }
+  const merchantRef = input.merchantRef?.trim();
+  // The reference this same charge would already be banked under if it was a
+  // token charge the gateway confirmed without naming a transaction.
+  const blindRef =
+    merchantRef && !isDerivedGatewayRef(gatewayRef)
+      ? derivedGatewayRef(merchantRef)
+      : null;
 
   const eventIds: string[] = [];
   const outcome = await db.transaction(async (tx) => {
@@ -536,12 +563,79 @@ export async function markInvoicePaidFromGateway(input: {
     // its own. A replayed ITN carries a ref we have already banked. A genuine
     // second debit carries a new one, and that money is real whatever state
     // the invoice happens to be in.
-    const [duplicate] = await tx
-      .select({ id: payments.id })
+    //
+    // The derived reference is checked alongside it, and only ever as an exact
+    // key: it is the same `m_payment_id` PayFast is now quoting back, so a
+    // match is this charge and no other. Nothing here guesses from amounts,
+    // because a customer who paid a pay link at the same moment as a token
+    // charge really was debited twice, and merging those would quietly cost
+    // them the second payment.
+    const bankedColumns = {
+      id: payments.id,
+      ref: payments.gatewayRef,
+      amountCents: payments.amountCents,
+    };
+    const [exact] = await tx
+      .select(bankedColumns)
       .from(payments)
       .where(eq(payments.gatewayRef, gatewayRef))
       .limit(1);
+    // The derived key is only ever looked for on this invoice: it is our own
+    // reference, and reconciling it onto a payment banked elsewhere would move
+    // a reference between two different debts.
+    const [blind] =
+      exact || !blindRef
+        ? []
+        : await tx
+            .select(bankedColumns)
+            .from(payments)
+            .where(
+              and(
+                eq(payments.gatewayRef, blindRef),
+                eq(payments.invoiceId, invoice.id)
+              )
+            )
+            .limit(1);
+    const duplicate = exact ?? blind;
     if (duplicate) {
+      if (blindRef && duplicate.ref === blindRef) {
+        // This is PayFast telling us what it called the charge we had to bank
+        // blind. Carry its reference onto the payment so the ledger and the
+        // PayFast dashboard finally name the same transaction.
+        await tx
+          .update(payments)
+          .set({ gatewayRef })
+          .where(eq(payments.id, duplicate.id));
+        await writeAudit(tx, {
+          actor: null,
+          action: "payment.reconciled",
+          entity: "invoice",
+          entityId: invoice.id,
+          before: { gatewayRef: blindRef, amountCents: duplicate.amountCents },
+          after: {
+            gatewayRef,
+            merchantRef,
+            amountCents: input.amountCents,
+            note:
+              `The gateway confirmed this charge without naming it, so it was ` +
+              `banked under ${blindRef}. PayFast has now reported it as ` +
+              `${gatewayRef}; it is one payment, not two.`,
+          },
+        });
+        if (duplicate.amountCents !== input.amountCents) {
+          // Same charge, different money. Somebody has to look at that.
+          await flagForOperator(tx, {
+            type: `payment_amount_mismatch:${gatewayRef}`,
+            title: `Check ${invoice.number}: PayFast reports ${formatCents(input.amountCents)} for a charge banked at ${formatCents(duplicate.amountCents)}`,
+            body:
+              `The charge banked under ${blindRef} was recorded as ` +
+              `${formatCents(duplicate.amountCents)}. PayFast now reports ` +
+              `${formatCents(input.amountCents)} under ${gatewayRef}. The ` +
+              `payment has not been changed; confirm which figure is right.`,
+            link: `/admin/customers/${invoice.customerId}?tab=billing`,
+          });
+        }
+      }
       const paidCents = await paidCentsFor(tx, invoice.id);
       return {
         invoice,
@@ -747,22 +841,127 @@ async function recordChargeException(
   for (const id of eventIds) await forwardDomainEvent(id);
 }
 
+/** Audit actions that carry the charging halt. Append-only, so never deleted. */
+const CHARGING_HALTED = "invoice.charging_halted";
+const CHARGING_RESUMED = "invoice.charging_resumed";
+
+export interface ChargingHalt {
+  halted: boolean;
+  /** Why, in the words the halt was recorded with. */
+  reason?: string;
+  since?: Date;
+}
+
+/**
+ * Is this invoice barred from automatic card charging, and why?
+ *
+ * The halt used to be nothing but the skipped `collection_attempts` rows
+ * written for the remaining dunning slots, and slot rows are not a durable
+ * stop condition. They record nothing at all when the last slot has already
+ * run, they say nothing about why on the invoice itself, and they quietly stop
+ * covering anything the moment `chargeAttemptDays` gains a slot in settings.
+ * An invoice taken off charging because the customer might already have been
+ * debited would then be charged again by the new slot.
+ *
+ * So the halt is a fact in the audit log: append-only, timestamped, attributed,
+ * already the record an operator reads, and independent of how many slots the
+ * timeline happens to have. A later `invoice.charging_resumed` row lifts it, so
+ * a person can deliberately put an invoice back on the timeline.
+ */
+export async function automaticChargingHalted(
+  invoiceId: string
+): Promise<ChargingHalt> {
+  const [latest] = await db
+    .select({
+      action: auditLog.action,
+      after: auditLog.after,
+      createdAt: auditLog.createdAt,
+    })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.entity, "invoice"),
+        eq(auditLog.entityId, invoiceId),
+        inArray(auditLog.action, [CHARGING_HALTED, CHARGING_RESUMED])
+      )
+    )
+    .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+    .limit(1);
+  if (!latest || latest.action !== CHARGING_HALTED) return { halted: false };
+  const reason =
+    typeof latest.after?.reason === "string" ? latest.after.reason : undefined;
+  return { halted: true, reason, since: latest.createdAt };
+}
+
 /**
  * Stop the dunning sweep from ever charging this invoice automatically again.
  *
- * The sweep decides slot by slot: a charge day with no `collection_attempts`
- * row is a day it will charge on. Filling the remaining slots is therefore the
- * whole stop condition, and it leaves the reason on the invoice where an
- * operator will find it. Used wherever the card may already have been debited
- * for money we cannot see, because the one thing that must not happen while a
- * person works out what took place is another guess with the same customer's
- * money.
+ * Used wherever the card may already have been debited for money we cannot
+ * see, because the one thing that must not happen while a person works out
+ * what took place is another guess with the same customer's money.
+ *
+ * The audit row is written first, because that is the stop condition. The
+ * skipped slot rows follow so the invoice's attempt list reads honestly, and
+ * the bell puts the reason in front of someone the same night rather than
+ * leaving it buried in a detail column.
  */
 async function haltAutomaticCharging(
   invoiceId: string,
   afterAttemptNo: number,
   reason: string
 ): Promise<void> {
+  const [invoice] = await db
+    .select({
+      id: invoices.id,
+      number: invoices.number,
+      customerId: invoices.customerId,
+    })
+    .from(invoices)
+    .where(eq(invoices.id, invoiceId))
+    .limit(1);
+  if (!invoice) {
+    console.error(`cannot halt charging, invoice ${invoiceId} not found`);
+    return;
+  }
+
+  const already = await automaticChargingHalted(invoiceId);
+  if (!already.halted) {
+    const eventIds: string[] = [];
+    await db.transaction(async (tx) => {
+      await writeAudit(tx, {
+        actor: null,
+        action: CHARGING_HALTED,
+        entity: "invoice",
+        entityId: invoiceId,
+        after: { reason, afterAttemptNo },
+      });
+      eventIds.push(
+        await emitDomainEvent(tx, CHARGING_HALTED, {
+          invoiceId,
+          customerId: invoice.customerId,
+          reason,
+          afterAttemptNo,
+        })
+      );
+      await flagForOperator(tx, {
+        type: `charging_halted:${invoiceId}`,
+        title: `Automatic card charging stopped on ${invoice.number}`,
+        body:
+          `${reason}. Nothing more will be charged to this customer's card ` +
+          `for this invoice until someone puts it back on the timeline.`,
+        link: `/admin/customers/${invoice.customerId}?tab=billing`,
+      });
+    });
+    for (const id of eventIds) await forwardDomainEvent(id);
+    console.warn(
+      `automatic charging halted: invoice=${invoiceId} number=${invoice.number} ` +
+        `afterAttemptNo=${afterAttemptNo}: ${reason}`
+    );
+  }
+
+  // Slot rows as well, so the attempt list on the invoice says why the
+  // remaining charge days came and went. They no longer carry the stop on
+  // their own, and a resume is free to ignore them.
   const dunning = await getSettingOr<DunningConfig>("dunning", DEFAULT_DUNNING);
   const existing = await db
     .select({ attemptNo: collectionAttempts.attemptNo })
@@ -789,6 +988,61 @@ async function haltAutomaticCharging(
   }
   if (rows.length === 0) return;
   await db.insert(collectionAttempts).values(rows);
+}
+
+const resumeChargingSchema = z.object({
+  invoiceId: z.string().uuid(),
+  reason: z
+    .string()
+    .trim()
+    .min(4, "Give a reason of at least 4 characters")
+    .max(500),
+});
+export type ResumeChargingInput = z.infer<typeof resumeChargingSchema>;
+
+/**
+ * Put a halted invoice back on the automatic charging timeline.
+ *
+ * A halt means somebody has to check with PayFast whether the customer was
+ * actually debited, so lifting it is a deliberate, attributed act: this is the
+ * counterpart that makes the halt reversible without anyone editing rows by
+ * hand. It says nothing about what happened, only that the person who looked
+ * is satisfied the card can be charged again.
+ */
+export async function resumeAutomaticCharging(
+  actor: Actor,
+  rawInput: ResumeChargingInput
+): Promise<void> {
+  authorize(actor, "billing.reconciliation");
+  const input = resumeChargingSchema.parse(rawInput);
+
+  const [invoice] = await db
+    .select({ id: invoices.id, customerId: invoices.customerId })
+    .from(invoices)
+    .where(eq(invoices.id, input.invoiceId))
+    .limit(1);
+  if (!invoice) throw new Error("Invoice not found");
+  const halt = await automaticChargingHalted(input.invoiceId);
+  if (!halt.halted) {
+    throw new Error("This invoice is not being held off automatic charging");
+  }
+
+  const eventId = await db.transaction(async (tx) => {
+    await writeAudit(tx, {
+      actor,
+      action: CHARGING_RESUMED,
+      entity: "invoice",
+      entityId: input.invoiceId,
+      before: { reason: halt.reason ?? null, since: halt.since ?? null },
+      after: { reason: input.reason },
+    });
+    return emitDomainEvent(tx, CHARGING_RESUMED, {
+      invoiceId: input.invoiceId,
+      customerId: invoice.customerId,
+      reason: input.reason,
+    });
+  });
+  await forwardDomainEvent(eventId);
 }
 
 /** What the gateway answered, or the fact that asking it threw. */
@@ -824,10 +1078,14 @@ export interface ChargeDisposition {
  * twice over: nothing was banked against the invoice, so it stayed open, and
  * the next dunning slot debited the customer again for what had already been
  * taken. So a successful debit is always recorded, under the gateway's own
- * reference where there is one and otherwise under the `m_payment_id` we sent
- * with the request, which is the identifier PayFast has on its side and the
- * one an operator reconciles against. Anything ambiguous also raises a bell
- * and takes the invoice off automatic charging until a person has looked.
+ * reference where there is one and otherwise under one derived from the
+ * `m_payment_id` we sent with the request, which is the identifier PayFast has
+ * on its side and the one an operator reconciles against. Anything ambiguous
+ * also raises a bell and takes the invoice off automatic charging until a
+ * person has looked.
+ *
+ * A derived reference is treated exactly like a missing one, because that is
+ * what it means: the gateway confirmed the debit and named no transaction.
  */
 export function tokenChargeDisposition(input: {
   answer: ChargeAnswer;
@@ -862,7 +1120,7 @@ export function tokenChargeDisposition(input: {
   }
 
   const gatewayRef = answer.gatewayRef?.trim();
-  if (gatewayRef) {
+  if (gatewayRef && !isDerivedGatewayRef(gatewayRef)) {
     return {
       result: "success",
       bankUnder: gatewayRef,
@@ -873,14 +1131,18 @@ export function tokenChargeDisposition(input: {
     };
   }
 
+  // No reference, or one we minted ourselves. Either way the debit is real and
+  // unnamed, and it banks under the single derived reference both this path
+  // and `chargeToken` agree on, unique to this invoice and this attempt.
+  const bankUnder = gatewayRef ?? derivedGatewayRef(paymentId);
   return {
     result: "success",
-    bankUnder: paymentId,
+    bankUnder,
     attemptResult: "success",
     detail:
       `the gateway reported success without a reference of its own, so the ` +
-      `payment is recorded under the m_payment_id it was charged with, ` +
-      `${paymentId}`,
+      `payment is recorded under ${bankUnder}, derived from the m_payment_id ` +
+      `it was charged with, ${paymentId}`,
     exception: "Card charge without a gateway reference",
     mayRecharge: false,
   };
@@ -906,6 +1168,15 @@ export async function attemptTokenCharge(
     invoice.status === "written_off"
   ) {
     return { result: "skipped", detail: "invoice not chargeable" };
+  }
+  // A halt outlives the dunning slots that were open when it was recorded, so
+  // it is read before anything else touches the card.
+  const halt = await automaticChargingHalted(invoiceId);
+  if (halt.halted) {
+    return {
+      result: "skipped",
+      detail: `automatic charging halted: ${halt.reason ?? "reason not recorded"}`,
+    };
   }
   // Charge what is still owed, not the invoice total: an invoice that has been
   // part-paid by EFT would otherwise be debited for the whole amount again.
@@ -985,6 +1256,7 @@ export async function attemptTokenCharge(
         gatewayRef: decision.bankUnder,
         amountCents: dueCents,
         method: "payfast_token",
+        merchantRef: paymentId,
       });
     } catch (err) {
       // The card has been debited. A record we fail to write here is money the
@@ -1110,6 +1382,13 @@ async function dunInvoice(
   opts: { charger?: Charger }
 ): Promise<void> {
   // Token charge attempts on the configured days (only once per day-slot).
+  //
+  // A slot is spent when something actually reached the gateway in it: a
+  // success, a decline, or a row still in flight, which is treated as spent
+  // because a charge whose outcome we never recorded must never be repeated.
+  // Skipped rows do not spend a slot. They are written when there was nothing
+  // to collect, or by a halt, and the halt itself is what stops the charging
+  // now, so a lifted halt genuinely puts the invoice back on the timeline.
   const attemptIndex = dunning.chargeAttemptDays.indexOf(age);
   if (attemptIndex >= 0) {
     const [already] = await db
@@ -1118,7 +1397,8 @@ async function dunInvoice(
       .where(
         and(
           eq(collectionAttempts.invoiceId, invoice.id),
-          eq(collectionAttempts.attemptNo, attemptIndex + 1)
+          eq(collectionAttempts.attemptNo, attemptIndex + 1),
+          sql`(${collectionAttempts.result} is null or ${collectionAttempts.result} <> 'skipped')`
         )
       );
     if (already.n === 0) {
@@ -1137,14 +1417,23 @@ async function dunInvoice(
     .limit(1);
   if (!current || current.status === "paid") return;
 
+  // Everything below chases a debt, so the debt decides, not the status
+  // column. An invoice can be fully covered and still sit at open or past_due:
+  // a credit that exactly met the balance, a payment banked while the status
+  // write was lost, a net-zero plan-change adjustment. Escalating on status
+  // alone marked those customers past due, then suspended a service over
+  // money nobody owed.
+  const paidCents = await paidCentsForInvoice(current.id);
+  const dueCents = outstandingCents(current.totalCents, paidCents);
+  if (dueCents === 0) {
+    await settleInvoiceWithNoBalance(current, paidCents);
+    return;
+  }
+
   // past_due at +pastDueDay with the 3-day warning (§6.3).
   if (age >= dunning.pastDueDay && current.status === "open") {
     // What we tell the customer they owe is the balance, not the total: a
     // part payment leaves the invoice open on purpose (§6.2).
-    const dueCents = outstandingCents(
-      current.totalCents,
-      await paidCentsForInvoice(current.id)
-    );
     await db.transaction(async (tx) => {
       await tx
         .update(invoices)
@@ -1226,6 +1515,82 @@ async function dunInvoice(
       );
     }
   }
+}
+
+/**
+ * Close an invoice the sweep found with nothing left owing on it.
+ *
+ * Leaving it open is not harmless. It keeps chasing a customer who owes
+ * nothing, it keeps `maybeReactivateAfterSettlement` from bringing their
+ * service back (that counts open invoices, not balances), and it overstates
+ * the book. So the sweep settles it, audited, saying plainly that the balance
+ * and not a payment is what closed it. Nothing is deleted and no money moves.
+ */
+async function settleInvoiceWithNoBalance(
+  invoice: typeof invoices.$inferSelect,
+  paidCents: Cents
+): Promise<void> {
+  const eventIds: string[] = [];
+  await db.transaction(async (tx) => {
+    // Re-read under a lock: a payment landing at the same moment must not have
+    // its settlement overwritten by this one.
+    const [locked] = await tx
+      .select()
+      .from(invoices)
+      .where(eq(invoices.id, invoice.id))
+      .limit(1)
+      .for("update");
+    if (!locked || locked.status === "paid") return;
+    if (locked.status === "void" || locked.status === "written_off") return;
+    const settledCents = await paidCentsFor(tx, locked.id);
+    if (outstandingCents(locked.totalCents, settledCents) > 0) return;
+
+    await tx
+      .update(invoices)
+      .set({ status: "paid", paidAt: new Date() })
+      .where(eq(invoices.id, locked.id));
+    await tx
+      .update(collectionAttempts)
+      .set({ result: "skipped", detail: "nothing outstanding" })
+      .where(
+        and(
+          eq(collectionAttempts.invoiceId, locked.id),
+          isNull(collectionAttempts.executedAt)
+        )
+      );
+    await writeAudit(tx, {
+      actor: null,
+      action: "invoice.settled_no_balance",
+      entity: "invoice",
+      entityId: locked.id,
+      before: { status: locked.status, paidCents: settledCents },
+      after: {
+        status: "paid",
+        totalCents: locked.totalCents,
+        paidCents: settledCents,
+        note:
+          `Dunning found nothing outstanding on this invoice, so it was ` +
+          `closed rather than chased. No payment was recorded here.`,
+      },
+    });
+    eventIds.push(
+      await emitDomainEvent(tx, "invoice.settled", {
+        invoiceId: locked.id,
+        customerId: locked.customerId,
+        totalCents: locked.totalCents,
+        paidCents: settledCents,
+        reason: "no balance outstanding",
+      })
+    );
+  });
+  for (const id of eventIds) await forwardDomainEvent(id);
+  console.warn(
+    `invoice ${invoice.number} was open with nothing outstanding ` +
+      `(total ${invoice.totalCents}, paid ${paidCents}); closed by the dunning sweep`
+  );
+  await safely(`reactivation after closing ${invoice.number}`, () =>
+    maybeReactivateAfterSettlement(invoice.customerId)
+  );
 }
 
 // ------------------------------------------------------- lifecycle sweeps

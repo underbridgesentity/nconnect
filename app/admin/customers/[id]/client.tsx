@@ -253,7 +253,10 @@ export function RecordEftForm({
           id={`amount-${invoiceId}`}
           name="amount"
           inputMode="decimal"
-          defaultValue={(outstandingCents / 100).toFixed(2)}
+          // `formatCents`, not cents/100: money never goes through a float,
+          // not even to prefill a field. `parseZar` reads this app's own
+          // en-ZA rendering back, spaces, comma and all.
+          defaultValue={formatCents(outstandingCents)}
           required
           className="tnum w-32"
         />

@@ -31,6 +31,9 @@ import {
 } from "@/lib/domain/orders";
 import { createLead } from "@/lib/domain/leads";
 import { uploadFile, randomFileName } from "@/lib/storage";
+// Type only, so the schema is not pulled into this module at runtime: the
+// database imports here are deliberately dynamic.
+import type { orders as ordersTable } from "@/lib/db/schema";
 
 export type WizardResult = { ok: boolean; error?: string };
 
@@ -499,6 +502,34 @@ function draftCart(draft: SignupDraftState) {
   };
 }
 
+/** Order statuses, as the database defines them. */
+type OrderStatusValue = (typeof ordersTable.$inferSelect)["status"];
+
+/**
+ * What to tell a customer whose draft still points at an order that has
+ * already been paid for.
+ *
+ * Every status is written out, so adding one to the enum stops this file
+ * compiling rather than quietly inheriting somebody else's sentence. It used
+ * to be a single `status !== "pending_payment"` test answering "Order N is
+ * already paid", which caught `cancelled` as well and told a customer who had
+ * paid nothing at all that their money was in. Cancelled is handled by the
+ * caller instead, by pricing a fresh order.
+ */
+function paidOrderMessage(
+  status: Exclude<OrderStatusValue, "pending_payment" | "cancelled">,
+  orderNumber: string
+): string {
+  switch (status) {
+    case "paid":
+      return `Order ${orderNumber} is paid, so there is nothing more to pay on it. Open your portal to follow it, or start a new order below.`;
+    case "processing":
+      return `Order ${orderNumber} is paid and we are preparing it now. Open your portal to follow it, or start a new order below.`;
+    case "fulfilled":
+      return `Order ${orderNumber} is paid and already complete. Open your portal to see it, or start a new order below.`;
+  }
+}
+
 export type CheckoutBlock =
   | "verify"
   | "address"
@@ -603,17 +634,34 @@ export async function startCheckoutAction(
     if (!existing) {
       orderId = undefined;
       orderNumber = undefined;
+    } else if (existing.status === "cancelled") {
+      // Not a cent was ever taken against a cancelled order. This flow is what
+      // cancels them: the branch below retires the order whenever the basket
+      // or the address changed, and if building its replacement then failed,
+      // the draft is left pointing at the cancelled one. Reporting that as
+      // "already paid" was the exact opposite of the truth, so drop the
+      // reference and price a fresh order from the cart on screen.
+      await writeDraft(DROP_ORDER);
+      orderId = undefined;
+      orderNumber = undefined;
     } else if (existing.status !== "pending_payment") {
       return {
         ok: false,
         block: "already_paid",
         orderNumber: existing.number,
-        error: `Order ${existing.number} is already paid.`,
+        // No totalCents: on this branch it would be the total of an order
+        // already settled, and the only place it could land on screen is
+        // beside the words "still to pay".
+        error: paidOrderMessage(existing.status, existing.number),
       };
     } else if (!(await orderMatchesCart(orderId, priced, draft.address))) {
       // The cart or the address moved after this order was built. Retire it
       // and price a fresh one rather than charging yesterday's basket.
       await cancelStaleOrder(orderId, "Cart changed before payment");
+      // Forget it in the same breath as retiring it. If creating the
+      // replacement below fails, the next attempt must not find a cancelled
+      // order id sitting in the draft.
+      await writeDraft(DROP_ORDER);
       orderId = undefined;
       orderNumber = undefined;
     }

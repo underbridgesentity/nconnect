@@ -20,6 +20,7 @@ import {
 } from "@/lib/db/schema";
 import {
   customerBalanceCents,
+  outstandingCents,
   paidCentsByInvoice,
   collectionAttemptsFor,
 } from "@/lib/domain/billing";
@@ -288,7 +289,10 @@ export default async function Customer360Page({
             ) : (
               invoiceRows.map((invoice) => {
                 const paid = paidByInvoice.get(invoice.id) ?? 0;
-                const outstanding = invoice.totalCents - paid;
+                // The shared rule, floored at zero: an over-allocated invoice
+                // is a data problem for the unallocated queue, never a credit
+                // this screen can spend.
+                const outstanding = outstandingCents(invoice.totalCents, paid);
                 const collectable =
                   invoice.status === "open" || invoice.status === "past_due";
                 const invoiceAttempts = attempts.filter(

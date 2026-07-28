@@ -17,8 +17,16 @@ import {
 import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { maskedIdNumber } from "@/lib/domain/rica";
-import { invoicesAwaitingDecision } from "@/lib/domain/billing";
+import {
+  invoicesAwaitingDecision,
+  outstandingCents,
+  paidCentsByInvoice,
+} from "@/lib/domain/billing";
 import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
+import {
+  unallocatedPayments,
+  unallocatedPaymentsSummary,
+} from "@/lib/domain/reports";
 import { getSettingOr } from "@/lib/domain/settings";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { filterPillClass } from "@/components/ui/filter-pill";
@@ -139,13 +147,45 @@ export default async function AdminTodayPage() {
   // 2c. The §6.3 day-40 call: cancel the service or write the invoice off.
   // The dunning sweep only rings a bell, which vanishes once it is read.
   const dunning = await getSettingOr("dunning", DEFAULT_DUNNING);
-  const decisions = await invoicesAwaitingDecision(dunning.adminDecisionDay);
+  const decisionRows = await invoicesAwaitingDecision(dunning.adminDecisionDay);
+
+  // What is still owed on each invoice on these three queues, never the
+  // invoice total. A part payment deliberately leaves the invoice open (§6.2),
+  // so a queue built on totals sends an operator to chase an R800 invoice that
+  // has R600 banked against it for the full R800. `outstandingCents` is the
+  // same rule the age analysis and the customer's own statement use, so the
+  // collections call and the customer's screen can never disagree.
+  const queueInvoiceIds = [
+    ...new Set([
+      ...pastDueRows.map((r) => r.invoice.id),
+      ...failedCharges.map((r) => r.invoice.id),
+      ...decisionRows.map((r) => r.invoice.id),
+    ]),
+  ];
+  const paidOnQueues = await paidCentsByInvoice(queueInvoiceIds);
+  const owedOn = (invoice: { id: string; totalCents: number }) =>
+    outstandingCents(invoice.totalCents, paidOnQueues.get(invoice.id) ?? 0);
+
+  // An invoice with nothing left outstanding is settled, whatever its status
+  // column still says, so it is off the chase list entirely.
+  const decisions = decisionRows.filter((row) => owedOn(row.invoice) > 0);
   // Anything at the decision point gets its own section, so it does not fill
   // the past-due list twice: oldest-first ordering would put it at the top.
   const decisionIds = new Set(decisions.map((d) => d.invoice.id));
   const pastDue = pastDueRows
-    .filter((row) => !decisionIds.has(row.invoice.id))
+    .filter((row) => !decisionIds.has(row.invoice.id) && owedOn(row.invoice) > 0)
     .slice(0, 20);
+  const chargeFailures = failedCharges.filter(
+    (row) => owedOn(row.invoice) > 0
+  );
+
+  // 2d. Money PayFast took that no invoice could absorb. Round 4 banks it,
+  // audits it, events it and rings a bell; a bell is read once and gone, so
+  // this is the standing queue that money sits on until a person deals with it.
+  const [unallocated, unallocatedTotals] = await Promise.all([
+    unallocatedPayments(20),
+    unallocatedPaymentsSummary(),
+  ]);
 
   // 3. Unassigned or waiting conversations
   const waitingConvs = await db
@@ -240,7 +280,7 @@ export default async function AdminTodayPage() {
                   {invoice.number}, due {formatDate(invoice.dueDate)}
                 </span>
               </span>
-              <MoneyText cents={invoice.totalCents} className="font-medium" />
+              <MoneyText cents={owedOn(invoice)} className="font-medium" />
             </Link>
           ))}
         </div>
@@ -248,11 +288,11 @@ export default async function AdminTodayPage() {
     },
     {
       title: "Card charges failing",
-      count: failedCharges.length,
+      count: chargeFailures.length,
       emptyText: "No card charge has been refused on an unpaid invoice.",
       body: (
         <div className="space-y-2">
-          {failedCharges.map(({ attempt, invoice, customer }) => (
+          {chargeFailures.map(({ attempt, invoice, customer }) => (
             <Link
               key={attempt.id}
               href={`/admin/customers/${customer.id}?tab=billing`}
@@ -272,9 +312,53 @@ export default async function AdminTodayPage() {
                   {attempt.detail ?? "the bank gave no reason"}
                 </span>
               </span>
-              <MoneyText cents={invoice.totalCents} className="font-medium" />
+              <MoneyText cents={owedOn(invoice)} className="font-medium" />
             </Link>
           ))}
+        </div>
+      ),
+    },
+    {
+      title: "Money to allocate or refund",
+      count: unallocatedTotals.count,
+      emptyText:
+        "Every payment PayFast has taken landed on an invoice that could absorb it.",
+      body: (
+        <div className="space-y-2">
+          {unallocated.map((row) => (
+            <Link
+              key={row.eventId}
+              href="/admin/billing?tab=unallocated"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-card p-4 hover:border-primary/40"
+            >
+              <span>
+                <span className="font-medium">
+                  {row.customerName || "(no name)"}
+                </span>
+                <span className="block text-sm text-muted-foreground">
+                  {row.invoiceNumber}, received{" "}
+                  {formatDateTime(row.receivedAt)}
+                </span>
+                <span className="block text-sm text-amber-700">
+                  {row.reason ||
+                    "The invoice could not absorb this money. Allocate it or refund it."}
+                </span>
+              </span>
+              <MoneyText
+                cents={row.unallocatedCents}
+                className="font-medium text-amber-700"
+              />
+            </Link>
+          ))}
+          {unallocatedTotals.count > unallocated.length ? (
+            <Link
+              href="/admin/billing?tab=unallocated"
+              className="block text-sm font-medium text-primary hover:underline"
+            >
+              {unallocatedTotals.count - unallocated.length} more waiting, see
+              all in Billing
+            </Link>
+          ) : null}
         </div>
       ),
     },
@@ -303,7 +387,7 @@ export default async function AdminTodayPage() {
                   automatically.
                 </span>
               </span>
-              <MoneyText cents={invoice.totalCents} className="font-medium" />
+              <MoneyText cents={owedOn(invoice)} className="font-medium" />
             </Link>
           ))}
         </div>

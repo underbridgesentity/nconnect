@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
-import { and, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 import { CheckCircle2, Clock, MessageCircle, Phone, Undo2 } from "lucide-react";
 import { db } from "@/lib/db/client";
-import { orders, orderItems, invoices, payments } from "@/lib/db/schema";
+import { orders, orderItems } from "@/lib/db/schema";
+import { verifyPayLinkToken } from "@/lib/domain/billing-engine";
 import { getSetting } from "@/lib/domain/settings";
-import { add, subtract, type Cents } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
 import {
   whatsappHref,
   type CompanySettings,
 } from "@/components/public/whatsapp";
 import { PillButton, PillLink } from "@/components/public/pill";
+import { ExpiredLink } from "../../pay/_lib/pay-chrome";
 import { signInVerifiedCustomerAction } from "../actions";
 
 export const metadata: Metadata = {
@@ -103,13 +105,18 @@ function describeOrder(status: OrderStatus): OrderView {
  * invoice pay-link id prefixed with "inv:". Anything else renders the
  * not-found branch instead of throwing a database error at someone who has
  * just been charged.
+ *
+ * An "inv:" ref is only honoured with the pay-link token beside it as `t`.
+ * Invoice checkouts set their own return URL (/pay/[invoiceId]/outcome) and
+ * never fall back to this page, so nothing legitimate arrives here without a
+ * token today; the check is what keeps it that way.
  */
 export default async function SignupSuccessPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string; tries?: string }>;
+  searchParams: Promise<{ ref?: string; tries?: string; t?: string }>;
 }) {
-  const { ref, tries } = await searchParams;
+  const { ref, tries, t } = await searchParams;
   const company = await getSetting<CompanySettings>("company");
 
   const attempt = Number.isFinite(Number(tries)) ? Math.max(0, Number(tries)) : 0;
@@ -121,97 +128,25 @@ export default async function SignupSuccessPage({
     : null;
 
   // ------------------------------------------------- invoice pay-link return
+  /*
+   * An invoice belongs to the person holding its pay-link token, and to nobody
+   * else. This branch used to load the invoice straight off the `ref` in the
+   * URL and print its number, total, amount received and outstanding balance
+   * to whoever asked, while every other invoice surface (/pay/[invoiceId] and
+   * its outcome page) demanded a token and rendered the expired-link state
+   * without one.
+   *
+   * So there is no invoice surface here any more. A token that verifies goes
+   * to /pay/[invoiceId]/outcome, which was built for exactly this moment and
+   * reads the invoice back out of the database after the ITN lands. Anything
+   * else is told the link is no good, in the same words and without confirming
+   * whether that invoice exists.
+   */
   if (invoiceRef) {
-    const invoice = UUID_RE.test(invoiceRef)
-      ? (
-          await db
-            .select()
-            .from(invoices)
-            .where(eq(invoices.id, invoiceRef))
-            .limit(1)
-        )[0]
-      : undefined;
-    if (!invoice) return <NotFound company={company} />;
-
-    // The invoice total is not what was just paid. Part-payments are supported
-    // and leave the invoice open, so quoting the total here would overstate the
-    // charge to somebody who only settled a balance. Show what is confirmed
-    // received against the invoice and what is left.
-    const received = await db
-      .select({ amountCents: payments.amountCents })
-      .from(payments)
-      .where(
-        and(eq(payments.invoiceId, invoice.id), eq(payments.status, "complete"))
-      );
-    const paidCents: Cents = received.reduce(
-      (sum, p) => add(sum, p.amountCents),
-      0
-    );
-    const balanceCents = subtract(invoice.totalCents, paidCents);
-
-    const settled = invoice.status === "paid" || balanceCents <= 0;
-    return (
-      <div className="mx-auto max-w-xl px-4 py-16 text-center">
-        {!settled && keepPolling ? (
-          <meta
-            httpEquiv="refresh"
-            content={`${POLL_INTERVAL_SECONDS};url=/signup/success?ref=inv:${invoice.id}&tries=${attempt + 1}`}
-          />
-        ) : null}
-        {settled ? (
-          <CheckCircle2 className="mx-auto size-10 text-emerald-600" aria-hidden />
-        ) : (
-          <Clock className="mx-auto size-10 text-primary" aria-hidden />
-        )}
-        <h1 className="mt-4 text-2xl font-semibold">
-          {settled
-            ? "Payment received, thank you."
-            : "Confirming your payment..."}
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          Invoice <span className="font-mono">{invoice.number}</span>.{" "}
-          {settled
-            ? "Nothing further is due on it."
-            : keepPolling
-              ? "PayFast is confirming with us, this page updates itself."
-              : "We are still waiting on PayFast's confirmation, which occasionally takes a few minutes. Nothing is lost, and we will message you the moment it clears."}
-        </p>
-        <dl className="mx-auto mt-6 max-w-xs overflow-hidden rounded-2xl border bg-card text-left text-sm">
-          <div className="flex items-center justify-between gap-3 border-b p-3">
-            <dt className="text-muted-foreground">Invoice total</dt>
-            <dd>
-              <MoneyText cents={invoice.totalCents} />
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-3 border-b p-3">
-            <dt className="text-muted-foreground">Confirmed received</dt>
-            <dd>
-              <MoneyText cents={paidCents} />
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-3 bg-muted/40 p-3 font-semibold">
-            <dt>{balanceCents > 0 ? "Balance remaining" : "Nothing due"}</dt>
-            <dd>
-              <MoneyText cents={Math.max(0, balanceCents)} />
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <PillLink href="/portal/billing" size="lg">
-            Open your billing
-          </PillLink>
-          {!settled && !keepPolling ? (
-            <PillLink
-              href={`/signup/success?ref=inv:${invoice.id}&tries=0`}
-              variant="outline"
-            >
-              Check again
-            </PillLink>
-          ) : null}
-        </div>
-        {!settled ? <SupportRoutes company={company} /> : null}
-      </div>
-    );
+    if (!UUID_RE.test(invoiceRef) || !t || !verifyPayLinkToken(invoiceRef, t)) {
+      return <ExpiredLink company={company} />;
+    }
+    redirect(`/pay/${invoiceRef}/outcome?t=${encodeURIComponent(t)}`);
   }
 
   // ------------------------------------------------------- signup order return

@@ -8,6 +8,7 @@ import {
   invoices,
   payments,
   customers,
+  domainEvents,
 } from "@/lib/db/schema";
 import { add, parseZar } from "@/lib/money";
 import { todayInJohannesburg } from "./services";
@@ -378,6 +379,141 @@ export async function collectionsSummary(today = todayInJohannesburg()) {
     .from(payments);
 
   return { ...row, paidThisMonthCents: collected.paidThisMonthCents };
+}
+
+// ------------------------------------------------- money waiting on a human
+
+/**
+ * The outbox event the settlement paths write whenever PayFast money lands
+ * that the document it named cannot absorb: an overpayment, or a debit against
+ * an invoice or order that was already settled, voided, written off or
+ * retired. The money is banked either way (§16.4), so the only open question
+ * is where it should end up, and only a person can answer that.
+ *
+ * Both the invoice path and the order path emit this event with the same
+ * fields, so one queue shows every payment nobody could apply, whatever it
+ * arrived for. `gatewayRef` is the payment's identity throughout.
+ */
+export const UNALLOCATED_EVENT = "payment.unallocated";
+
+/**
+ * The event an operator writes once they have allocated or refunded that
+ * money. It carries the same `gatewayRef`, which is the payment's identity
+ * (`payments_gateway_ref_unique`), so one resolution clears exactly one
+ * exception and a replayed ITN can never resurrect a settled question.
+ */
+export const ALLOCATION_RESOLVED_EVENT = "payment.allocation_resolved";
+
+/** Money banked that no invoice could absorb, still waiting on a decision. */
+export interface UnallocatedPayment {
+  eventId: string;
+  /** When the money arrived, stored UTC and displayed Africa/Johannesburg. */
+  receivedAt: Date;
+  gatewayRef: string;
+  method: string;
+  /** The whole payment PayFast took. */
+  amountCents: number;
+  /** The part of it the invoice could not absorb. */
+  unallocatedCents: number;
+  /** Plain words from the settlement rule, for the operator on the phone. */
+  reason: string;
+  /** The invoice status at the moment the money landed. */
+  statusOnArrival: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceStatus: string;
+  customerId: string;
+  customerName: string;
+}
+
+/**
+ * `gatewayRef`s an operator has already dealt with. Correlated on the outer
+ * `domain_events` row, so it reads as "this exception has no resolution".
+ */
+const unresolved = sql`not exists (
+  select 1 from domain_events resolved
+  where resolved.name = ${ALLOCATION_RESOLVED_EVENT}
+    and resolved.payload->>'gatewayRef' = ${domainEvents.payload}->>'gatewayRef'
+)`;
+
+const unallocatedCentsExpr = sql<number>`coalesce((${domainEvents.payload}->>'unallocatedCents')::int, 0)`;
+
+const stillWaiting = and(
+  eq(domainEvents.name, UNALLOCATED_EVENT),
+  sql`${unallocatedCentsExpr} > 0`,
+  unresolved
+);
+
+/**
+ * Payments carrying money nobody could apply, oldest first.
+ *
+ * Round 4 made sure this money is always banked, audited, evented and belled.
+ * A bell is read once and gone, so until now the audit row was the only trace
+ * and nothing ever listed it: cash sat on a settled invoice with no queue
+ * pointing at it. This is that queue.
+ *
+ * The invoice is joined live rather than read off the payload, so the row
+ * shows what the invoice looks like now, not what it looked like when the
+ * money arrived. Both are useful, so both are returned.
+ */
+export async function unallocatedPayments(
+  limit = 100
+): Promise<UnallocatedPayment[]> {
+  const rows = await db
+    .select({
+      eventId: domainEvents.id,
+      receivedAt: domainEvents.createdAt,
+      gatewayRef: sql<string>`coalesce(${domainEvents.payload}->>'gatewayRef', '')`,
+      method: sql<string>`coalesce(${domainEvents.payload}->>'method', '')`,
+      amountCents: sql<number>`coalesce((${domainEvents.payload}->>'amountCents')::int, 0)`,
+      unallocatedCents: unallocatedCentsExpr,
+      reason: sql<string>`coalesce(${domainEvents.payload}->>'reason', '')`,
+      statusOnArrival: sql<string>`coalesce(${domainEvents.payload}->>'invoiceStatus', '')`,
+      invoiceId: invoices.id,
+      invoiceNumber: invoices.number,
+      invoiceStatus: invoices.status,
+      customer: customers,
+    })
+    .from(domainEvents)
+    // Compared as text: the payload is json, and casting it to uuid would
+    // throw on a malformed row instead of simply not matching.
+    .innerJoin(
+      invoices,
+      sql`${invoices.id}::text = ${domainEvents.payload}->>'invoiceId'`
+    )
+    .innerJoin(customers, eq(invoices.customerId, customers.id))
+    .where(stillWaiting)
+    // Oldest first: the money that has been sitting longest is the money most
+    // likely to have a customer asking about it.
+    .orderBy(domainEvents.createdAt)
+    .limit(limit);
+
+  return rows.map(({ customer, ...row }) => ({
+    ...row,
+    customerId: customer.id,
+    customerName:
+      customer.companyName ??
+      [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+  }));
+}
+
+/**
+ * How much unapplied money is waiting, and on how many payments. Cheap enough
+ * for Today to run on every load, and it counts every exception rather than
+ * just the page the queue happens to show.
+ */
+export async function unallocatedPaymentsSummary(): Promise<{
+  count: number;
+  unallocatedCents: number;
+}> {
+  const [row] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      unallocatedCents: sql<number>`coalesce(sum(${unallocatedCentsExpr}), 0)::int`,
+    })
+    .from(domainEvents)
+    .where(stillWaiting);
+  return row;
 }
 
 export function toCsv(headers: string[], rows: (string | number | null)[][]): string {

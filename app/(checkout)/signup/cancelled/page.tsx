@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { CreditCard, Landmark, MessageCircle } from "lucide-react";
 import { db } from "@/lib/db/client";
-import { orders, orderItems, invoices } from "@/lib/db/schema";
+import { orders, orderItems } from "@/lib/db/schema";
+import { verifyPayLinkToken } from "@/lib/domain/billing-engine";
 import { getSetting } from "@/lib/domain/settings";
 import { multiply } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
@@ -11,6 +13,7 @@ import {
   type CompanySettings,
 } from "@/components/public/whatsapp";
 import { PillLink } from "@/components/public/pill";
+import { ExpiredLink } from "../../pay/_lib/pay-chrome";
 
 export const metadata: Metadata = {
   title: "Payment cancelled",
@@ -39,13 +42,20 @@ function bankingIsPublishable(b: Banking | null): b is Banking {
  * PayFast cancel URL. The order is still pending_payment, which makes this
  * the warmest lead in the funnel: show exactly what was not paid for and
  * every honest way to finish it.
+ *
+ * An "inv:" ref is an invoice, and an invoice is only shown to somebody
+ * holding its pay-link token, exactly as /pay/[invoiceId] requires. This page
+ * used to read the invoice number and total off a raw id in the query string
+ * for any visitor at all. Invoice checkouts set their own cancel URL and never
+ * land here, so a token that verifies is sent to the pay page it belongs to
+ * and everything else gets the expired-link state.
  */
 export default async function SignupCancelledPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string }>;
+  searchParams: Promise<{ ref?: string; t?: string }>;
 }) {
-  const { ref } = await searchParams;
+  const { ref, t } = await searchParams;
   const [company, banking] = await Promise.all([
     getSetting<CompanySettings>("company"),
     getSetting<Banking>("banking"),
@@ -59,19 +69,17 @@ export default async function SignupCancelledPage({
   );
 
   const invoiceRef = ref?.startsWith("inv:") ? ref.slice(4).split(":")[0] : null;
-  const invoice =
-    invoiceRef && UUID_RE.test(invoiceRef)
-      ? (
-          await db
-            .select()
-            .from(invoices)
-            .where(eq(invoices.id, invoiceRef))
-            .limit(1)
-        )[0]
-      : undefined;
+  if (invoiceRef) {
+    if (!UUID_RE.test(invoiceRef) || !t || !verifyPayLinkToken(invoiceRef, t)) {
+      return <ExpiredLink company={company} />;
+    }
+    // The pay page is the right place to try the card again, and with
+    // cancelled=1 it already says that nothing was charged.
+    redirect(`/pay/${invoiceRef}?t=${encodeURIComponent(t)}&cancelled=1`);
+  }
 
   const order =
-    !invoiceRef && ref && UUID_RE.test(ref)
+    ref && UUID_RE.test(ref)
       ? (await db.select().from(orders).where(eq(orders.id, ref)).limit(1))[0]
       : undefined;
   const items = order
@@ -81,8 +89,8 @@ export default async function SignupCancelledPage({
         .where(eq(orderItems.orderId, order.id))
     : [];
 
-  const reference = invoice?.number ?? order?.number ?? null;
-  const amountCents = invoice?.totalCents ?? order?.totalCents ?? null;
+  const reference = order?.number ?? null;
+  const amountCents = order?.totalCents ?? null;
 
   return (
     <div className="mx-auto max-w-xl px-4 py-16">
@@ -91,8 +99,7 @@ export default async function SignupCancelledPage({
         <p className="mt-2 text-muted-foreground">
           {reference ? (
             <>
-              Nothing was charged and{" "}
-              {invoice ? "invoice" : "order"}{" "}
+              Nothing was charged and order{" "}
               <span className="font-mono">{reference}</span> is saved exactly as
               you left it.
             </>
@@ -146,11 +153,8 @@ export default async function SignupCancelledPage({
                 limit was reached, or the card is blocked for online purchases.
                 All three are fixed in your banking app in under a minute.
               </p>
-              <PillLink
-                href={invoice ? "/portal/billing" : "/signup?step=3"}
-                className="mt-3"
-              >
-                {invoice ? "Pay from your portal" : "Try again"}
+              <PillLink href="/signup?step=3" className="mt-3">
+                Try again
               </PillLink>
             </div>
           </div>

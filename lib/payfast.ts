@@ -202,7 +202,195 @@ export async function confirmItnWithPayfast(rawBody: string): Promise<boolean> {
   return text === "VALID";
 }
 
-/** Charge a stored token server-side (recurring billing, spec §6.2). */
+/**
+ * Namespace for a payment reference we minted ourselves because PayFast
+ * confirmed a charge without naming one.
+ *
+ * `payments.gateway_ref` carries a unique index and is the only idempotency
+ * key the settlement path has, so every banked charge needs a reference that
+ * belongs to that charge and no other. The `m_payment_id` sent with the
+ * request is exactly that: it encodes the invoice and the attempt, PayFast
+ * stores it against the transaction, and it is the value an operator searches
+ * on in the PayFast dashboard.
+ *
+ * The prefix is what stops anyone reading it as PayFast's own reference. Real
+ * `pf_payment_id` values are plain digits, so a reference starting with
+ * "payfast-adhoc:" is unmistakably ours and says, in the ledger, that the
+ * gateway confirmed the debit without identifying the transaction.
+ */
+export const DERIVED_GATEWAY_REF_PREFIX = "payfast-adhoc:";
+
+/** The reference to bank a confirmed-but-unidentified charge under. */
+export function derivedGatewayRef(paymentId: string): string {
+  const id = paymentId.trim();
+  if (!id) {
+    throw new Error("A payment id is required to derive a gateway reference");
+  }
+  return id.startsWith(DERIVED_GATEWAY_REF_PREFIX)
+    ? id
+    : `${DERIVED_GATEWAY_REF_PREFIX}${id}`;
+}
+
+/** Did we mint this reference ourselves, rather than read it from PayFast? */
+export function isDerivedGatewayRef(ref: string): boolean {
+  return ref.trim().startsWith(DERIVED_GATEWAY_REF_PREFIX);
+}
+
+/** The m_payment_id inside a reference we derived, for reconciliation. */
+export function merchantRefFromDerived(ref: string): string | null {
+  const trimmed = ref.trim();
+  return trimmed.startsWith(DERIVED_GATEWAY_REF_PREFIX)
+    ? trimmed.slice(DERIVED_GATEWAY_REF_PREFIX.length)
+    : null;
+}
+
+/**
+ * What one ad-hoc charge reply means.
+ *
+ * `charged` and `declined` are statements about the customer's money.
+ * `unknown` is the honest third answer for a reply we cannot read at all: the
+ * caller must treat it as "the card may have been debited", never as a decline
+ * the timeline is free to retry.
+ */
+export type AdhocChargeReading =
+  | { kind: "charged"; gatewayRef: string; derived: boolean }
+  | { kind: "declined"; detail: string }
+  | { kind: "unknown"; detail: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Non-empty string or finite number as text; anything else is nothing. */
+function readable(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+/** PayFast's transaction id out of an object response, whatever it is called. */
+function transactionIdFrom(response: Record<string, unknown>): string | null {
+  for (const key of ["pf_payment_id", "pfPaymentId", "payment_id", "id"]) {
+    const value = readable(response[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+/**
+ * Read the ad-hoc endpoint's body and say what happened to the money.
+ *
+ * The documented success body is `{"code":200,"status":"success","data":
+ * {"response":true,"message":"..."}}`: the API confirms the debit and names no
+ * transaction. Reading that field as a string is what banked every recurring
+ * charge under the literal reference "true", and because the gateway reference
+ * is the sole idempotency key, the first charge banked and every later one was
+ * swallowed as a duplicate.
+ *
+ * So each documented shape is handled on its own terms:
+ *
+ * - `response` an object: PayFast named the transaction, use its id.
+ * - `response` a number or a numeric string: some accounts get the transaction
+ *   id back in place of the boolean, so that is a real reference too.
+ * - `response` true, or absent under a success envelope: the debit happened
+ *   and has no reference of its own, so it is banked under one derived from
+ *   the `m_payment_id`, unique to this charge and marked as ours.
+ * - `response` false, or a failed envelope: a decline, no money moved.
+ * - anything else: unknown, which is never treated as a decline.
+ *
+ * The envelope decides, not the HTTP status: PayFast answers 200 OK with a
+ * failed envelope as readily as it answers 400.
+ */
+export function readAdhocChargeResponse(
+  body: unknown,
+  paymentId: string
+): AdhocChargeReading {
+  if (!isRecord(body)) {
+    return {
+      kind: "unknown",
+      detail: "the ad-hoc endpoint answered with a body we could not read",
+    };
+  }
+
+  const data = isRecord(body.data) ? body.data : null;
+  const message = readable(data?.message) ?? readable(body.message);
+  const code = typeof body.code === "number" ? body.code : null;
+  const status = readable(body.status)?.toLowerCase() ?? null;
+  const response = data ? data.response : body.response;
+  const succeeded =
+    status === "success" || (code !== null && code >= 200 && code < 300);
+  const failed =
+    status === "failed" ||
+    status === "error" ||
+    (code !== null && (code < 200 || code >= 300));
+
+  if (failed || response === false || readable(response)?.toLowerCase() === "false") {
+    return {
+      kind: "declined",
+      detail:
+        message ?? `charge declined${code === null ? "" : ` (code ${code})`}`,
+    };
+  }
+
+  if (isRecord(response)) {
+    const gatewayRef = transactionIdFrom(response);
+    return gatewayRef
+      ? { kind: "charged", gatewayRef, derived: false }
+      : { kind: "charged", gatewayRef: derivedGatewayRef(paymentId), derived: true };
+  }
+
+  if (response === true) {
+    return {
+      kind: "charged",
+      gatewayRef: derivedGatewayRef(paymentId),
+      derived: true,
+    };
+  }
+
+  const scalar = readable(response);
+  if (scalar) {
+    if (scalar.toLowerCase() === "true") {
+      return {
+        kind: "charged",
+        gatewayRef: derivedGatewayRef(paymentId),
+        derived: true,
+      };
+    }
+    return { kind: "charged", gatewayRef: scalar, derived: false };
+  }
+
+  if (succeeded) {
+    // A success envelope with no response field: the charge went through and
+    // the reply says nothing else about it.
+    return {
+      kind: "charged",
+      gatewayRef: derivedGatewayRef(paymentId),
+      derived: true,
+    };
+  }
+
+  return {
+    kind: "unknown",
+    detail:
+      message ??
+      "the ad-hoc endpoint did not say whether the card was charged",
+  };
+}
+
+/**
+ * Charge a stored token server-side (recurring billing, spec §6.2).
+ *
+ * `paymentId` becomes the `m_payment_id` and must be unique to this attempt:
+ * it is what a confirmed-but-unidentified charge is banked under, and banking
+ * two charges under one reference loses one of them.
+ *
+ * Throws when the outcome is genuinely unknown. The caller reads a thrown
+ * error as "the card may have been debited", which banks nothing and retries
+ * nothing, and that is the only safe reading of an unreadable reply.
+ */
 export async function chargeToken(req: {
   token: string;
   amountCents: number;
@@ -258,17 +446,39 @@ export async function chargeToken(req: {
     },
     body: bodyFields.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&"),
   });
+  const rawBody = (await res.text().catch(() => "")).slice(0, 2000);
+
   if (!res.ok) {
-    return { ok: false, detail: `payfast ${res.status}: ${await res.text()}` };
+    // A 4xx is PayFast telling us it refused the request, so no money moved.
+    // A 5xx, a timeout or a rate-limit is the gateway failing to answer, which
+    // says nothing about whether the card was debited, so it is not a decline.
+    if (res.status >= 500 || res.status === 408 || res.status === 429) {
+      throw new Error(
+        `payfast ad-hoc charge outcome unknown, HTTP ${res.status}: ${rawBody}`
+      );
+    }
+    return { ok: false, detail: `payfast ${res.status}: ${rawBody}` };
   }
-  const data = (await res.json().catch(() => null)) as {
-    data?: { response?: unknown; message?: string };
-  } | null;
-  const pfPaymentId =
-    data && typeof data.data?.response === "object" && data.data.response
-      ? String(
-          (data.data.response as Record<string, unknown>).pf_payment_id ?? ""
-        )
-      : String(data?.data?.response ?? "");
-  return { ok: true, gatewayRef: pfPaymentId || undefined };
+
+  let body: unknown = null;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    body = null;
+  }
+
+  const reading = readAdhocChargeResponse(body, req.paymentId);
+  if (reading.kind === "unknown") {
+    throw new Error(`payfast ad-hoc charge outcome unknown: ${reading.detail}`);
+  }
+  if (reading.kind === "declined") {
+    return { ok: false, detail: reading.detail };
+  }
+  return {
+    ok: true,
+    gatewayRef: reading.gatewayRef,
+    detail: reading.derived
+      ? "PayFast confirmed the charge without naming a transaction"
+      : undefined,
+  };
 }

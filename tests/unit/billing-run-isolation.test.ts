@@ -129,12 +129,16 @@ describe("runDunning isolation", () => {
       { result: [invoiceRow("a"), invoiceRow("b"), invoiceRow("c")] },
       // Invoice a: the collection-attempt lookup blows up.
       { error: new Error("connection terminated unexpectedly") },
-      // Invoice b: an attempt already exists for this slot, then the re-read.
+      // Invoice b: an attempt already exists for this slot, then the re-read,
+      // then what has been banked against it (dunning chases the balance, not
+      // the status, so it reads the payments before escalating).
       { result: [{ n: 1 }] },
       { result: [invoiceRow("b")] },
+      { result: [{ total: 0 }] },
       // Invoice c: same, and it must be reached despite a failing.
       { result: [{ n: 1 }] },
       { result: [invoiceRow("c")] },
+      { result: [{ total: 0 }] },
     ];
 
     const result = await engine.runDunning("2026-07-10");
@@ -142,7 +146,7 @@ describe("runDunning isolation", () => {
     expect(result.processed).toBe(3);
     expect(result.failed).toBe(1);
     // Every scripted query ran, which is what proves c was reached.
-    expect(selectCalls).toBe(6);
+    expect(selectCalls).toBe(8);
   });
 
   it("reports a clean run honestly", async () => {
@@ -150,8 +154,10 @@ describe("runDunning isolation", () => {
       { result: [invoiceRow("a"), invoiceRow("b")] },
       { result: [{ n: 1 }] },
       { result: [invoiceRow("a")] },
+      { result: [{ total: 0 }] },
       { result: [{ n: 1 }] },
       { result: [invoiceRow("b")] },
+      { result: [{ total: 0 }] },
     ];
 
     const result = await engine.runDunning("2026-07-10");

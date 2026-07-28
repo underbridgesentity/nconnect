@@ -5,10 +5,15 @@ import { Receipt } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { invoices, customers, payments } from "@/lib/db/schema";
 import { ageAnalysis, DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
-import { paidCentsByInvoice } from "@/lib/domain/billing";
+import { outstandingCents, paidCentsByInvoice } from "@/lib/domain/billing";
+import {
+  unallocatedPayments,
+  unallocatedPaymentsSummary,
+} from "@/lib/domain/reports";
 import { getSettingOr } from "@/lib/domain/settings";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { paymentMethodLabel } from "../labels";
+import { ResolveUnallocatedForm } from "./client";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -70,8 +75,15 @@ export default async function AdminBillingPage({
       : undefined
   );
 
-  const [invoiceRows, [matchCount], buckets, dunning, paymentRows] =
-    await Promise.all([
+  const [
+    invoiceRows,
+    [matchCount],
+    buckets,
+    dunning,
+    paymentRows,
+    unallocated,
+    unallocatedTotals,
+  ] = await Promise.all([
       db
         .select({ invoice: invoices, customer: customers })
         .from(invoices)
@@ -93,6 +105,8 @@ export default async function AdminBillingPage({
         .innerJoin(customers, eq(invoices.customerId, customers.id))
         .orderBy(desc(payments.createdAt))
         .limit(50),
+      unallocatedPayments(),
+      unallocatedPaymentsSummary(),
     ]);
 
   const paidByInvoice = await paidCentsByInvoice(
@@ -113,10 +127,16 @@ export default async function AdminBillingPage({
     { currentCents: 0, d30Cents: 0, d60Cents: 0, d90Cents: 0, totalCents: 0 }
   );
 
-  const TABS = [
+  const TABS: { key: string; label: string; count?: number }[] = [
     { key: "invoices", label: "Invoices" },
     { key: "age", label: "Age analysis" },
     { key: "payments", label: "Payments" },
+    // Money nobody could apply is the one tab that has to announce itself.
+    {
+      key: "unallocated",
+      label: "Unallocated",
+      count: unallocatedTotals.count,
+    },
     { key: "dunning", label: "Dunning settings" },
   ];
 
@@ -144,6 +164,11 @@ export default async function AdminBillingPage({
             )}
           >
             {t.label}
+            {t.count ? (
+              <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">
+                {t.count}
+              </span>
+            ) : null}
           </Link>
         ))}
       </div>
@@ -236,7 +261,10 @@ export default async function AdminBillingPage({
                           <td className="p-3 text-right">
                             {collectable ? (
                               <MoneyText
-                                cents={invoice.totalCents - paid}
+                                cents={outstandingCents(
+                                  invoice.totalCents,
+                                  paid
+                                )}
                                 className={cn(
                                   invoice.status === "past_due" &&
                                     "font-medium text-red-600"
@@ -391,6 +419,96 @@ export default async function AdminBillingPage({
                 ))}
               </tbody>
             </table>
+          </div>
+        )
+      ) : null}
+
+      {tab === "unallocated" ? (
+        unallocated.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="Nothing waiting to be allocated"
+            description="Every rand PayFast has taken has landed on an invoice that could absorb it."
+          />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Money PayFast took that the invoice it named could not absorb: an
+              overpayment, or a debit against an invoice that was already
+              settled, voided or written off. It is banked and audited against
+              that invoice already. What is missing is the decision, so allocate
+              it to another invoice or refund it, then record which here.
+            </p>
+            <div className="rounded-lg border border-amber-300 bg-amber-50/50 p-3 text-sm dark:bg-amber-950/20">
+              <MoneyText
+                cents={unallocatedTotals.unallocatedCents}
+                className="font-semibold"
+              />{" "}
+              across {unallocatedTotals.count} payment
+              {unallocatedTotals.count === 1 ? "" : "s"}
+              {unallocatedTotals.count > unallocated.length
+                ? `, showing the ${unallocated.length} that have waited longest`
+                : ""}
+              .
+            </div>
+
+            {unallocated.map((row) => (
+              <div
+                key={row.eventId}
+                className="rounded-lg border bg-card p-4 text-sm"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <Link
+                      href={`/admin/customers/${row.customerId}?tab=billing`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {row.customerName || "(no name)"}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">
+                      Arrived for{" "}
+                      <span className="font-mono">{row.invoiceNumber}</span> on{" "}
+                      {formatDateTime(row.receivedAt)} by{" "}
+                      {paymentMethodLabel(row.method)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Gateway reference{" "}
+                      <span className="font-mono">{row.gatewayRef}</span>
+                    </p>
+                    {row.statusOnArrival &&
+                    row.statusOnArrival !== row.invoiceStatus ? (
+                      <p className="text-xs text-muted-foreground">
+                        The invoice was{" "}
+                        {row.statusOnArrival.replace("_", " ")} when the money
+                        arrived.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2 text-right">
+                    <div>
+                      <MoneyText
+                        cents={row.unallocatedCents}
+                        className="font-semibold text-amber-700"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        of <MoneyText cents={row.amountCents} className="text-xs" />{" "}
+                        received
+                      </p>
+                    </div>
+                    <StatusPill status={row.invoiceStatus} />
+                  </div>
+                </div>
+                {row.reason ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {row.reason}
+                  </p>
+                ) : null}
+                <ResolveUnallocatedForm
+                  gatewayRef={row.gatewayRef}
+                  invoiceId={row.invoiceId}
+                />
+              </div>
+            ))}
           </div>
         )
       ) : null}

@@ -3,6 +3,10 @@ import {
   tokenChargeDisposition,
   type ChargeAnswer,
 } from "@/lib/domain/billing-engine";
+import {
+  derivedGatewayRef,
+  readAdhocChargeResponse,
+} from "@/lib/payfast";
 
 /**
  * What to do about one answer from the card gateway, pure and database-free.
@@ -42,10 +46,27 @@ describe("tokenChargeDisposition", () => {
 
   it("banks a reference-less success under the m_payment_id it was charged with", () => {
     // There is always an identifier: the one we sent PayFast, which is what an
-    // operator reconciles against on their side.
+    // operator reconciles against on their side. It is namespaced so nobody
+    // reads it as a reference PayFast issued.
     const decision = decide({ kind: "replied", ok: true });
-    expect(decision.bankUnder).toBe(PAYMENT_ID);
+    expect(decision.bankUnder).toBe(derivedGatewayRef(PAYMENT_ID));
+    expect(decision.bankUnder).toContain(PAYMENT_ID);
     expect(decision.detail).toContain(PAYMENT_ID);
+  });
+
+  it("treats a reference we derived ourselves as no reference at all", () => {
+    // `chargeToken` derives one when PayFast confirms a charge without naming
+    // a transaction. That is the same fact as an empty reference, so it must
+    // reach the same disposition: banked, flagged, and off automatic charging.
+    const decision = decide({
+      kind: "replied",
+      ok: true,
+      gatewayRef: derivedGatewayRef(PAYMENT_ID),
+    });
+    expect(decision.result).toBe("success");
+    expect(decision.bankUnder).toBe(derivedGatewayRef(PAYMENT_ID));
+    expect(decision.exception).toBe("Card charge without a gateway reference");
+    expect(decision.mayRecharge).toBe(false);
   });
 
   it("puts a reference-less success in front of a person", () => {
@@ -100,6 +121,28 @@ describe("tokenChargeDisposition", () => {
       expect(decision.result).toBe("success");
       expect(decision.bankUnder).not.toBeNull();
     }
+  });
+
+  it("gives consecutive recurring charges different keys to bank under", () => {
+    // The whole failure, end to end: PayFast's documented success body is
+    // {"data":{"response":true}}, that was read as a string, and every
+    // recurring charge on the platform came back with the gateway reference
+    // "true". The reference is the only idempotency key the settlement path
+    // has, so charge one banked and every charge after it was swallowed as a
+    // replay of it: customers debited, invoices left open, nothing raised.
+    const successBody = { code: 200, status: "success", data: { response: true } };
+    const bankedUnder = ["inv:a:1", "inv:a:2", "inv:b:1"].map((paymentId) => {
+      const reading = readAdhocChargeResponse(successBody, paymentId);
+      const answer: ChargeAnswer = {
+        kind: "replied",
+        ok: reading.kind === "charged",
+        gatewayRef: reading.kind === "charged" ? reading.gatewayRef : undefined,
+      };
+      return tokenChargeDisposition({ answer, paymentId }).bankUnder;
+    });
+
+    expect(bankedUnder).not.toContain("true");
+    expect(new Set(bankedUnder).size).toBe(3);
   });
 
   it("never lets an outcome we are unsure of be charged again automatically", () => {

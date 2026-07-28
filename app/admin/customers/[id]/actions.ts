@@ -13,10 +13,9 @@ import {
   writeOffInvoice,
   adjustInvoice,
 } from "@/lib/domain/billing";
-import { markOrderPaid } from "@/lib/domain/orders";
+import { markOrderPaid, provisionPaidOrder } from "@/lib/domain/orders";
 import { parseZar } from "@/lib/money";
 import {
-  createServicesForPaidOrder,
   suspendService,
   reactivateService,
   adminOverrideCancel,
@@ -177,8 +176,19 @@ export async function markOrderPaidManuallyAction(
       method: "eft_manual",
       recordedBy: actor.userId,
     });
-    if (!result.alreadyPaid) {
-      await createServicesForPaidOrder(orderId);
+    /*
+     * Gate on `settled`, not on `!alreadyPaid`. markOrderPaid no longer throws
+     * when the captured amount does not cover the order: it banks the money and
+     * flags it for an operator. Provisioning an unsettled order would throw
+     * "is not paid", so the operator would be told the capture failed for a
+     * payment that was in fact recorded correctly.
+     *
+     * provisionPaidOrder rather than createServicesForPaidOrder, so a
+     * provisioning failure becomes an audited event and a bell instead of a
+     * raw error string on this form.
+     */
+    if (result.settled) {
+      await provisionPaidOrder(orderId);
     }
     revalidatePath(`/admin/customers/${String(form.get("customerId"))}`);
     revalidatePath("/admin");
