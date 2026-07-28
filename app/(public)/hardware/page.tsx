@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { publishedHardware } from "@/lib/domain/catalogue";
 import { fileUrl } from "@/lib/storage";
+import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { Reveal } from "@/components/shared/reveal";
 import { PageHeader, type HeaderStat } from "@/components/public/page-header";
@@ -152,16 +153,33 @@ export default async function HardwarePage({
         </div>
 
         {items.length === 0 ? (
-          <p className="mt-8 rounded-3xl border border-dashed bg-card/50 p-10 text-center text-sm text-muted-foreground">
-            Nothing published in this category right now.{" "}
-            <Link
-              href="/hardware"
-              className="font-medium text-primary hover:underline"
-            >
-              See the full range
-            </Link>
-            .
-          </p>
+          // Two different truths: one category is bare, or the whole range is.
+          // The old copy said "in this category" either way, which read as a
+          // filter problem to somebody looking at an empty shop.
+          <EmptyState
+            className="mt-8 bg-card/50"
+            title={
+              category
+                ? "Nothing published in this category right now"
+                : "No hardware published right now"
+            }
+            description={
+              category
+                ? "The rest of the range is still listed."
+                : "We are between stock listings. Ask us and we will tell you what we can get."
+            }
+            action={
+              category ? (
+                <PillLink href="/hardware" variant="outline" size="sm">
+                  See the full range
+                </PillLink>
+              ) : (
+                <PillLink href="/contact" variant="outline" size="sm">
+                  Ask us directly
+                </PillLink>
+              )
+            }
+          />
         ) : (
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {items.map((h, i) => (

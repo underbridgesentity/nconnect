@@ -47,6 +47,7 @@ import {
   saveCostPricesAction,
   type ActionResult,
 } from "./actions";
+import { amountToInput } from "./pricing";
 
 /**
  * The slug is the plan's public URL. Rewriting it on a published plan 404s
@@ -151,6 +152,17 @@ function useActionRunner() {
   return { pending, run };
 }
 
+/**
+ * A money field holds text, not a number.
+ *
+ * `type="number"` silently blanks anything the browser dislikes, so an admin
+ * pasting "R1 234,56" off this app's own screens submitted an empty field and
+ * `num()` read it as R0.00. Plain text with `inputMode="decimal"` still brings
+ * up the numeric keypad on a phone, keeps what was typed, and hands it to
+ * `parseZar`, which reads both South African and international grouping and
+ * refuses the rest by name. The default value is rendered with string maths
+ * so no division touches an amount on the way out either.
+ */
 function MoneyField({
   name,
   label,
@@ -170,12 +182,10 @@ function MoneyField({
       <Input
         id={name}
         name={name}
-        type="number"
-        step="0.01"
-        min="0"
+        inputMode="decimal"
         required={required}
-        placeholder={placeholder}
-        defaultValue={defaultCents != null ? (defaultCents / 100).toString() : ""}
+        placeholder={placeholder ?? "388.00"}
+        defaultValue={defaultCents != null ? amountToInput(defaultCents) : ""}
         className="tnum"
       />
     </div>
@@ -741,16 +751,14 @@ export function CostPriceTable({ rows }: { rows: CostRow[] }) {
                   <td className="p-3 font-medium">{row.name}</td>
                   <td className="p-3 text-muted-foreground">{row.group}</td>
                   <td className="tnum p-3 text-right">
-                    {(row.priceCents / 100).toFixed(2)}
+                    {amountToInput(row.priceCents)}
                   </td>
                   <td className="p-3 text-right">
                     <Input
                       name={`cost:${row.kind}:${row.id}`}
                       inputMode="decimal"
                       defaultValue={
-                        row.costCents != null
-                          ? (row.costCents / 100).toFixed(2)
-                          : ""
+                        row.costCents != null ? amountToInput(row.costCents) : ""
                       }
                       placeholder="not set"
                       aria-label={`Wholesale cost for ${row.name}`}

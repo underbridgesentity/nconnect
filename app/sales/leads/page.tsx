@@ -20,6 +20,7 @@ import { normalizePhone } from "@/lib/auth/otp";
 import { formatAge, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { EmptyState } from "@/components/shared/empty-state";
+import { PillButton, PillLink } from "@/components/public/pill";
 import { cn } from "@/lib/utils";
 import { QuickAddLead, ClaimButton } from "./client";
 
@@ -169,19 +170,13 @@ export default async function SalesLeadsPage({
           aria-label="Search leads"
           className="h-11 min-w-48 flex-1 rounded-full border bg-background px-4 text-sm"
         />
-        <button
-          type="submit"
-          className="touch-target rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-[#0f5a91]"
-        >
+        <PillButton type="submit" size="sm">
           Search
-        </button>
+        </PillButton>
         {search ? (
-          <Link
-            href={href({ q: "" })}
-            className="touch-target inline-flex items-center rounded-full border px-5 text-sm font-medium hover:bg-accent"
-          >
+          <PillLink href={href({ q: "" })} variant="outline" size="sm">
             Clear
-          </Link>
+          </PillLink>
         ) : null}
       </form>
 
@@ -230,7 +225,7 @@ export default async function SalesLeadsPage({
       {rows.length === 0 ? (
         <EmptyState
           icon={ContactRound}
-          sentence={
+          description={
             search
               ? `Nothing matches "${search}" in this view. Try the Everyone tab, or a different spelling.`
               : scope === "pool"
@@ -273,12 +268,9 @@ export default async function SalesLeadsPage({
           aria-label="Lead list pages"
         >
           {page > 1 ? (
-            <Link
-              href={href({ page: page - 1 })}
-              className="touch-target inline-flex items-center rounded-full border px-5 text-sm font-medium hover:bg-accent"
-            >
+            <PillLink href={href({ page: page - 1 })} variant="outline" size="sm">
               Previous
-            </Link>
+            </PillLink>
           ) : (
             <span />
           )}
@@ -286,12 +278,9 @@ export default async function SalesLeadsPage({
             Page {page} of {lastPage}, {total} lead{total === 1 ? "" : "s"}
           </p>
           {page < lastPage ? (
-            <Link
-              href={href({ page: page + 1 })}
-              className="touch-target inline-flex items-center rounded-full border px-5 text-sm font-medium hover:bg-accent"
-            >
+            <PillLink href={href({ page: page + 1 })} variant="outline" size="sm">
               Next
-            </Link>
+            </PillLink>
           ) : (
             <span />
           )}

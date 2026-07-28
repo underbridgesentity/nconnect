@@ -48,6 +48,51 @@ export type SignInNotice = {
   onward: { href: string; label: string } | null;
 };
 
+/**
+ * The two sign-in screens the gate can land someone on, and the sentences that
+ * differ between them. Everything else reads the same on both, so it is said
+ * once.
+ *
+ * Staff sign in with an email and a password; customers sign in with a code
+ * sent to the cellphone on their account. "Sign in below with an account that
+ * can" is therefore advice nobody can act on in front of the customer form,
+ * and that is the only kind of sentence worth splitting in two.
+ */
+type SignInSurface = "staff" | "customer";
+
+const SURFACE_COPY: Record<
+  SignInSurface,
+  {
+    /** Closes the "that account cannot open it" sentence. */
+    wrongAccountAdvice: string;
+    /** For a signed-out visitor the gate turned away. */
+    needAccountTitle: string;
+    needAccountDetail: (hasDestination: boolean) => string;
+  }
+> = {
+  staff: {
+    wrongAccountAdvice:
+      "Sign in below with an account that can, or carry on where you were.",
+    needAccountTitle: "That page needs a staff account",
+    needAccountDetail: (hasDestination) =>
+      hasDestination
+        ? "Sign in with a Needd Connect staff account that has access to it and we will take you straight there."
+        : "Sign in with a Needd Connect staff account that has access to it.",
+  },
+  customer: {
+    // Only a staff session ever reaches this line here: a customer who can
+    // open the page has already been redirected onto it. So the advice names
+    // what this form actually wants, without assuming they hold one.
+    wrongAccountAdvice:
+      "Sign in below with the cellphone number on a customer account, or carry on where you were.",
+    needAccountTitle: "That page needs your customer account",
+    needAccountDetail: (hasDestination) =>
+      hasDestination
+        ? "Sign in with the cellphone number on your Needd Connect account and we will take you straight there."
+        : "Sign in with the cellphone number on your Needd Connect account.",
+  },
+};
+
 const ACCOUNT_PHRASE: Record<Role, string> = {
   admin: "an admin account",
   sales: "a sales account",
@@ -65,9 +110,19 @@ const roleHome = (role: Role) => ({
   label: HOME_LABEL[role],
 });
 
+export type SignInNoticeInput = {
+  reason: SignInReason | null;
+  /** The role on the live session, null when signed out. */
+  role: Role | null;
+  /** Email or name, whichever the session carries, for "signed in as". */
+  identity: string | null;
+  /** Validated relative path, or null. */
+  destination: string | null;
+};
+
 /**
- * What to say above the staff sign-in form, or null when there is nothing
- * true to add and the bare form is the honest answer.
+ * What to say above a sign-in form, or null when there is nothing true to add
+ * and the bare form is the honest answer.
  *
  * `destination` must already have been through `safeCallbackUrl`: it is shown
  * to the person and put in the form, so a raw query parameter has no business
@@ -78,15 +133,11 @@ const roleHome = (role: Role) => ({
  * area map, or the gate itself saying so; a signed-in visitor who simply
  * bookmarked this form is not accused of anything.
  */
-export function staffSignInNotice(input: {
-  reason: SignInReason | null;
-  /** The role on the live session, null when signed out. */
-  role: Role | null;
-  /** Email or name, whichever the session carries, for "signed in as". */
-  identity: string | null;
-  /** Validated relative path, or null. */
-  destination: string | null;
-}): SignInNotice | null {
+function signInNotice(
+  surface: SignInSurface,
+  input: SignInNoticeInput
+): SignInNotice | null {
+  const copy = SURFACE_COPY[surface];
   const { reason, role, identity, destination } = input;
 
   if (role) {
@@ -96,7 +147,7 @@ export function staffSignInNotice(input: {
     const blocked = {
       tone: "blocked" as const,
       title: "That page needs a different account",
-      detail: `${who}, and it cannot open that page. Sign in below with an account that can, or carry on where you were.`,
+      detail: `${who}, and it cannot open that page. ${copy.wrongAccountAdvice}`,
       onward: roleHome(role),
     };
 
@@ -128,10 +179,8 @@ export function staffSignInNotice(input: {
   if (reason === "role") {
     return {
       tone: "info",
-      title: "That page needs a staff account",
-      detail: destination
-        ? "Sign in with a Needd Connect staff account that has access to it and we will take you straight there."
-        : "Sign in with a Needd Connect staff account that has access to it.",
+      title: copy.needAccountTitle,
+      detail: copy.needAccountDetail(destination !== null),
       destination,
       onward: null,
     };
@@ -159,4 +208,21 @@ export function staffSignInNotice(input: {
   }
 
   return null;
+}
+
+/** What to say above the staff sign-in form (email and password). */
+export function staffSignInNotice(input: SignInNoticeInput) {
+  return signInNotice("staff", input);
+}
+
+/**
+ * What to say above the customer sign-in form (a code to their cellphone).
+ *
+ * The role gate sends a signed-in admin or sales rep who opens a /portal link
+ * here, exactly as it sends a customer to the staff form, so this screen has
+ * the same duty to explain itself. A signed-in customer never sees it: the page
+ * redirects them onward before it renders.
+ */
+export function customerSignInNotice(input: SignInNoticeInput) {
+  return signInNotice("customer", input);
 }

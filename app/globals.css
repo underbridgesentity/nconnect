@@ -194,7 +194,9 @@
    * that needs more than 44px asks for it through the variables, e.g.
    * `[--touch-h:56px]`, which cascades independently and therefore cannot be
    * clobbered. A `min-h-*` utility on the same element still loses, so use
-   * the variables here rather than mixing the two.
+   * the variables here rather than mixing the two. Set them on the control
+   * itself: custom properties inherit, so a value parked on a wrapper would
+   * grow every touch target inside it.
    */
   .touch-target {
     min-height: max(44px, var(--touch-h, 0px));

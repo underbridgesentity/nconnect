@@ -16,8 +16,6 @@ import {
 type Phase = "contact" | "otp" | "details" | "paying";
 type Contact = { name: string; phone: string; email: string; requiresRica: boolean };
 
-const RESEND_SECONDS = 30;
-
 export function AcceptFlow({
   token,
   prefill,
@@ -118,7 +116,7 @@ export function AcceptFlow({
       const r = await acceptOtpRequestAction(token, form);
       if (r.ok) {
         setNotice(`A new code is on its way to ${contact.phone}.`);
-        setCooldown(RESEND_SECONDS);
+        setCooldown(r.resendIn);
       } else {
         setError(r.error ?? "We could not send another code");
       }
@@ -156,7 +154,7 @@ export function AcceptFlow({
               const r = await acceptOtpRequestAction(token, form);
               if (r.ok) {
                 setPhase("otp");
-                setCooldown(RESEND_SECONDS);
+                setCooldown(r.resendIn);
               } else setError(r.error ?? "Failed");
             })
           }

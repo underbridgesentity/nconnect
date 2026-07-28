@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { desc, eq, or, inArray } from "drizzle-orm";
+import { MessageSquare, ScrollText } from "lucide-react";
 import { db } from "@/lib/db/client";
 import {
   customers,
@@ -27,6 +28,7 @@ import { todayInJohannesburg } from "@/lib/domain/services";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { actorLabel, paymentMethodLabel } from "../../labels";
 import { BackLink } from "../../back-link";
+import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { cn, isUuid } from "@/lib/utils";
@@ -211,10 +213,11 @@ export default async function Customer360Page({
         <section className="space-y-3">
           <h2 className="text-sm font-semibold">Services</h2>
           {serviceRows.length === 0 ? (
-            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              No services yet. They are created automatically when an order is
-              paid.
-            </p>
+            <EmptyState
+              compact
+              title="No services yet"
+              description="They are created automatically when an order is paid."
+            />
           ) : (
             serviceRows.map(({ service, plan, provider }) => (
               <div key={service.id} className="rounded-lg border bg-card p-4">
@@ -281,9 +284,7 @@ export default async function Customer360Page({
           <div className="space-y-3">
             <h2 className="text-sm font-semibold">Invoices</h2>
             {invoiceRows.length === 0 ? (
-              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                No invoices yet.
-              </p>
+              <EmptyState compact title="No invoices yet" />
             ) : (
               invoiceRows.map((invoice) => {
                 const paid = paidByInvoice.get(invoice.id) ?? 0;
@@ -458,10 +459,11 @@ async function ConversationsTab({ customerId }: { customerId: string }) {
   return (
     <section className="space-y-3">
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          No conversations with this customer yet. Portal messages and inbound
-          WhatsApp land here the moment they arrive.
-        </p>
+        <EmptyState
+          icon={MessageSquare}
+          title="No conversations with this customer yet"
+          description="Portal messages and inbound WhatsApp land here the moment they arrive."
+        />
       ) : (
         rows.map((c) => (
           <Link
@@ -497,9 +499,11 @@ async function DocumentsTab({ customerId }: { customerId: string }) {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold">RICA records</h2>
         {rica.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No RICA records, this customer has no SIM-based services.
-          </p>
+          <EmptyState
+            compact
+            title="No RICA records"
+            description="This customer has no SIM-based services."
+          />
         ) : (
           rica.map((r) => (
             <div
@@ -559,9 +563,7 @@ async function AuditTab({
   return (
     <section className="space-y-2">
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          No audited actions yet.
-        </p>
+        <EmptyState icon={ScrollText} title="No audited actions yet" />
       ) : (
         rows.map(({ entry, actorName }) => (
           <div key={entry.id} className="rounded-lg border bg-card p-3 text-sm">

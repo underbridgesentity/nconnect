@@ -8,6 +8,7 @@ import { customers } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { normalizePhone } from "@/lib/auth/otp";
 import { EmptyState } from "@/components/shared/empty-state";
+import { PillButton, PillLink } from "@/components/public/pill";
 
 export const metadata: Metadata = { title: "My customers" };
 
@@ -75,26 +76,20 @@ export default async function SalesCustomersPage({
           aria-label="Search customers"
           className="h-11 min-w-48 flex-1 rounded-full border bg-background px-4 text-sm"
         />
-        <button
-          type="submit"
-          className="touch-target rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-[#0f5a91]"
-        >
+        <PillButton type="submit" size="sm">
           Search
-        </button>
+        </PillButton>
         {search ? (
-          <Link
-            href="/sales/customers"
-            className="touch-target inline-flex items-center rounded-full border px-5 text-sm font-medium hover:bg-accent"
-          >
+          <PillLink href="/sales/customers" variant="outline" size="sm">
             Clear
-          </Link>
+          </PillLink>
         ) : null}
       </form>
 
       {rows.length === 0 ? (
         <EmptyState
           icon={Users}
-          sentence={
+          description={
             search
               ? `Nobody in your book matches "${search}".`
               : "No customers yet. When one of your quotes is accepted and paid, the customer lands here, attributed to you."

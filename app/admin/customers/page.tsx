@@ -95,7 +95,7 @@ export default async function CustomersPage({
       {rows.length === 0 ? (
         <EmptyState
           icon={Users}
-          sentence={
+          description={
             search
               ? `No customers match "${search}". Try an invoice number, a SIM number or the phone number they are calling from.`
               : "No customers yet. They appear here the moment someone signs up, or when a sales quote is accepted and paid."

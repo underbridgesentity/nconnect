@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { MessageCircle, Phone } from "lucide-react";
 import { readDraft } from "@/lib/domain/signup";
 import { getSetting } from "@/lib/domain/settings";
@@ -7,14 +6,12 @@ import {
   whatsappHref,
   type CompanySettings,
 } from "@/components/public/whatsapp";
+import { PillLink } from "@/components/public/pill";
 
 export const metadata: Metadata = {
   title: "We're checking your address",
   robots: { index: false },
 };
-
-const CTA_SECONDARY =
-  "inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent";
 
 /**
  * The fibre exit. Repeating the address and the number we captured is the
@@ -82,22 +79,26 @@ export default async function FeasibilityPromisedPage() {
         In the meantime, uncapped LTE works almost everywhere and activates in
         days:
       </p>
-      <Link href="/internet" className={`mx-auto mt-3 flex w-fit ${CTA_SECONDARY}`}>
+      <PillLink
+        href="/internet"
+        variant="outline"
+        className="mx-auto mt-3 flex w-fit"
+      >
         See LTE plans
-      </Link>
+      </PillLink>
 
       {phone ? (
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           {wa ? (
-            <a href={wa} className={CTA_SECONDARY}>
-              <MessageCircle className="mr-2 size-4" aria-hidden />
+            <PillLink href={wa} variant="outline">
+              <MessageCircle className="size-4" aria-hidden />
               WhatsApp us
-            </a>
+            </PillLink>
           ) : null}
-          <a href={`tel:${phone.replace(/\s/g, "")}`} className={CTA_SECONDARY}>
-            <Phone className="mr-2 size-4" aria-hidden />
+          <PillLink href={`tel:${phone.replace(/\s/g, "")}`} variant="outline">
+            <Phone className="size-4" aria-hidden />
             {phone}
-          </a>
+          </PillLink>
         </div>
       ) : null}
     </div>

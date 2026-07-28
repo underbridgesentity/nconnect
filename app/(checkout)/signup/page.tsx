@@ -10,6 +10,10 @@ import {
 import { priceCart, type PricedCart } from "@/lib/domain/orders";
 import { readDraft } from "@/lib/domain/signup";
 import { getSetting } from "@/lib/domain/settings";
+import {
+  OTP_TTL_SECONDS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+} from "@/lib/auth/otp";
 import { multiply } from "@/lib/money";
 import { MoneyText } from "@/components/shared/money-text";
 import { Input } from "@/components/ui/input";
@@ -19,6 +23,7 @@ import {
   whatsappHref,
   type CompanySettings,
 } from "@/components/public/whatsapp";
+import { pillClass } from "@/components/public/pill";
 import { cn } from "@/lib/utils";
 import {
   chooseSelectionAction,
@@ -35,11 +40,12 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-const PRIMARY_CTA =
-  "flex w-full touch-target items-center justify-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]";
-
-const OTP_TTL_SECONDS = 5 * 60;
-const OTP_RESEND_SECONDS = 60;
+/**
+ * The wizard's step action: the platform pill, run full width so it is the
+ * obvious next thing on a phone. PendingSubmit takes a className rather than a
+ * component, which is what pillClass is for.
+ */
+const PRIMARY_CTA = pillClass("primary", { className: "flex w-full" });
 
 /** Absolute deadline in epoch ms, so the client never has to guess a clock. */
 function deadline(sentAt: string | undefined, window: number): number | null {
@@ -260,8 +266,9 @@ export default async function SignupWizardPage({
             "Hi Needd Connect, I have a question before I pay."
           )}
           otpSent={Boolean(draft.otpSentAt)}
+          otpTtlSeconds={OTP_TTL_SECONDS}
           otpExpiresAt={deadline(draft.otpSentAt, OTP_TTL_SECONDS)}
-          otpResendAt={deadline(draft.otpSentAt, OTP_RESEND_SECONDS)}
+          otpResendAt={deadline(draft.otpSentAt, OTP_RESEND_COOLDOWN_SECONDS)}
           summary={
             priced
               ? {
@@ -377,7 +384,7 @@ async function Step1Choose({
             ) : null}
             <PendingSubmit
               pendingLabel="Loading..."
-              className="flex touch-target items-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-[#0f5a91]"
+              className={pillClass("primary", { className: "flex" })}
             >
               Continue to address
             </PendingSubmit>

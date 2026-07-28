@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { PillLink } from "@/components/public/pill";
 
 export const metadata = {
   title: "Page not found",
@@ -46,19 +47,13 @@ export default function NotFound() {
         </p>
 
         <div className="mt-8 flex flex-wrap gap-3">
-          <Link
-            href="/"
-            className="touch-target inline-flex items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-colors hover:bg-[#0f5a91]"
-          >
+          <PillLink href="/">
             Back to home
             <ArrowRight className="size-4" aria-hidden />
-          </Link>
-          <Link
-            href="/contact"
-            className="touch-target inline-flex items-center rounded-full border border-white/20 px-6 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-          >
+          </PillLink>
+          <PillLink href="/contact" variant="ink">
             Talk to us
-          </Link>
+          </PillLink>
         </div>
 
         <nav className="mt-12 border-t border-white/10 pt-6" aria-label="Popular pages">

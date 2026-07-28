@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DesktopNav } from "@/components/public/desktop-nav";
 import { MobileMenu } from "@/components/public/mobile-menu";
 import { PRIMARY_NAV } from "@/components/public/nav-items";
+import { PillLink } from "@/components/public/pill";
 
 /**
  * The public header: one 64px row at every width.
@@ -40,12 +41,9 @@ export function SiteHeader() {
           >
             Sign in
           </Link>
-          <Link
-            href="/signup"
-            className="touch-target flex items-center whitespace-nowrap rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-colors hover:bg-[#0f5a91] xl:px-5"
-          >
+          <PillLink href="/signup" size="sm" className="xl:px-5">
             Get connected
-          </Link>
+          </PillLink>
           <MobileMenu />
         </div>
       </div>

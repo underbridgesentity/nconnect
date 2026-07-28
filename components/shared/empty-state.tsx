@@ -44,9 +44,13 @@ export function EmptyState({
   /** What happens next, e.g. "Your first one arrives a month after activation." */
   description?: string;
   /**
-   * The original single-sentence prop, kept so existing call sites keep
-   * rendering exactly as they do today. New code should use `description`,
-   * with `title` above it where there is a short true statement to lead with.
+   * The prop `description` used to be called. Every staff call site has moved
+   * across; the four still passing it are the public bundles page and the
+   * three portal pages, which belong to another owner. Delete this alias, and
+   * the `?? sentence` below, once those four are migrated. Nothing new should
+   * reach for it.
+   *
+   * @deprecated Use `description`.
    */
   sentence?: string;
   /** One action at most: a link or a pill, never a row of choices. */
@@ -60,7 +64,8 @@ export function EmptyState({
   const body = description ?? sentence;
   // Honest defaults: say nothing is here, never imply something is coming
   // that we cannot promise. Only fill both in when the call site gave us
-  // neither, so a lone `sentence` still renders as a lone sentence.
+  // neither, so a lone `description` still renders as a lone sentence and a
+  // lone `title` as a lone statement.
   const heading = title ?? (body ? undefined : DEFAULT_TITLE);
   const text = body ?? (title ? undefined : DEFAULT_DESCRIPTION);
 

@@ -27,10 +27,20 @@ import { buildCheckout } from "@/lib/payfast";
  */
 
 export type AcceptResult = { ok: boolean; error?: string };
-const fail = (err: unknown): AcceptResult => ({
+const fail = (err: unknown): { ok: false; error: string } => ({
   ok: false,
   error: err instanceof Error ? err.message : "Failed",
 });
+
+/**
+ * The answer to "send a code". `resendIn` is the OTP library's own cooldown,
+ * handed back rather than restated on the client: this screen used to count
+ * down from thirty seconds while the service worked in sixty, so the button
+ * came alive half a minute before it would do anything.
+ */
+export type OtpRequestResult =
+  | { ok: true; resendIn: number }
+  | { ok: false; error?: string };
 
 async function validQuote(token: string) {
   const [quote] = await db
@@ -78,7 +88,7 @@ const codeSchema = z
 export async function acceptOtpRequestAction(
   token: string,
   form: FormData
-): Promise<AcceptResult> {
+): Promise<OtpRequestResult> {
   try {
     await validQuote(token);
     const parsed = contactSchema.safeParse({
@@ -90,8 +100,8 @@ export async function acceptOtpRequestAction(
       return { ok: false, error: "Check your name and cellphone number" };
     }
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
-    await requestOtp(parsed.data.phone, ip);
-    return { ok: true };
+    const sent = await requestOtp(parsed.data.phone, ip);
+    return { ok: true, resendIn: sent.resendInSeconds };
   } catch (err) {
     if (err instanceof OtpRateLimitError) return { ok: false, error: err.message };
     return fail(err);

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { CheckCircle2, Clock, FileX2, MessageCircle, Phone } from "lucide-react";
 import { db } from "@/lib/db/client";
@@ -11,9 +10,8 @@ import { add, subtract, type Cents } from "@/lib/money";
 import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
+import { PillLink } from "@/components/public/pill";
 import {
-  CTA,
-  CTA_SECONDARY,
   ExpiredLink,
   whatsappHref,
   type Company,
@@ -207,35 +205,35 @@ export default async function PayOutcomePage({
 
       <div className="mt-6 space-y-3">
         {ownsInvoice ? (
-          <Link href="/portal/billing" className={CTA}>
+          <PillLink href="/portal/billing" className="flex w-full">
             Open your billing
-          </Link>
+          </PillLink>
         ) : (
-          <Link href="/login" className={CTA}>
+          <PillLink href="/login" className="flex w-full">
             Sign in to your portal
-          </Link>
+          </PillLink>
         )}
         {!settled && !keepPolling ? (
           <div className="flex flex-wrap justify-center gap-3">
             {!closed ? (
-              <Link href={restartUrl} className={CTA_SECONDARY}>
+              <PillLink href={restartUrl} variant="outline">
                 Check again
-              </Link>
+              </PillLink>
             ) : null}
             {wa ? (
-              <a href={wa} className={CTA_SECONDARY}>
-                <MessageCircle className="mr-2 size-4" aria-hidden />
+              <PillLink href={wa} variant="outline">
+                <MessageCircle className="size-4" aria-hidden />
                 WhatsApp us
-              </a>
+              </PillLink>
             ) : null}
             {company?.phone ? (
-              <a
+              <PillLink
                 href={`tel:${company.phone.replace(/\s/g, "")}`}
-                className={CTA_SECONDARY}
+                variant="outline"
               >
-                <Phone className="mr-2 size-4" aria-hidden />
+                <Phone className="size-4" aria-hidden />
                 {company.phone}
-              </a>
+              </PillLink>
             ) : null}
           </div>
         ) : null}

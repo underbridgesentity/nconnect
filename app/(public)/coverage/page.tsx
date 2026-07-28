@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { CheckCircle2, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FilterPillLink } from "@/components/ui/filter-pill";
 import { PendingSubmit } from "@/components/ui/pending-submit";
 import { PageHeader } from "@/components/public/page-header";
+import { PillLink, pillClass } from "@/components/public/pill";
 import { coverageCheckAction } from "./actions";
 
 export const metadata: Metadata = {
@@ -63,12 +63,9 @@ export default async function CoveragePage({
                 router falls back to 4G on its own.
               </p>
             </div>
-            <Link
-              href="/internet"
-              className="mt-4 inline-flex touch-target items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]"
-            >
+            <PillLink href="/internet" className="mt-4">
               Browse LTE &amp; 5G plans
-            </Link>
+            </PillLink>
           </div>
         ) : null}
 
@@ -234,7 +231,9 @@ export default async function CoveragePage({
             pendingLabel={
               isFibre ? "Sending your details..." : "Checking coverage..."
             }
-            className="flex w-full touch-target items-center justify-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91] sm:w-auto"
+            className={pillClass("primary", {
+              className: "flex w-full px-7 sm:w-auto",
+            })}
           >
             {isFibre ? "Check fibre at my address" : "Check LTE/5G coverage"}
           </PendingSubmit>

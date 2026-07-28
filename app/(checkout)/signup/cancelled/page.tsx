@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { CreditCard, Landmark, MessageCircle } from "lucide-react";
 import { db } from "@/lib/db/client";
@@ -11,6 +10,7 @@ import {
   whatsappHref,
   type CompanySettings,
 } from "@/components/public/whatsapp";
+import { PillLink } from "@/components/public/pill";
 
 export const metadata: Metadata = {
   title: "Payment cancelled",
@@ -19,11 +19,6 @@ export const metadata: Metadata = {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const CTA =
-  "inline-flex touch-target items-center justify-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]";
-const CTA_SECONDARY =
-  "inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent";
 
 type Banking = {
   bank: string;
@@ -151,12 +146,12 @@ export default async function SignupCancelledPage({
                 limit was reached, or the card is blocked for online purchases.
                 All three are fixed in your banking app in under a minute.
               </p>
-              <Link
+              <PillLink
                 href={invoice ? "/portal/billing" : "/signup?step=3"}
-                className={`mt-3 ${CTA}`}
+                className="mt-3"
               >
                 {invoice ? "Pay from your portal" : "Try again"}
-              </Link>
+              </PillLink>
             </div>
           </div>
         </div>
@@ -204,13 +199,13 @@ export default async function SignupCancelledPage({
               </p>
               <div className="mt-3 flex flex-wrap gap-3">
                 {wa ? (
-                  <a href={wa} className={CTA_SECONDARY}>
+                  <PillLink href={wa} variant="outline">
                     WhatsApp us
-                  </a>
+                  </PillLink>
                 ) : null}
-                <Link href="/contact" className={CTA_SECONDARY}>
+                <PillLink href="/contact" variant="outline">
                   Talk to us
-                </Link>
+                </PillLink>
               </div>
             </div>
           </div>

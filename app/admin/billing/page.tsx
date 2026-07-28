@@ -179,7 +179,7 @@ export default async function AdminBillingPage({
           {invoiceRows.length === 0 ? (
             <EmptyState
               icon={Receipt}
-              sentence={
+              description={
                 search
                   ? `No invoices match "${search}". Try the invoice number, or part of the customer's name.`
                   : "No invoices match this filter yet. Recurring invoices are generated nightly on each service's billing anchor."
@@ -269,7 +269,8 @@ export default async function AdminBillingPage({
         buckets.length === 0 ? (
           <EmptyState
             icon={Receipt}
-            sentence="Nothing outstanding, every invoice is settled."
+            title="Nothing outstanding"
+            description="Every invoice is settled."
           />
         ) : (
           <div className="max-h-[70vh] overflow-auto rounded-lg border bg-card">
@@ -350,7 +351,7 @@ export default async function AdminBillingPage({
 
       {tab === "payments" ? (
         paymentRows.length === 0 ? (
-          <EmptyState icon={Receipt} sentence="No payments recorded yet." />
+          <EmptyState icon={Receipt} title="No payments recorded yet" />
         ) : (
           <div className="max-h-[70vh] overflow-auto rounded-lg border bg-card">
             <table className="w-full min-w-[640px] text-sm">

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { PillLink } from "@/components/public/pill";
 import { formatCents, multiply, type Cents } from "@/lib/money";
 import {
   requestSignupOtpAction,
@@ -96,6 +97,7 @@ export function StepThree({
   address,
   whatsapp,
   otpSent,
+  otpTtlSeconds,
   otpExpiresAt,
   otpResendAt,
 }: {
@@ -111,6 +113,12 @@ export function StepThree({
   whatsapp: string | null;
   /** A code has actually been sent, so the code screen is the right start. */
   otpSent: boolean;
+  /**
+   * How long a code lives, handed down from lib/auth/otp. A client component
+   * cannot import the OTP module (it is server-only), so the one number the
+   * copy quotes travels as a prop rather than as a second copy of the limit.
+   */
+  otpTtlSeconds: number;
   /** Epoch ms the live code dies, and when a new one may be requested. */
   otpExpiresAt: number | null;
   otpResendAt: number | null;
@@ -150,6 +158,7 @@ export function StepThree({
   const [resendAt, setResendAt] = useState(otpResendAt);
   const expiresIn = useCountdown(expiryAt);
   const resendIn = useCountdown(resendAt);
+  const ttlMinutes = Math.max(1, Math.round(otpTtlSeconds / 60));
 
   const run = (
     fn: () => Promise<{ ok: boolean; error?: string }>,
@@ -194,8 +203,8 @@ export function StepThree({
                 return;
               }
               setCode("");
-              setExpiryAt(Date.now() + (result.expiresIn ?? 300) * 1000);
-              setResendAt(Date.now() + (result.resendIn ?? 60) * 1000);
+              setExpiryAt(Date.now() + result.expiresIn * 1000);
+              setResendAt(Date.now() + result.resendIn * 1000);
               setPhase("otp");
             });
           }}
@@ -274,8 +283,9 @@ export function StepThree({
         >
           <h2 className="font-semibold">Enter the 6-digit code</h2>
           <p className="text-sm text-muted-foreground">
-            Sent to {phone || contact?.phone}. Codes last 5 minutes. This
-            creates your Needd Connect account.
+            Sent to {phone || contact?.phone}. Codes last {ttlMinutes}{" "}
+            {ttlMinutes === 1 ? "minute" : "minutes"}. This creates your Needd
+            Connect account.
           </p>
           <Input
             name="code"
@@ -311,8 +321,8 @@ export function StepThree({
                     return;
                   }
                   setCode("");
-                  setExpiryAt(Date.now() + (result.expiresIn ?? 300) * 1000);
-                  setResendAt(Date.now() + (result.resendIn ?? 60) * 1000);
+                  setExpiryAt(Date.now() + result.expiresIn * 1000);
+                  setResendAt(Date.now() + result.resendIn * 1000);
                   setNotice("New code sent.");
                 })
               }
@@ -604,12 +614,9 @@ export function StepThree({
                 We deliver hardware and check coverage against it before
                 anything is charged.
               </p>
-              <Link
-                href="/signup?step=2"
-                className="mt-3 inline-flex touch-target items-center rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
+              <PillLink href="/signup?step=2" className="mt-3">
                 Add my address
-              </Link>
+              </PillLink>
             </div>
           )}
 
@@ -686,12 +693,9 @@ export function StepThree({
                 {error}
               </p>
               {block === "address" ? (
-                <Link
-                  href="/signup?step=2"
-                  className="mt-3 inline-flex touch-target items-center rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                >
+                <PillLink href="/signup?step=2" className="mt-3">
                   Add my address
-                </Link>
+                </PillLink>
               ) : null}
               {block === "price_changed" ? (
                 <Button
@@ -708,12 +712,7 @@ export function StepThree({
               ) : null}
               {block === "already_paid" ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Link
-                    href="/portal"
-                    className="inline-flex touch-target items-center rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                  >
-                    Open your portal
-                  </Link>
+                  <PillLink href="/portal">Open your portal</PillLink>
                   <form action={startNewOrderAction}>
                     <Button type="submit" variant="outline">
                       Start a new order

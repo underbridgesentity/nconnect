@@ -175,12 +175,13 @@ export default async function AdminInboxPage({
             nothingYet ? (
               <EmptyState
                 icon={Inbox}
-                sentence="Nothing here yet. Portal messages and inbound WhatsApp land in this queue the moment they arrive."
+                title="Nothing here yet"
+                description="Portal messages and inbound WhatsApp land in this queue the moment they arrive."
               />
             ) : (
               <EmptyState
                 icon={SearchX}
-                sentence={
+                description={
                   search
                     ? `Nothing matches "${search}"${
                         status || channel || assignee

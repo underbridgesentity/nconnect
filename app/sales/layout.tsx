@@ -3,7 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { SignOutButton } from "@/components/shared/sign-out-button";
 import { NotificationBell } from "@/components/shared/bell";
-import { SalesNav } from "./nav";
+import { SalesNav, SalesMobileNav } from "./nav";
 
 export default async function SalesLayout({
   children,
@@ -37,12 +37,17 @@ export default async function SalesLayout({
           <SignOutButton compact />
         </div>
       </header>
+      {/*
+        Room for the bottom tab bar on a phone, so the last card on a page is
+        never parked underneath it. From sm the bar is gone and so is the gap.
+      */}
       <main
         id="main-content"
-        className="mx-auto w-full max-w-5xl flex-1 p-4 md:p-6"
+        className="mx-auto w-full max-w-5xl flex-1 p-4 pb-28 sm:pb-4 md:p-6"
       >
         {children}
       </main>
+      <SalesMobileNav />
     </div>
   );
 }

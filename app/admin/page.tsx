@@ -14,6 +14,7 @@ import {
   leads,
   hardwareProducts,
 } from "@/lib/db/schema";
+import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { maskedIdNumber } from "@/lib/domain/rica";
 import { invoicesAwaitingDecision } from "@/lib/domain/billing";
@@ -440,9 +441,7 @@ export default async function AdminTodayPage() {
             ) : null}
           </h2>
           {section.count === 0 ? (
-            <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              {section.emptyText}
-            </p>
+            <EmptyState compact description={section.emptyText} />
           ) : (
             section.body
           )}

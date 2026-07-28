@@ -20,6 +20,13 @@ import {
 } from "@/lib/domain/catalogue";
 import { uploadFile, randomFileName } from "@/lib/storage";
 import { parseZar } from "@/lib/money";
+import {
+  bundleItemsToInput,
+  requirePriceCents,
+  type BundleItemDraft,
+} from "./pricing";
+
+export type { BundleItemDraft };
 
 export type ActionResult = { ok: boolean; error?: string };
 
@@ -35,11 +42,16 @@ function fail(err: unknown): ActionResult {
 function num(form: FormData, key: string): number {
   const value = String(form.get(key) ?? "").trim();
   if (value === "") return 0;
+  let cents: number;
   try {
-    return parseZar(value);
+    cents = parseZar(value);
   } catch {
     throw new Error(`"${value}" is not a valid amount, for example 388.00`);
   }
+  // A price column is non-negative in the schema, so catch it here where the
+  // message can name the amount rather than surfacing a zod path.
+  if (cents < 0) throw new Error(`"${value}" must be a positive amount`);
+  return cents;
 }
 
 function optNum(form: FormData, key: string): number | null {
@@ -158,21 +170,20 @@ export async function setHardwareStatusAction(
   }
 }
 
-export type BundleItemDraft = {
-  itemType: "plan" | "hardware" | "custom";
-  planId?: string;
-  hardwareId?: string;
-  customName?: string;
-  customPriceRands?: number;
-  qty: number;
-};
-
+/**
+ * Bundle prices arrive as the text the admin typed and are read in one place,
+ * `./pricing`, which is also what the builder shows them. An amount that
+ * cannot be read stops the save and names the line, because the alternative
+ * was `Math.round(undefined * 100)` writing NaN, or a blank field publishing
+ * a line at R0.00 in a bundle a customer is about to buy.
+ */
 export async function saveBundleAction(input: {
   id?: string;
   name: string;
   slug: string;
   description?: string;
-  priceRands: number;
+  /** The bundle price exactly as typed, for example "1 250,50". */
+  price: string;
   featured: boolean;
   validUntil?: string;
   items: BundleItemDraft[];
@@ -184,18 +195,10 @@ export async function saveBundleAction(input: {
       name: input.name,
       slug: input.slug,
       description: input.description || null,
-      priceCents: Math.round(input.priceRands * 100),
+      priceCents: requirePriceCents(input.price, "bundle price"),
       featured: input.featured,
       validUntil: input.validUntil || null,
-      items: input.items.map((i) => ({
-        itemType: i.itemType,
-        planId: i.planId || null,
-        hardwareId: i.hardwareId || null,
-        customName: i.customName || null,
-        customPriceCents:
-          i.customPriceRands != null ? Math.round(i.customPriceRands * 100) : null,
-        qty: i.qty,
-      })),
+      items: bundleItemsToInput(input.items),
     });
     revalidatePath("/admin/catalogue");
     return { ok: true };

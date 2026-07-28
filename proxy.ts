@@ -29,6 +29,7 @@ export default async function proxy(req: NextRequest) {
         : "authjs.session-token",
   });
 
+  const { loginPath } = area;
   /**
    * Send someone to the area's sign-in screen, carrying where they were going
    * and, when we can say it truthfully, why they were stopped.
@@ -43,7 +44,7 @@ export default async function proxy(req: NextRequest) {
    */
   function signIn(reason?: "role") {
     const url = req.nextUrl.clone();
-    url.pathname = area.loginPath;
+    url.pathname = loginPath;
     url.search = "";
     // Keep the query string on the destination: a customer following a link
     // like /portal/billing?invoice=123 must land back on that exact view, not

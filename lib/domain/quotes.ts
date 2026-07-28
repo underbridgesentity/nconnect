@@ -337,7 +337,9 @@ export async function sendQuote(
       .limit(1);
     throw new Error(describeQuoteInFlight(quote.number, existing ?? null));
   }
-  if (quote.expiresAt && quote.expiresAt.getTime() < Date.now()) {
+  // The order guard above has already returned for anything mid-checkout, so
+  // the calendar is the only question left here.
+  if (isPastValidUntil(quote)) {
     throw new Error(
       "This quote has expired. Duplicate it to send a fresh one at current prices."
     );
@@ -662,9 +664,21 @@ export async function quoteByToken(token: string) {
     .where(eq(quoteItems.quoteId, quote.id))
     .orderBy(asc(quoteItems.createdAt), asc(quoteItems.id));
 
-  const expired =
-    quote.status === "expired" ||
-    (quote.expiresAt != null && quote.expiresAt.getTime() < Date.now());
+  // Same rule as the workspace: an order at pending_payment means the customer
+  // is mid-checkout, so the quote is live however the validity date reads.
+  const [order] = quote.acceptedOrderId
+    ? await db
+        .select({
+          id: orders.id,
+          number: orders.number,
+          status: orders.status,
+          totalCents: orders.totalCents,
+        })
+        .from(orders)
+        .where(eq(orders.id, quote.acceptedOrderId))
+        .limit(1)
+    : [];
+  const expired = isQuoteExpired(quote, order ?? null);
 
   if (quote.status === "sent" && !expired) {
     const eventId = await db.transaction(async (tx) => {
@@ -697,7 +711,15 @@ export async function quoteByToken(token: string) {
   }
 
   const breakdown = await quoteBreakdown(items);
-  return { quote, items, expired, breakdown };
+  return {
+    quote,
+    items,
+    order: order ?? null,
+    expired,
+    /** The date alone, for copy that names it. See `isPastValidUntil`. */
+    pastValidUntil: isPastValidUntil(quote),
+    breakdown,
+  };
 }
 
 /** Rep name and contact for the quote document, so it is signed by a person. */
@@ -765,17 +787,29 @@ export async function quoteDocument(token: string) {
 
 // ---------------------------------------------------------- workspace reads
 
+/** The order reserved against a quote, as far as expiry is concerned. */
+export type QuoteOrderRef = { status: OrderStatus } | null;
+
 export interface QuoteListRow {
   quote: typeof quotes.$inferSelect;
   /** Status as the customer would experience it right now. */
   effectiveStatus: string;
+  /** The order reserved against this quote, when `createOrderFromQuote` ran. */
+  order: { number: string; status: OrderStatus } | null;
   expiresInDays: number | null;
   leadName: string | null;
   leadId: string | null;
 }
 
-/** True once the stored status or the expiry date says the quote is dead. */
-export function isQuoteExpired(quote: {
+/**
+ * The calendar fact on its own: the validity date has passed, or the nightly
+ * sweep has already marked the quote expired.
+ *
+ * Only for copy that talks about the date itself, as in "the validity date
+ * passed on 12 July". Anything deciding whether the quote still works wants
+ * `isQuoteExpired`, which knows about the order as well.
+ */
+export function isPastValidUntil(quote: {
   status: string;
   expiresAt: Date | null;
 }): boolean {
@@ -783,6 +817,29 @@ export function isQuoteExpired(quote: {
     quote.status === "expired" ||
     (quote.expiresAt != null && quote.expiresAt.getTime() < Date.now())
   );
+}
+
+/**
+ * True once the quote is dead: nobody can act on it any more.
+ *
+ * The order reserved against the quote outranks the calendar. A customer
+ * sitting at PayFast has already accepted, `createOrderFromQuote` refuses to
+ * raise a second order, and `resumeQuotePaymentAction` will happily rebuild
+ * their checkout, so calling that quote expired locks them out of a payment
+ * they are in the middle of making. The nightly `expireQuotes` sweep skips
+ * those quotes for exactly this reason; this is the read side agreeing with
+ * it in one place instead of every screen patching it for itself.
+ */
+export function isQuoteExpired(
+  quote: { status: string; expiresAt: Date | null },
+  /**
+   * The order reserved against this quote, or null when there is none.
+   * Leaving it out asserts that there is no order, so pass what you read.
+   */
+  order: QuoteOrderRef = null
+): boolean {
+  if (order?.status === "pending_payment") return false;
+  return isPastValidUntil(quote);
 }
 
 function daysUntil(date: Date | null): number | null {
@@ -798,10 +855,20 @@ export async function listQuotes(
   const search = opts.search?.trim();
   const term = search ? `%${search}%` : null;
 
+  // The reserved order comes back on the same query rather than a second pass,
+  // because `effectiveStatus` cannot be worked out without it: a quote whose
+  // customer is at PayFast is in checkout, not lapsed.
   const rows = await db
-    .select({ quote: quotes, leadName: leads.name, leadId: leads.id })
+    .select({
+      quote: quotes,
+      leadName: leads.name,
+      leadId: leads.id,
+      orderNumber: orders.number,
+      orderStatus: orders.status,
+    })
     .from(quotes)
     .leftJoin(leads, eq(leads.id, quotes.leadId))
+    .leftJoin(orders, eq(orders.id, quotes.acceptedOrderId))
     .where(
       and(
         actor.role === "admin" ? undefined : eq(quotes.createdBy, actor.userId),
@@ -813,16 +880,28 @@ export async function listQuotes(
     .orderBy(desc(quotes.createdAt))
     .limit(opts.limit ?? 100);
 
-  return rows.map((r) => ({
-    quote: r.quote,
-    leadName: r.leadName,
-    leadId: r.leadId,
-    effectiveStatus:
-      r.quote.status !== "accepted" && isQuoteExpired(r.quote)
+  return rows.map((r) => {
+    const order =
+      r.orderNumber != null && r.orderStatus != null
+        ? { number: r.orderNumber, status: r.orderStatus }
+        : null;
+    const expired =
+      r.quote.status !== "accepted" && isQuoteExpired(r.quote, order);
+    return {
+      quote: r.quote,
+      leadName: r.leadName,
+      leadId: r.leadId,
+      order,
+      // Mid-checkout reads as "Awaiting payment", the same pill the detail
+      // screen shows, so the list and the quote never disagree about one deal.
+      effectiveStatus: expired
         ? "expired"
-        : r.quote.status,
-    expiresInDays: daysUntil(r.quote.expiresAt),
-  }));
+        : order?.status === "pending_payment"
+          ? "pending_payment"
+          : r.quote.status,
+      expiresInDays: daysUntil(r.quote.expiresAt),
+    };
+  });
 }
 
 /**
@@ -859,6 +938,19 @@ export async function quoteDetail(actor: Actor, quoteId: string) {
         .limit(1)
     : [];
 
+  const [order] = quote.acceptedOrderId
+    ? await db
+        .select({
+          id: orders.id,
+          number: orders.number,
+          status: orders.status,
+          paidAt: orders.paidAt,
+        })
+        .from(orders)
+        .where(eq(orders.id, quote.acceptedOrderId))
+        .limit(1)
+    : [];
+
   const breakdown = await quoteBreakdown(items);
   const marginCents = items.reduce((sum, i) => {
     if (i.unitCostCentsSnapshot == null) return sum;
@@ -880,8 +972,11 @@ export async function quoteDetail(actor: Actor, quoteId: string) {
     breakdown,
     lead: lead ?? null,
     customer: customer ?? null,
+    order: order ?? null,
     link: quoteShareLink(quote.shareToken),
-    expired: isQuoteExpired(quote),
+    expired: isQuoteExpired(quote, order ?? null),
+    /** The date alone, for copy that names it. See `isPastValidUntil`. */
+    pastValidUntil: isPastValidUntil(quote),
     expiresInDays: daysUntil(quote.expiresAt),
     marginCents,
     marginKnown,
@@ -901,6 +996,9 @@ export async function quoteDetail(actor: Actor, quoteId: string) {
  * they paid, and `createOrderFromQuote` would refuse a retry. The sweep leaves
  * those alone and collects them on a later run, once the order is paid (the
  * quote is marked accepted) or cancelled.
+ *
+ * That is the same rule `isQuoteExpired` applies to a single quote, expressed
+ * here as one set query because a sweep cannot afford a lookup per row.
  */
 export async function expireQuotes(): Promise<number> {
   const stale = await db

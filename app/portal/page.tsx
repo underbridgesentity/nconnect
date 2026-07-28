@@ -16,7 +16,6 @@ import { invoices, plans, provisioningTasks } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { customerServices, todayInJohannesburg } from "@/lib/domain/services";
 import {
-  payLinkFor,
   DEFAULT_DUNNING,
   type DunningConfig,
 } from "@/lib/domain/billing-engine";
@@ -28,19 +27,9 @@ import { StatusPill } from "@/components/shared/status-pill";
 import { EmptyState } from "@/components/shared/empty-state";
 import { paidCentsByInvoice, withBalance } from "./_lib/balances";
 import { outstandingLine } from "./_lib/invoice-copy";
+import { portalPayLink } from "./_lib/pay-link";
 
 export const metadata: Metadata = { title: "My services" };
-
-/**
- * Identical to the billing screen's pay link, and it has to stay identical.
- * `from=portal` is what tells the pay page to send the customer back into the
- * portal afterwards; without it, paying from this screen dropped them on the
- * public pay-link outcome page, which is the page written for somebody who
- * arrived from an SMS and has nowhere to go next.
- */
-function portalPayLink(invoiceId: string): string {
-  return `${payLinkFor(invoiceId)}&from=portal`;
-}
 
 const CATEGORY_ICONS = {
   lte_home: Wifi,

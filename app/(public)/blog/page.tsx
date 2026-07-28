@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { allPosts } from "@/lib/blog";
 import { formatDateLong } from "@/lib/format";
 import { PageHeader } from "@/components/public/page-header";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Reveal } from "@/components/shared/reveal";
 
 export const metadata: Metadata = {
@@ -37,9 +38,11 @@ export default async function BlogIndexPage() {
 
       <div className="mx-auto max-w-3xl px-4 py-14">
         {posts.length === 0 ? (
-          <p className="rounded-3xl border border-dashed bg-card/50 p-10 text-center text-sm text-muted-foreground">
-            No posts published yet. The first guides are on the way.
-          </p>
+          <EmptyState
+            className="bg-card/50"
+            title="No posts published yet"
+            description="The first guides are on the way."
+          />
         ) : (
           <div className="space-y-5">
             {posts.map((post, index) => (

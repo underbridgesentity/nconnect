@@ -2,10 +2,10 @@
 
 The operating platform for Needd Technology Solutions' connectivity reseller
 business: public acquisition site, customer self-service portal, admin
-operations system (CRM, catalogue, billing, support) and sales workspace —
+operations system (CRM, catalogue, billing, support) and sales workspace , 
 one Next.js codebase.
 
-- **Spec:** [SPEC.md](SPEC.md) (locked decisions) — the full handover spec is the source of truth
+- **Spec:** [SPEC.md](SPEC.md) (locked decisions), the full handover spec is the source of truth
 - **Progress:** [PROGRESS.md](PROGRESS.md) (per-milestone log + open client items)
 
 ## Stack
@@ -26,7 +26,7 @@ pnpm dev
 ```
 
 - Staff sign-in: `/staff-login` (dev credentials printed by `pnpm seed:dev`)
-- Customer sign-in: `/login` — OTP prints to the dev server console
+- Customer sign-in: `/login`, OTP prints to the dev server console
   (`SMS_PROVIDER=console`)
 
 ## Checks

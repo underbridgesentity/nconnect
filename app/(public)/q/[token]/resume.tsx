@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { PillButton } from "@/components/public/pill";
 import { resumeQuotePaymentAction } from "./actions";
 
 /**
@@ -45,8 +46,7 @@ export function ResumePaymentButton({
 
   return (
     <div className="space-y-2">
-      <button
-        type="button"
+      <PillButton
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
@@ -56,10 +56,10 @@ export function ResumePaymentButton({
             else setError(r.error);
           })
         }
-        className="flex w-full touch-target items-center justify-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91] disabled:opacity-60"
+        className="flex w-full px-7"
       >
         {pending ? "Opening secure payment…" : label}
-      </button>
+      </PillButton>
       {error ? (
         <p role="alert" className="text-sm font-medium text-destructive">
           {error}

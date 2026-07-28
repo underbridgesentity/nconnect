@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { publishedPlans, type PlanWithProvider } from "@/lib/domain/catalogue";
 import { PlanCard } from "@/components/public/plan-card";
+import { PillLink } from "@/components/public/pill";
+import { EmptyState } from "@/components/shared/empty-state";
 import { Reveal } from "@/components/shared/reveal";
 
 /**
@@ -144,19 +146,20 @@ export async function CategoryPlanList({
       </div>
 
       {plans.length === 0 ? (
-        <p className="mt-8 rounded-3xl border border-dashed bg-card/50 p-10 text-center text-sm text-muted-foreground">
-          {fno
-            ? `We have no published plans on ${fno} right now.`
-            : "No published plans in this category right now."}{" "}
-          Check back soon or{" "}
-          <Link
-            href="/contact"
-            className="font-medium text-primary hover:underline"
-          >
-            ask us directly
-          </Link>
-          .
-        </p>
+        <EmptyState
+          className="mt-8 bg-card/50"
+          title={
+            fno
+              ? `No published plans on ${fno} right now`
+              : "No published plans in this category right now"
+          }
+          description="Check back soon, or ask us what is coming."
+          action={
+            <PillLink href="/contact" variant="outline" size="sm">
+              Ask us directly
+            </PillLink>
+          }
+        />
       ) : grouped ? (
         providers.map((provider) => (
           <section key={provider} className="mt-10">

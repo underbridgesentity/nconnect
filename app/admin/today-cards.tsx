@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/shared/empty-state";
 import { StatusPill } from "@/components/shared/status-pill";
 import { formatDate } from "@/lib/format";
 import { Check, ChevronDown, Copy, Eye, EyeOff, FileText } from "lucide-react";
@@ -390,9 +391,11 @@ export function RicaCard({ record }: { record: RicaCardData }) {
                         </a>
                       </>
                     ) : (
-                      <p className="rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
-                        Not uploaded. Reject and ask the customer to submit it.
-                      </p>
+                      <EmptyState
+                        compact
+                        title="Not uploaded"
+                        description="Reject and ask the customer to submit it."
+                      />
                     )}
                   </div>
                 ))}

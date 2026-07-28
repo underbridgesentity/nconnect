@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
+import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { isUuid } from "@/lib/utils";
@@ -86,9 +87,7 @@ export default async function SalesCustomer360({
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Services</h2>
         {serviceRows.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No services yet.
-          </p>
+          <EmptyState compact title="No services yet" />
         ) : (
           serviceRows.map(({ service, plan }) => (
             <div
@@ -108,9 +107,7 @@ export default async function SalesCustomer360({
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Invoice statuses</h2>
         {invoiceRows.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No invoices yet.
-          </p>
+          <EmptyState compact title="No invoices yet" />
         ) : (
           <div className="rounded-lg border bg-card">
             {invoiceRows.map((invoice) => (
@@ -132,9 +129,7 @@ export default async function SalesCustomer360({
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Conversations</h2>
         {convRows.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            No conversations.
-          </p>
+          <EmptyState compact title="No conversations" />
         ) : (
           convRows.map((c) => (
             <Link

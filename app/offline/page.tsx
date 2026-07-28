@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { RefreshCw, WifiOff } from "lucide-react";
+import { pillClass } from "@/components/public/pill";
 
 export const metadata: Metadata = {
   title: "You are offline",
@@ -65,18 +66,11 @@ export default function OfflinePage() {
            * what gives the service worker another go at the connection.
            */}
           {/* eslint-disable @next/next/no-html-link-for-pages */}
-          <a
-            data-retry=""
-            href="/portal"
-            className="touch-target inline-flex items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-colors hover:bg-[#0f5a91]"
-          >
+          <a data-retry="" href="/portal" className={pillClass("primary")}>
             <RefreshCw className="size-4" aria-hidden />
             Try again
           </a>
-          <a
-            href="/portal/help"
-            className="touch-target inline-flex items-center rounded-full border border-white/20 px-6 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-          >
+          <a href="/portal/help" className={pillClass("ink")}>
             Help and contact details
           </a>
           {/* eslint-enable @next/next/no-html-link-for-pages */}

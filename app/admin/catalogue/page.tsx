@@ -29,6 +29,7 @@ import {
 } from "./editors";
 import { PLAN_CATEGORIES, HW_CATEGORIES } from "./constants";
 import { BundleBuilder, type BundleDraft } from "./bundle-builder";
+import { amountToInput } from "./pricing";
 
 export const metadata: Metadata = { title: "Catalogue" };
 
@@ -412,12 +413,15 @@ export default async function CataloguePage({
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {bundles.map((b) => {
+                // Stored cents go back into the fields as the text the admin
+                // would have typed. `amountToInput` does that with string
+                // maths, so nothing is divided on the way out either.
                 const draft: BundleDraft = {
                   id: b.id,
                   name: b.name,
                   slug: b.slug,
                   description: b.description ?? "",
-                  priceRands: b.priceCents / 100,
+                  price: amountToInput(b.priceCents),
                   featured: b.featured,
                   validUntil: b.validUntil ?? undefined,
                   items: b.items.map((i) => ({
@@ -425,9 +429,9 @@ export default async function CataloguePage({
                     planId: i.planId ?? undefined,
                     hardwareId: i.hardwareId ?? undefined,
                     customName: i.customName ?? undefined,
-                    customPriceRands:
+                    customPrice:
                       i.customPriceCents != null
-                        ? i.customPriceCents / 100
+                        ? amountToInput(i.customPriceCents)
                         : undefined,
                     qty: i.qty,
                   })),

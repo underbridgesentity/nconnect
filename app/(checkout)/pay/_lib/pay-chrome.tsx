@@ -1,9 +1,8 @@
-import Link from "next/link";
-
 import {
   whatsappHref as companyWhatsappHref,
   type CompanySettings,
 } from "@/components/public/whatsapp";
+import { PillLink, pillClass } from "@/components/public/pill";
 
 /**
  * Shared furniture for the public pay-link surfaces (spec §6.2/§6.3).
@@ -15,11 +14,15 @@ import {
 
 export type Company = CompanySettings;
 
-export const CTA =
-  "flex w-full touch-target items-center justify-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]";
-
-export const CTA_SECONDARY =
-  "inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent";
+/**
+ * The pay surfaces' primary action: the platform pill
+ * (components/public/pill.tsx), run full width because these screens are one
+ * column on a phone and the thing to press should be unmissable. A class
+ * string rather than a component because the pay button is a PendingSubmit,
+ * which takes a className. Secondary actions use `<PillLink variant="outline">`
+ * directly; there is no second constant to keep in step.
+ */
+export const CTA = pillClass("primary", { className: "flex w-full" });
 
 /**
  * wa.me link for the support number, or null when settings carry no
@@ -50,13 +53,13 @@ export function ExpiredLink({ company }: { company: Company | null }) {
         fresh link.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
-        <Link href="/login" className={CTA}>
+        <PillLink href="/login" className="flex w-full">
           Sign in to your portal
-        </Link>
+        </PillLink>
         {wa ? (
-          <a href={wa} className={CTA_SECONDARY}>
+          <PillLink href={wa} variant="outline">
             WhatsApp us for a new link
-          </a>
+          </PillLink>
         ) : null}
       </div>
     </div>

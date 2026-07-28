@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { CheckCircle2, Clock, MessageCircle, Phone, Undo2 } from "lucide-react";
 import { db } from "@/lib/db/client";
@@ -11,6 +10,7 @@ import {
   whatsappHref,
   type CompanySettings,
 } from "@/components/public/whatsapp";
+import { PillButton, PillLink } from "@/components/public/pill";
 import { signInVerifiedCustomerAction } from "../actions";
 
 export const metadata: Metadata = {
@@ -27,11 +27,6 @@ const UUID_RE =
 /** Stop refreshing after this long and show a calm, actionable holding state. */
 const MAX_POLL_SECONDS = 45;
 const POLL_INTERVAL_SECONDS = 4;
-
-const CTA =
-  "inline-flex touch-target items-center justify-center rounded-full bg-primary px-8 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-[#0f5a91]";
-const CTA_SECONDARY =
-  "inline-flex touch-target items-center justify-center rounded-full border px-6 text-sm font-medium hover:bg-accent";
 
 /**
  * Ways to reach a person, offered only where they actually work. The company
@@ -50,21 +45,16 @@ function SupportRoutes({ company }: { company: CompanySettings | null }) {
   return (
     <div className="mt-6 flex flex-wrap justify-center gap-3">
       {wa ? (
-        <a
-          href={wa}
-          target="_blank"
-          rel="noreferrer"
-          className={CTA_SECONDARY}
-        >
-          <MessageCircle className="mr-2 size-4" aria-hidden />
+        <PillLink href={wa} target="_blank" rel="noreferrer" variant="outline">
+          <MessageCircle className="size-4" aria-hidden />
           WhatsApp us
-        </a>
+        </PillLink>
       ) : null}
       {phone ? (
-        <a href={`tel:${phone.replace(/\s/g, "")}`} className={CTA_SECONDARY}>
-          <Phone className="mr-2 size-4" aria-hidden />
+        <PillLink href={`tel:${phone.replace(/\s/g, "")}`} variant="outline">
+          <Phone className="size-4" aria-hidden />
           {phone}
-        </a>
+        </PillLink>
       ) : null}
     </div>
   );
@@ -207,16 +197,16 @@ export default async function SignupSuccessPage({
           </div>
         </dl>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Link href="/portal/billing" className={CTA}>
+          <PillLink href="/portal/billing" size="lg">
             Open your billing
-          </Link>
+          </PillLink>
           {!settled && !keepPolling ? (
-            <Link
+            <PillLink
               href={`/signup/success?ref=inv:${invoice.id}&tries=0`}
-              className={CTA_SECONDARY}
+              variant="outline"
             >
               Check again
-            </Link>
+            </PillLink>
           ) : null}
         </div>
         {!settled ? <SupportRoutes company={company} /> : null}
@@ -251,12 +241,12 @@ export default async function SignupSuccessPage({
           and roughly what time, and we will trace it the same day.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Link href="/login" className={CTA}>
+          <PillLink href="/login" size="lg">
             Sign in to your portal
-          </Link>
-          <Link href="/internet" className={CTA_SECONDARY}>
+          </PillLink>
+          <PillLink href="/internet" variant="outline">
             Start again
-          </Link>
+          </PillLink>
         </div>
         <SupportRoutes company={company} />
       </div>
@@ -304,12 +294,12 @@ export default async function SignupSuccessPage({
         {!keepPolling ? (
           <>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Link
+              <PillLink
                 href={`/signup/success?ref=${order.id}&tries=0`}
-                className={CTA}
+                size="lg"
               >
                 Check again
-              </Link>
+              </PillLink>
             </div>
             <SupportRoutes company={company} />
             <p className="mt-4 text-xs text-muted-foreground">
@@ -372,9 +362,9 @@ export default async function SignupSuccessPage({
           </p>
         )}
         <form action={signInVerifiedCustomerAction} className="mt-8">
-          <button type="submit" className={CTA}>
+          <PillButton type="submit" size="lg">
             Open your portal
-          </button>
+          </PillButton>
         </form>
         <SupportRoutes company={company} />
       </div>
@@ -392,9 +382,9 @@ function NotFound({ company }: { company: CompanySettings | null }) {
         immediately.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
-        <Link href="/login" className={CTA}>
+        <PillLink href="/login" size="lg">
           Sign in to your portal
-        </Link>
+        </PillLink>
       </div>
       <SupportRoutes company={company} />
     </div>

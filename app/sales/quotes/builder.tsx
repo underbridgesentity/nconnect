@@ -14,6 +14,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { EmptyState } from "@/components/shared/empty-state";
 import { formatCents } from "@/lib/money";
 import { saveQuoteAction } from "./actions";
 import {
@@ -205,10 +206,10 @@ export function QuoteBuilder({
       </div>
 
       {items.length === 0 ? (
-        <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Add lines above. Discounts are allowed down to cost plus {floorPercent}%
-          margin (or {noCostMaxPercent}% off where no cost price is set), deeper needs an admin.
-        </p>
+        <EmptyState
+          title="Add lines above"
+          description={`Discounts are allowed down to cost plus ${floorPercent}% margin (or ${noCostMaxPercent}% off where no cost price is set), deeper needs an admin.`}
+        />
       ) : (
         <div className="space-y-2">
           {items.map((item, i) => {

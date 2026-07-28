@@ -1,9 +1,9 @@
-# Needd Connect — working rules
+# Needd Connect working rules
 
 Read SPEC.md (locked decisions) and PROGRESS.md (current state) first.
 
 - Build strictly in milestone order (M0–M8); update PROGRESS.md after each.
-- All money is integer cents via `lib/money` — never float maths on money.
+- All money is integer cents via `lib/money`, never float maths on money.
 - Every domain mutation: zod → `authorize()` → transaction → `writeAudit` →
   `emitDomainEvent` (outbox). No status writes outside the state machine.
 - Timestamps UTC in the DB, displayed Africa/Johannesburg.

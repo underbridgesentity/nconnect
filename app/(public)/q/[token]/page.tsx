@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { Check, MessageCircle, RefreshCw, XCircle } from "lucide-react";
@@ -13,6 +12,7 @@ import {
   whatsappHref,
   whatsappHrefFor,
 } from "@/components/public/whatsapp";
+import { PillLink } from "@/components/public/pill";
 import { ResumePaymentButton } from "./resume";
 
 export const metadata: Metadata = {
@@ -277,22 +277,21 @@ export default async function QuotePage({
               : "Ask us for a fresh one at current prices."}
           </p>
           {chatHref ? (
-            <a
+            // chatLabel carries the rep's name, so the label has no fixed
+            // length and is allowed to wrap rather than run out of the card.
+            <PillLink
               href={chatHref}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex touch-target items-center gap-2 rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
+              className="px-7 whitespace-normal"
             >
-              <MessageCircle className="size-4" aria-hidden />
+              <MessageCircle className="size-4 shrink-0" aria-hidden />
               {chatLabel} for a fresh quote
-            </a>
+            </PillLink>
           ) : (
-            <Link
-              href="/contact"
-              className="inline-flex touch-target items-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
-            >
+            <PillLink href="/contact" className="px-7">
               Ask for a fresh quote
-            </Link>
+            </PillLink>
           )}
         </div>
       ) : expired ? (
@@ -308,31 +307,25 @@ export default async function QuotePage({
               : "Message us and we will send a fresh one in a minute."}
           </p>
           {chatHref ? (
-            <a
+            <PillLink
               href={chatHref}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex touch-target items-center gap-2 rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
+              className="px-7 whitespace-normal"
             >
-              <MessageCircle className="size-4" aria-hidden />
+              <MessageCircle className="size-4 shrink-0" aria-hidden />
               {chatLabel} for a fresh quote
-            </a>
+            </PillLink>
           ) : (
-            <Link
-              href="/contact"
-              className="inline-flex touch-target items-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
-            >
+            <PillLink href="/contact" className="px-7">
               Ask for a fresh quote
-            </Link>
+            </PillLink>
           )}
         </div>
       ) : (
-        <Link
-          href={`/q/${token}/accept`}
-          className="mt-6 flex touch-target items-center justify-center rounded-full bg-primary px-7 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
-        >
+        <PillLink href={`/q/${token}/accept`} className="mt-6 flex px-7">
           Accept and pay securely
-        </Link>
+        </PillLink>
       )}
 
       {view.kind === "none" && !expired ? (

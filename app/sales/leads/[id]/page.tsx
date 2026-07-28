@@ -9,6 +9,7 @@ import { isQuoteExpired } from "@/lib/domain/quotes";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
+import { PillLink } from "@/components/public/pill";
 import { BackLink } from "../../back-link";
 import { ActivityForm, LeadStatusButtons } from "../client";
 import { isUuid } from "@/lib/utils";
@@ -77,12 +78,9 @@ export default async function LeadDetailPage({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Link
-          href={`/sales/quotes/new?lead=${lead.id}`}
-          className="inline-flex touch-target items-center rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
-        >
+        <PillLink href={`/sales/quotes/new?lead=${lead.id}`}>
           Build a quote
-        </Link>
+        </PillLink>
         <LeadStatusButtons leadId={lead.id} status={lead.status} />
       </div>
 

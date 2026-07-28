@@ -215,12 +215,29 @@ const contactSchema = z.object({
   email: z.string().email().optional(),
 });
 
-export type OtpSendResult = WizardResult & {
-  /** Seconds until the code on its way expires. */
-  expiresIn?: number;
-  /** Seconds before another code may be requested. */
-  resendIn?: number;
-};
+/**
+ * The answer to "send a code".
+ *
+ * A union rather than one optional-everything shape, because the countdown on
+ * the code screen is only meaningful when a code actually went out. With both
+ * windows required on the sent branch, the client renders the server's numbers
+ * or nothing, and cannot quietly fall back to a second copy of the limits that
+ * drifts the day one of them changes.
+ */
+export type OtpSendResult =
+  | {
+      ok: true;
+      /** Seconds until the code on its way expires. */
+      expiresIn: number;
+      /** Seconds before another code may be requested. */
+      resendIn: number;
+    }
+  | {
+      ok: false;
+      error?: string;
+      /** Set when the refusal is a cooldown, so the button can count down. */
+      resendIn?: number;
+    };
 
 /** A checkout has a person waiting on it, so every refusal offers a way out. */
 const WHATSAPP_OFFER = " WhatsApp us and we will finish the order with you.";

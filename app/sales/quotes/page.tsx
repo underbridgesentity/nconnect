@@ -11,6 +11,7 @@ import { formatDate, formatDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/shared/status-pill";
 import { MoneyText } from "@/components/shared/money-text";
 import { EmptyState } from "@/components/shared/empty-state";
+import { PillButton, PillLink } from "@/components/public/pill";
 import { SendQuoteButton, CopyLinkButton } from "./client";
 
 export const metadata: Metadata = { title: "Quotes" };
@@ -48,12 +49,9 @@ export default async function SalesQuotesPage({
             Draft, sent, viewed, accepted, with the paper trail intact.
           </p>
         </div>
-        <Link
-          href="/sales/quotes/new"
-          className="inline-flex touch-target items-center gap-1.5 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:bg-[#0f5a91]"
-        >
+        <PillLink href="/sales/quotes/new">
           <Plus className="size-4" /> New quote
-        </Link>
+        </PillLink>
       </div>
 
       <form action="/sales/quotes" className="flex flex-wrap gap-2">
@@ -65,26 +63,20 @@ export default async function SalesQuotesPage({
           aria-label="Search quotes"
           className="h-11 min-w-48 flex-1 rounded-full border bg-background px-4 text-sm"
         />
-        <button
-          type="submit"
-          className="touch-target rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground hover:bg-[#0f5a91]"
-        >
+        <PillButton type="submit" size="sm">
           Search
-        </button>
+        </PillButton>
         {search ? (
-          <Link
-            href="/sales/quotes"
-            className="touch-target inline-flex items-center rounded-full border px-5 text-sm font-medium hover:bg-accent"
-          >
+          <PillLink href="/sales/quotes" variant="outline" size="sm">
             Clear
-          </Link>
+          </PillLink>
         ) : null}
       </form>
 
       {rows.length === 0 ? (
         <EmptyState
           icon={FileText}
-          sentence={
+          description={
             search
               ? `No quote matches "${search}". Try the Q number on its own.`
               : "No quotes yet. Build one from a lead, it sends as a WhatsApp, email or SMS link and you'll see the moment it's opened."

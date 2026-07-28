@@ -15,7 +15,6 @@ import { db } from "@/lib/db/client";
 import { invoices, payments, paymentMethods } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import {
-  payLinkFor,
   DEFAULT_DUNNING,
   type DunningConfig,
 } from "@/lib/domain/billing-engine";
@@ -33,16 +32,9 @@ import {
   type InvoiceWithBalance,
 } from "../_lib/balances";
 import { outstandingLine } from "../_lib/invoice-copy";
+import { portalPayLink } from "../_lib/pay-link";
 
 export const metadata: Metadata = { title: "Billing" };
-
-/**
- * Pay links opened from the portal come back to the portal, not to the public
- * pay-link outcome page, so a signed-in customer stays inside the app.
- */
-function portalPayLink(invoiceId: string): string {
-  return `${payLinkFor(invoiceId)}&from=portal`;
-}
 
 /**
  * One page of invoices. The list used to stop at the newest 24 and say

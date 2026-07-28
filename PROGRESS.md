@@ -1,21 +1,21 @@
-# Needd Connect — build progress
+# Needd Connect, build progress
 
 Working notes per the spec (§0.2–0.3). Updated after each milestone with
 decisions taken where the spec was silent, and open items for the client.
 
 ## Launch checklist seeds (carry into LAUNCH-CHECKLIST.md at M8)
 
-1. **Confirm hardware retail pricing with client** — the previous live site
+1. **Confirm hardware retail pricing with client**, the previous live site
    sold some routers higher than the May 2026 catalogue (Cudy GP1200 R999 vs
    R417, GP3000 R1 499 vs R550, LT500 R1 299 vs R640, LT500 Outdoor R2 199 vs
    R1 056). The catalogue values are seeded; do not publish price changes
    without client sign-off.
-2. **Fibre once-off fees** — seeded R0; client to confirm installation and
+2. **Fibre once-off fees**, seeded R0; client to confirm installation and
    activation fees per FNO before publish.
 3. Client fills wholesale cost prices in Catalogue UI (all `cost_cents` seeded null).
 4. EFT banking details are placeholders in `settings.banking`.
 
-## M0 — Foundation ✅ (2026-07-18)
+## M0, Foundation ✅ (2026-07-18)
 
 Scaffold: Next.js 16 (App Router, Turbopack), TS strict, Tailwind 4,
 shadcn/ui restyled to the §11 tokens. Geist Sans/Mono self-hosted via the
@@ -27,7 +27,7 @@ Done:
   colour sampled from the logo: `#136FB0`** (spec's #1B5FAA guess adjusted per
   §11 instruction); ink navy `#121829`. Status palette per §11.
 - `lib/money`: integer-cents utilities (add/subtract/multiply/percentOf/
-  allocate/prorata with exact complement/format/parse) — 14 unit tests green.
+  allocate/prorata with exact complement/format/parse), 14 unit tests green.
 - Full Drizzle schema for every §4 table + enums + FK/queue indexes, plus
   `number_sequences`, `otp_codes`, `invite_tokens`, `signup_drafts`.
   Migrations committed; local dev DB `nconnect_dev` (Homebrew Postgres 17).
@@ -43,7 +43,7 @@ Done:
   in-transaction, best-effort forward + 5-min drain cron.
 - Notification channel adapters: WhatsApp Cloud API (env-gated), Resend email
   (console fallback without key), pluggable SMS (console/smsportal/clickatell).
-- Shells: admin sidebar (six §9.4 areas), sales nav, portal bottom tabs —
+- Shells: admin sidebar (six §9.4 areas), sales nav, portal bottom tabs , 
   honest empty states, no fake data. Shared StatusPill / MoneyText /
   EmptyState / SignOutButton.
 - Idempotent full seed (§14): 8 providers, 26 plans, 20 hardware SKUs,
@@ -62,11 +62,11 @@ Decisions where the spec was silent:
   access); customer surface is customer-only.
 - Dev seed prints random credentials rather than fixed passwords.
 
-## M1 — Catalogue + public site ✅ (2026-07-18)
+## M1, Catalogue + public site ✅ (2026-07-18)
 
 Done:
 - Catalogue domain (`lib/domain/catalogue.ts`): public + admin queries,
-  plan/hardware/bundle upsert and publish mutations — all zod → authorize →
+  plan/hardware/bundle upsert and publish mutations, all zod → authorize →
   transaction → audit; publish triggers `revalidateTag("catalogue")` +
   per-path ISR revalidation.
 - Admin Catalogue area: Plans grouped by category with sell/cost/computed
@@ -86,7 +86,7 @@ Done:
   canonical, FUP in plain language, what-happens-next, hardware
   suggestions), /hardware + /hardware/[sku], /bundles + detail, /coverage
   (LTE instant answer with honest disclaimer; fibre feasibility promise
-  creating a `web_coverage` lead — provisioning task joins in M3), About,
+  creating a `web_coverage` lead, provisioning task joins in M3), About,
   Contact, Help/FAQ, Blog (2 real MDX posts), POPIA/Privacy/Terms/RICA
   legal pages with real copy, /q/[token] route stub (full render in M7).
 - SEO: per-page metadata + canonicals, sitemap.xml, robots.txt,
@@ -107,14 +107,14 @@ Notes / deviations:
 - Category pages using search params render dynamically (still full SSR
   HTML); detail pages are SSG + revalidate.
 - Lighthouse run deferred to M8 hardening (pages are static/ISR,
-  self-hosted fonts, no client JS beyond the shells — structurally in
+  self-hosted fonts, no client JS beyond the shells, structurally in
   line with the >=90 target).
 
-## M2 — Signup, orders, payments-in ✅ (2026-07-18)
+## M2, Signup, orders, payments-in ✅ (2026-07-18)
 
 Done:
 - PayFast integration (`lib/payfast.ts`): redirect checkout builder, ITN
-  signature verification (byte-identical to PHP `urlencode` — JS
+  signature verification (byte-identical to PHP `urlencode`, JS
   `encodeURIComponent` differs on `!'()*` and broke signatures), source-IP
   check against PayFast's published hosts, server-to-server validation in
   live mode, ad-hoc token charge for M4. Signature unit-tested against an
@@ -126,7 +126,7 @@ Done:
   and `payment.received` outbox events.
 - Invoice PDF (`lib/pdf/invoice.tsx`) attached to the receipt email; EFT
   banking box shown on unpaid invoices.
-- Notification dispatcher (`lib/notify`) + template registry — full §8
+- Notification dispatcher (`lib/notify`) + template registry, full §8
   matrix copy in place; WhatsApp legs fall back to email while disabled.
 - 3-step wizard: server-held draft (opaque cookie → `signup_drafts`),
   preselection deep-links (?plan=/?bundle=), hardware attach with running
@@ -150,20 +150,20 @@ signs the customer in. ITN replay left exactly one payment. Compliance
 upload + signed URL round-trip verified (tampered signature → 403).
 
 **Blocked on real-world credential (spec §16.10):** PayFast's shared
-sandbox merchant (10000100) no longer accepts third-party signatures —
+sandbox merchant (10000100) no longer accepts third-party signatures , 
 merchants must register their own sandbox account. Everything up to the
 PayFast hosted page is exercised for real; the hosted-page hop itself needs
 the client's sandbox credentials (launch checklist). `PAYFAST_PASSPHRASE`
 currently empty in dev.
 
-## M3 — Service lifecycle + ops ✅ (2026-07-18)
+## M3, Service lifecycle + ops ✅ (2026-07-18)
 
 Done:
 - Connector abstraction (`lib/connectors`): §7 interface, ManualConnector
   creating typed provisioning tasks with category-specific checklists
   (SIM: RICA check/SIM allocation/MSISDN; fibre: circuit/feasibility; VoIP:
   extensions/porting); `checkCoverage` honest semantics; `getUsage` null.
-- State machine (`lib/domain/services.ts`) — the only status-write path.
+- State machine (`lib/domain/services.ts`), the only status-write path.
   All §5 transitions implemented: paid order → pending services (incl.
   bundle plans) → auto-provisioning → task; activation sets activation
   date + clamped anchor day + next invoice date and fires
@@ -201,7 +201,7 @@ active, provider account recorded; full audit chain
 provisioning.activate.complete → service.active). Customer 360 renders
 services/billing/RICA/audit. Typecheck/lint/tests green.
 
-## M4 — Billing engine ✅ (2026-07-18)
+## M4, Billing engine ✅ (2026-07-18)
 
 Done:
 - `lib/domain/billing-engine.ts`, all date inputs explicit for time-travel:
@@ -246,7 +246,7 @@ Notes:
 - Bulk reminders button on the Billing area deferred to M8 with the
   reconciliation worksheet.
 
-## M5 — Inbox + notifications ✅ (2026-07-18)
+## M5, Inbox + notifications ✅ (2026-07-18)
 
 Done:
 - Inbox domain (`lib/domain/inbox.ts`): start/post/assign/resolve with
@@ -261,11 +261,11 @@ Done:
 - Realtime (`lib/realtime.ts`): server-side Supabase broadcast on
   `admin:inbox`, `conversation:{id}`, `user:{id}` after writes. Without
   Supabase creds (dev) broadcasts no-op and an `AutoRefresh` 5s polling
-  fallback keeps the UI live — recorded per §16.10; scoped client tokens
+  fallback keeps the UI live, recorded per §16.10; scoped client tokens
   activate when the Supabase project exists.
 - Admin Inbox (§9.4.5): list with channel chips + status/assignee filters,
   thread view, reply box with visually-distinct internal notes (amber,
-  "never sent"), assignment select, resolve/reopen — replaces the old
+  "never sent"), assignment select, resolve/reopen, replaces the old
   Tickets + Communications split entirely.
 - Portal Help: conversation list, new-conversation form, thread with reply
   + photo attachments (webp-normalised into the private documents bucket,
@@ -281,7 +281,7 @@ replayed message id inserted exactly once. Typecheck/lint/29 tests green.
 Also fixed: Base UI hydration mismatch on the bell trigger and anchor
 semantics on the PDF button.
 
-## M6 — Portal complete + PWA ✅ (2026-07-18)
+## M6, Portal complete + PWA ✅ (2026-07-18)
 
 Done:
 - Portal Home: real service cards (status pill, next invoice, monthly),
@@ -289,7 +289,7 @@ Done:
   outstanding banner with a prominent Pay now (oldest open invoice link).
 - Service detail: plan + pricing + FUP plain language, install address,
   linked hardware from the origin order, no usage module (ManualConnector
-  returns null — nothing fake in its place).
+  returns null, nothing fake in its place).
 - Plan change: same-category list marked upgrade/downgrade; upgrade shows
   the exact engine pro-rata summary (credit/charge/due-now) before
   confirm and applies immediately; downgrade states its effective date
@@ -298,14 +298,14 @@ Done:
   us), confirm with effective date, withdraw button while pending.
 - Billing: outstanding banner, invoice list with per-invoice PDF
   (customer-scoped route) + pay links, payment-method card (token from
-  checkout; replacement happens on the next online payment — PayFast has
+  checkout; replacement happens on the next online payment, PayFast has
   no charge-free tokenisation endpoint, noted for launch), payment history.
 - Account: profile edit, addresses, marketing consent toggles (append-only
   consent history with IP/UA), consent timeline, POPIA "Request my data"
   (admin bell + audit + written email confirmation), sign out.
 - PWA: manifest (brand icons, standalone, /portal start), minimal service
   worker (network-first navigation, offline shell at /offline, cache-first
-  brand assets only — no dynamic caching), registered from the portal.
+  brand assets only, no dynamic caching), registered from the portal.
 
 Verified at 390px in browser: OTP sign-in → home with outstanding banner →
 service detail → change plan (pro-rata summary matched the engine: credit
@@ -313,7 +313,7 @@ service detail → change plan (pro-rata summary matched the engine: credit
 billing (card-on-file shown from the checkout token, PDFs + pay links) →
 account. manifest.webmanifest, /sw.js and /offline all 200.
 
-## M7 — Sales workspace ✅ (2026-07-18)
+## M7, Sales workspace ✅ (2026-07-18)
 
 Done:
 - Quotes domain: snapshot pricing at creation, §10.4 discount floor
@@ -327,7 +327,7 @@ Done:
   status transitions with lost reason, convert-to-quote entry.
 - Quote builder: plans/hardware/bundles/custom with quantities and
   per-line discounts, live line + total margin visible to the rep
-  (computed — cost never shown or editable), save draft / send.
+  (computed, cost never shown or editable), save draft / send.
 - Acceptance flow (/q/[token]/accept): lead-prefilled contact → OTP →
   POPIA → address (+ RICA when the quote includes a SIM) →
   `createOrderFromQuote` locks pricing to quote snapshots (discounts
@@ -350,7 +350,7 @@ rep blocked at R200 discount on a no-cost line, admin override allowed.
 Second rep (rep2) gets a 404 on rep1's lead URL. Typecheck/lint/29 tests
 green.
 
-## M8 — Reports, reconciliation, hardening ✅ (2026-07-18)
+## M8, Reports, reconciliation, hardening ✅ (2026-07-18)
 
 Done:
 - Reports (§6.4/§9.4.6): active services by category, margin by provider
@@ -361,7 +361,7 @@ Done:
   active/suspended services, statement CSV upload
   (external_ref,amount) matched by external_ref, flags
   ok / missing_from_statement / amount_delta / no_cost_price plus leakage
-  rows (on statement, not on platform); output is a CSV checklist —
+  rows (on statement, not on platform); output is a CSV checklist , 
   nothing auto-adjusts.
 - Settings: company + EFT banking editors (audited via updateSetting),
   read-only dunning timeline.
@@ -376,7 +376,7 @@ Done:
 - Trigram search migration (pg_trgm + GIN indexes on customer names/
   phone/company, invoice numbers, conversation subjects).
 - design/IMAGE-MANIFEST.md (§11): every marketing slot with dimensions and
-  art briefs — no stock photos in the build.
+  art briefs, no stock photos in the build.
 - Security pass: greps confirm no service keys/secrets or
   localStorage/sessionStorage in client code, and no service status writes
   outside the state machine (billing engine touches only plan/pointer
@@ -389,7 +389,7 @@ Done:
   time-travelled billing run issues the anniversary invoice (R382, open)
   → manual EFT settles it. **4/4 passing** against the dev stack
   (`pnpm test:e2e`, needs E2E_ADMIN_PASSWORD from seed output).
-- LAUNCH-CHECKLIST.md: honest client/dev split — pricing conflict, cost
+- LAUNCH-CHECKLIST.md: honest client/dev split, pricing conflict, cost
   prices, PayFast own-account sandbox + live ITN test, Meta verification +
   template approval, SMS creds, Supabase project, Resend domain, Inngest
   keys, imagery, legal review, staging → DNS cutover with the Lovable site

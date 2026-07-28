@@ -23,32 +23,36 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Pencil } from "lucide-react";
-import { saveBundleAction, type BundleItemDraft } from "./actions";
-
-type Option = { id: string; name: string; priceCents: number; costCents: number | null };
+import { formatCents } from "@/lib/money";
+import { saveBundleAction } from "./actions";
+import {
+  AMOUNT_HELP,
+  bundleLine,
+  bundleTotals,
+  readQty,
+  type BundleItemDraft,
+  type BundleOption,
+} from "./pricing";
 
 export type BundleDraft = {
   id?: string;
   name: string;
   slug: string;
   description: string;
-  priceRands: number;
+  /** The bundle price exactly as typed, never a float. */
+  price: string;
   featured: boolean;
   validUntil?: string;
   items: BundleItemDraft[];
 };
-
-function formatR(cents: number) {
-  return `R${(cents / 100).toFixed(2)}`;
-}
 
 export function BundleBuilder({
   planOptions,
   hardwareOptions,
   existing,
 }: {
-  planOptions: Option[];
-  hardwareOptions: Option[];
+  planOptions: BundleOption[];
+  hardwareOptions: BundleOption[];
   existing?: BundleDraft;
 }) {
   const [open, setOpen] = useState(false);
@@ -59,39 +63,31 @@ export function BundleBuilder({
       name: "",
       slug: "",
       description: "",
-      priceRands: 0,
+      price: "",
       featured: false,
       items: [],
     }
   );
 
-  const totals = useMemo(() => {
-    let componentPrice = 0;
-    let cost = 0;
-    let costMissing = false;
-    for (const item of draft.items) {
-      const source =
+  // Every figure below, and every figure the save writes, comes out of the
+  // same helpers in integer cents, so the margin on screen is the margin the
+  // catalogue gets.
+  const { lines, totals } = useMemo(() => {
+    const priced = draft.items.map((item, index) => {
+      const option =
         item.itemType === "plan"
-          ? planOptions.find((p) => p.id === item.planId)
+          ? (planOptions.find((p) => p.id === item.planId) ?? null)
           : item.itemType === "hardware"
-            ? hardwareOptions.find((h) => h.id === item.hardwareId)
+            ? (hardwareOptions.find((h) => h.id === item.hardwareId) ?? null)
             : null;
-      if (item.itemType === "custom") {
-        componentPrice += (item.customPriceRands ?? 0) * 100 * item.qty;
-      } else if (source) {
-        componentPrice += source.priceCents * item.qty;
-        if (source.costCents == null) costMissing = true;
-        else cost += source.costCents * item.qty;
-      }
-    }
-    const bundlePriceCents = Math.round(draft.priceRands * 100);
-    return {
-      componentPrice,
-      cost,
-      costMissing,
-      margin: costMissing ? null : bundlePriceCents - cost,
-    };
+      return bundleLine(item, option, index + 1);
+    });
+    return { lines: priced, totals: bundleTotals(priced, draft.price) };
   }, [draft, planOptions, hardwareOptions]);
+
+  // An empty price field is not yet a mistake, it is a field nobody has filled
+  // in. Only text that is there and cannot be read gets the red treatment.
+  const priceUnreadable = draft.price.trim() !== "" && totals.priceCents == null;
 
   const addItem = (itemType: BundleItemDraft["itemType"]) => {
     setDraft((d) => ({
@@ -112,13 +108,20 @@ export function BundleBuilder({
   };
 
   const save = () => {
+    // The server refuses an unreadable amount too. Saying so here, naming the
+    // line, means the admin fixes it in front of the field rather than reading
+    // it back off a toast.
+    if (totals.problems.length > 0) {
+      toast.error(totals.problems[0]);
+      return;
+    }
     startTransition(async () => {
       const result = await saveBundleAction({
         id: draft.id,
         name: draft.name,
         slug: draft.slug,
         description: draft.description,
-        priceRands: draft.priceRands,
+        price: draft.price,
         featured: draft.featured,
         validUntil: draft.validUntil,
         items: draft.items,
@@ -208,101 +211,127 @@ export function BundleBuilder({
               </p>
             ) : null}
             {draft.items.map((item, i) => (
-              <div key={i} className="flex items-center gap-2 rounded-md border p-2">
-                {item.itemType === "plan" ? (
-                  <Select
-                    value={item.planId ?? undefined}
-                    onValueChange={(v) => updateItem(i, { planId: v ?? undefined })}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Choose plan" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {planOptions.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name}, {formatR(p.priceCents)}/mo
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : item.itemType === "hardware" ? (
-                  <Select
-                    value={item.hardwareId ?? undefined}
-                    onValueChange={(v) => updateItem(i, { hardwareId: v ?? undefined })}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Choose hardware" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {hardwareOptions.map((h) => (
-                        <SelectItem key={h.id} value={h.id}>
-                          {h.name}, {formatR(h.priceCents)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <>
-                    <Input
-                      placeholder="Line name (e.g. Free delivery)"
-                      className="flex-1"
-                      value={item.customName ?? ""}
-                      onChange={(e) => updateItem(i, { customName: e.target.value })}
-                    />
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="R"
-                      className="w-24 tnum"
-                      value={item.customPriceRands ?? ""}
-                      onChange={(e) =>
-                        updateItem(i, {
-                          customPriceRands:
-                            e.target.value === "" ? 0 : Number(e.target.value),
-                        })
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-2 rounded-md border p-2">
+                  {item.itemType === "plan" ? (
+                    <Select
+                      value={item.planId ?? undefined}
+                      onValueChange={(v) => updateItem(i, { planId: v ?? undefined })}
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Choose plan" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {planOptions.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}, {formatCents(p.priceCents)}/mo
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : item.itemType === "hardware" ? (
+                    <Select
+                      value={item.hardwareId ?? undefined}
+                      onValueChange={(v) =>
+                        updateItem(i, { hardwareId: v ?? undefined })
                       }
-                    />
-                  </>
-                )}
-                <Input
-                  type="number"
-                  min="1"
-                  className="w-16 tnum"
-                  value={item.qty}
-                  onChange={(e) =>
-                    updateItem(i, { qty: Math.max(1, Number(e.target.value)) })
-                  }
-                  aria-label="Quantity"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeItem(i)}
-                  aria-label="Remove line"
-                >
-                  <Trash2 className="size-4" />
-                </Button>
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Choose hardware" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {hardwareOptions.map((h) => (
+                          <SelectItem key={h.id} value={h.id}>
+                            {h.name}, {formatCents(h.priceCents)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <>
+                      <Input
+                        placeholder="Line name (e.g. Free delivery)"
+                        className="flex-1"
+                        value={item.customName ?? ""}
+                        onChange={(e) => updateItem(i, { customName: e.target.value })}
+                      />
+                      {/*
+                        Text, not a number field: a number field silently blanks
+                        anything it dislikes, so "R1 250,50" pasted off this
+                        app's own screens arrived as nothing and saved as zero.
+                        The typed text is kept exactly and read by parseZar.
+                      */}
+                      <Input
+                        inputMode="decimal"
+                        placeholder="R"
+                        className="tnum w-24"
+                        aria-label={`Price for line ${i + 1}`}
+                        aria-invalid={lines[i]?.problem ? true : undefined}
+                        value={item.customPrice ?? ""}
+                        onChange={(e) =>
+                          updateItem(i, { customPrice: e.target.value })
+                        }
+                      />
+                    </>
+                  )}
+                  {/*
+                    Still a number field: a quantity is a count, not money, so
+                    nothing here needs parseZar. It goes through `readQty` only
+                    because a cleared field hands back "", and `Number("")`
+                    reaching multiply() used to print the totals as "RNaN".
+                  */}
+                  <Input
+                    type="number"
+                    min="1"
+                    className="tnum w-16"
+                    value={item.qty}
+                    onChange={(e) =>
+                      updateItem(i, { qty: readQty(e.target.value) })
+                    }
+                    aria-label="Quantity"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeItem(i)}
+                    aria-label="Remove line"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+                {lines[i]?.problem ? (
+                  <p className="px-1 text-xs font-medium text-destructive">
+                    {lines[i].problem}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Bundle price (R/month equivalent)</Label>
+              <Label htmlFor="bundle-price">
+                Bundle price (R/month equivalent)
+              </Label>
               <Input
-                type="number"
-                step="0.01"
-                min="0"
+                id="bundle-price"
+                inputMode="decimal"
                 className="tnum"
-                value={draft.priceRands || ""}
-                onChange={(e) =>
-                  setDraft({ ...draft, priceRands: Number(e.target.value) || 0 })
-                }
+                placeholder="1 250,50"
+                aria-invalid={priceUnreadable ? true : undefined}
+                value={draft.price}
+                onChange={(e) => setDraft({ ...draft, price: e.target.value })}
               />
+              {priceUnreadable ? (
+                <p className="text-xs font-medium text-destructive">
+                  {AMOUNT_HELP}
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
-              <Label>Valid until (optional)</Label>
+              <Label htmlFor="bundle-valid-until">Valid until (optional)</Label>
               <Input
+                id="bundle-valid-until"
                 type="date"
                 value={draft.validUntil ?? ""}
                 onChange={(e) =>
@@ -323,16 +352,22 @@ export function BundleBuilder({
           <div className="rounded-md border bg-muted/40 p-3 text-sm">
             <div className="flex justify-between">
               <span>Component prices add up to</span>
-              <span className="tnum">{formatR(totals.componentPrice)}</span>
+              <span className="tnum">
+                {formatCents(totals.componentPriceCents)}
+              </span>
             </div>
             <div className="flex justify-between">
               <span>Known wholesale cost</span>
-              <span className="tnum">{formatR(totals.cost)}</span>
+              <span className="tnum">{formatCents(totals.knownCostCents)}</span>
             </div>
             <div className="mt-1 flex justify-between border-t pt-1 font-medium">
               <span>Margin at bundle price</span>
               <span className="tnum">
-                {totals.margin == null ? "cost price missing" : formatR(totals.margin)}
+                {totals.marginCents == null
+                  ? totals.costMissing
+                    ? "cost price missing"
+                    : "enter a bundle price"
+                  : formatCents(totals.marginCents)}
               </span>
             </div>
           </div>
@@ -340,12 +375,21 @@ export function BundleBuilder({
           <Button
             onClick={save}
             disabled={
-              pending || !draft.name || !draft.slug || draft.items.length === 0
+              pending ||
+              !draft.name ||
+              !draft.slug ||
+              draft.items.length === 0 ||
+              totals.problems.length > 0
             }
             className="w-full"
           >
             {pending ? "Saving…" : "Save bundle"}
           </Button>
+          {totals.problems.length > 0 ? (
+            <p className="text-xs font-medium text-destructive">
+              {totals.problems[0]}
+            </p>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             New bundles save as drafts. Publish from the list once reviewed.
           </p>

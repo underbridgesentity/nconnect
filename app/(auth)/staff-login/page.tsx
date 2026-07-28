@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ShieldAlert, Info } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { callbackUrlFromParams } from "@/lib/auth/callback-url";
 import {
   signInReasonFromParams,
   staffSignInNotice,
 } from "@/lib/auth/sign-in-notice";
+import { SignInNoticeCard } from "../notice-card";
 import { StaffLoginForm } from "./staff-form";
 
 export const metadata: Metadata = {
@@ -46,51 +46,7 @@ export default async function StaffLoginPage({
         For Needd Connect team members.
       </p>
 
-      {notice ? (
-        <div
-          className={
-            notice.tone === "blocked"
-              ? "mt-5 rounded-2xl border border-destructive/30 bg-destructive/5 p-4"
-              : "mt-5 rounded-2xl border border-primary/30 bg-primary/5 p-4"
-          }
-        >
-          <p className="flex items-start gap-2 text-sm font-medium">
-            {notice.tone === "blocked" ? (
-              <ShieldAlert
-                className="mt-0.5 size-4 shrink-0 text-destructive"
-                aria-hidden
-              />
-            ) : (
-              <Info className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-            )}
-            <span
-              className={
-                notice.tone === "blocked" ? "text-destructive" : "text-foreground"
-              }
-            >
-              {notice.title}
-            </span>
-          </p>
-          <p className="mt-1.5 text-sm text-muted-foreground">{notice.detail}</p>
-          {notice.destination ? (
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              You were opening{" "}
-              <span className="font-mono text-xs text-foreground">
-                {notice.destination}
-              </span>
-              .
-            </p>
-          ) : null}
-          {notice.onward ? (
-            <Link
-              href={notice.onward.href}
-              className="mt-3 inline-flex touch-target items-center text-sm font-medium text-primary hover:underline"
-            >
-              {notice.onward.label}
-            </Link>
-          ) : null}
-        </div>
-      ) : null}
+      <SignInNoticeCard notice={notice} />
 
       <div className="mt-6">
         <StaffLoginForm callbackUrl={callbackUrl ?? undefined} />

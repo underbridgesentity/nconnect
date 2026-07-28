@@ -20,8 +20,10 @@ import { getSettingOr } from "@/lib/domain/settings";
 import { quotesExpiringSoon } from "@/lib/domain/quotes";
 import { add, multiply, percentOf } from "@/lib/money";
 import { formatDate } from "@/lib/format";
+import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
+import { pillClass } from "@/components/public/pill";
 
 export const metadata: Metadata = { title: "Sales" };
 
@@ -170,7 +172,9 @@ export default async function SalesHomePage() {
               First rep to claim owns the deal.
             </span>
           </span>
-          <span className="touch-target inline-flex shrink-0 items-center rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground">
+          {/* A span, not a PillLink: the whole banner is already the link, and
+              nesting an <a> inside an <a> is invalid HTML. */}
+          <span className={pillClass("primary", { size: "sm", className: "shrink-0" })}>
             Open the pool
           </span>
         </Link>
@@ -221,9 +225,11 @@ export default async function SalesHomePage() {
           ) : null}
         </div>
         {awaiting.length === 0 ? (
-          <p className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">
-            Nothing out there right now, build one from a lead.
-          </p>
+          <EmptyState
+            compact
+            title="Nothing out there right now"
+            description="Build one from a lead."
+          />
         ) : (
           awaiting.map((quote) => (
             <Link

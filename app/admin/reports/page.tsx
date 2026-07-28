@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
-import { Download } from "lucide-react";
+import { Download, ScrollText } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { users, auditLog, providers } from "@/lib/db/schema";
 import {
@@ -16,6 +16,7 @@ import {
 import { getSetting, getSettingOr } from "@/lib/domain/settings";
 import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
 import { TEMPLATES } from "@/lib/notify/templates";
+import { EmptyState } from "@/components/shared/empty-state";
 import { MoneyText } from "@/components/shared/money-text";
 import { FilterPillLink } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
@@ -417,9 +418,10 @@ async function ReconciliationTab({ provider }: { provider: string }) {
       />
 
       {worksheet.rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          No active services on {provider} to reconcile.
-        </p>
+        <EmptyState
+          compact
+          description={`No active services on ${provider} to reconcile.`}
+        />
       ) : (
         <p className="text-xs text-muted-foreground">
           {worksheet.rows.length} active service
@@ -621,11 +623,14 @@ async function AuditTab({ entity, q }: { entity?: string; q?: string }) {
 
       <div className="space-y-1.5">
         {rows.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-            {search
-              ? `Nothing in the audit log matches "${search}".`
-              : "No audited actions recorded yet."}
-          </p>
+          <EmptyState
+            icon={ScrollText}
+            description={
+              search
+                ? `Nothing in the audit log matches "${search}".`
+                : "No audited actions recorded yet."
+            }
+          />
         ) : (
           rows.map(({ entry, actorName }) => (
             <details

@@ -11,6 +11,7 @@ import { formatDate } from "@/lib/format";
 import { MoneyText } from "@/components/shared/money-text";
 import { StatusPill } from "@/components/shared/status-pill";
 import { PendingSubmit } from "@/components/ui/pending-submit";
+import { PillLink } from "@/components/public/pill";
 import {
   CTA,
   ExpiredLink,
@@ -181,9 +182,13 @@ export default async function PayInvoicePage({
             balance only, or pay it by EFT using reference {invoice.number}.
           </p>
           {wa ? (
-            <a href={wa} className={`mt-3 ${CTA}`}>
+            // The label is a sentence carrying an invoice number, so it is
+            // allowed to wrap: the pill's default nowrap would push it out of
+            // this card on a 360px phone, which is most of the people who open
+            // a pay link.
+            <PillLink href={wa} className="mt-3 flex w-full whitespace-normal">
               WhatsApp us to settle {invoice.number}
-            </a>
+            </PillLink>
           ) : null}
         </div>
       ) : (
