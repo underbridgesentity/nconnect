@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import sharp from "sharp";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireActor } from "@/lib/auth";
@@ -109,7 +108,18 @@ export async function setPlanStatusAction(
   }
 }
 
+/*
+ * sharp is loaded where it is used, not at module scope.
+ *
+ * This module is imported by the page that renders the form, so a top-level
+ * import pulled sharp's native binding into every render of that page. On
+ * Vercel's linux-x64 runtime the binding failed to load and took the whole page
+ * down with a 500, even though nothing on it was processing an image. Loading
+ * it inside the handler keeps the failure where it belongs: an upload that
+ * cannot be processed, not a page that cannot be viewed.
+ */
 export async function saveHardwareAction(form: FormData): Promise<ActionResult> {
+  const sharp = (await import("sharp")).default;
   try {
     const actor = await requireActor();
 

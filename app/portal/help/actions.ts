@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import sharp from "sharp";
 import { requireActor } from "@/lib/auth";
 import { startConversation, postMessage } from "@/lib/domain/inbox";
 import { uploadFile, randomFileName } from "@/lib/storage";
@@ -18,10 +17,21 @@ const fail = (err: unknown): Result => ({
   error: customerFacingError(err),
 });
 
+/*
+ * sharp is loaded where it is used, not at module scope.
+ *
+ * This module is imported by the page that renders the form, so a top-level
+ * import pulled sharp's native binding into every render of that page. On
+ * Vercel's linux-x64 runtime the binding failed to load and took the whole page
+ * down with a 500, even though nothing on it was processing an image. Loading
+ * it inside the handler keeps the failure where it belongs: an upload that
+ * cannot be processed, not a page that cannot be viewed.
+ */
 async function processAttachment(
   file: File,
   customerId: string
 ): Promise<string> {
+  const sharp = (await import("sharp")).default;
   if (file.size > 10 * 1024 * 1024) throw new Error("Photo too large (max 10MB)");
   const input = Buffer.from(await file.arrayBuffer());
   const webp = await sharp(input)

@@ -3,7 +3,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import sharp from "sharp";
 import {
   readDraft,
   writeDraft,
@@ -413,11 +412,22 @@ const idNumberSchema = z
   .string()
   .regex(/^\d{13}$|^[A-Za-z0-9]{6,12}$/, "Enter a valid SA ID or passport number");
 
+/*
+ * sharp is loaded where it is used, not at module scope.
+ *
+ * This module is imported by the page that renders the form, so a top-level
+ * import pulled sharp's native binding into every render of that page. On
+ * Vercel's linux-x64 runtime the binding failed to load and took the whole page
+ * down with a 500, even though nothing on it was processing an image. Loading
+ * it inside the handler keeps the failure where it belongs: an upload that
+ * cannot be processed, not a page that cannot be viewed.
+ */
 async function processDocUpload(
   file: File,
   prefix: string,
   customerId: string
 ): Promise<string> {
+  const sharp = (await import("sharp")).default;
   if (file.size > 10 * 1024 * 1024) throw new Error("File too large (max 10MB)");
   const input = Buffer.from(await file.arrayBuffer());
   let data = input;

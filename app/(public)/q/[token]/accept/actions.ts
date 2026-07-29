@@ -3,7 +3,6 @@
 import { headers } from "next/headers";
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import sharp from "sharp";
 import { db } from "@/lib/db/client";
 import { quotes, quoteItems, plans } from "@/lib/db/schema";
 import {
@@ -150,7 +149,18 @@ export async function acceptVerifyAction(
   }
 }
 
+/*
+ * sharp is loaded where it is used, not at module scope.
+ *
+ * This module is imported by the page that renders the form, so a top-level
+ * import pulled sharp's native binding into every render of that page. On
+ * Vercel's linux-x64 runtime the binding failed to load and took the whole page
+ * down with a 500, even though nothing on it was processing an image. Loading
+ * it inside the handler keeps the failure where it belongs: an upload that
+ * cannot be processed, not a page that cannot be viewed.
+ */
 async function processDoc(file: File, customerId: string, prefix: string) {
+  const sharp = (await import("sharp")).default;
   const input = Buffer.from(await file.arrayBuffer());
   const webp = await sharp(input)
     .rotate()
