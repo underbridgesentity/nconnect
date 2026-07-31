@@ -20,13 +20,25 @@ marked **dev** are configuration/deploy work.
       renders. This is the switch that turns WhatsApp on when the business is
       ready for it.
 
-- [ ] **dev: Verify the Resend sending domain** (SPF and DKIM for
-      needdconnect.co.za) and set `RESEND_API_KEY`.
-      **This now gates every account.** Customers sign in with a one-time code
-      sent by email, so if mail does not deliver, nobody can sign up or sign in
-      at all. It was a soft dependency while accounts were phone-based; it is a
-      hard launch blocker now. Send a real test to a Gmail, an Outlook and a
-      corporate address before launch, and check none of them land in spam.
+- [x] **dev: Resend sending domain verified.** `needdconnect.co.za` returns
+      `status=verified` on the account, and `EMAIL_FROM=hello@needdconnect.co.za`
+      matches it. Checked against the Resend API, not assumed.
+- [ ] **dev: Set `RESEND_API_KEY` in Vercel production**, then redeploy:
+
+      ```bash
+      vercel env add RESEND_API_KEY production
+      ```
+
+      Held in `.env.local` for local work; never committed (`.env*` is
+      gitignored).
+- [ ] **dev: One real inbox test before launch.** Domain verification proves DNS
+      is right, not that mail lands in an inbox. Send a sign-in code to a Gmail,
+      an Outlook and a corporate address and confirm none are filed as spam.
+      **This gates every account**: customers sign in with an emailed code, so
+      mail that does not arrive means nobody can sign up or sign in at all.
+- [ ] **dev: Rotate the Resend key before launch.** The current key was shared
+      in a chat transcript, so treat it as disclosed: issue a fresh one from the
+      Resend dashboard, set it in Vercel, and revoke the old one.
 
 ## Money and catalogue
 
