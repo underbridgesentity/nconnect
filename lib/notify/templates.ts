@@ -2,9 +2,15 @@ import { formatCents } from "@/lib/money";
 import type { NotifyContext } from "./index";
 
 /**
- * Notification templates (spec §8). WhatsApp template names map to
- * pre-approved Meta templates; body copy here is the email/bell rendering
- * and the WhatsApp body parameters.
+ * Notification templates (spec §8).
+ *
+ * The email body is the message. Every customer template renders complete
+ * copy that stands on its own in an inbox, because email is how customers
+ * hear from us. Copy therefore never promises a WhatsApp message.
+ *
+ * `whatsappTemplate` names a pre-approved Meta template and `whatsappParams`
+ * fills it. Both are kept ready for the opt-in WhatsApp channel we add later,
+ * and neither replaces the email.
  */
 
 export type NotifyEvent =
@@ -26,15 +32,17 @@ export interface RenderedNotification {
   subject: string;
   text: string;
   html: string;
+  /** Body parameters for the opt-in WhatsApp copy, when that channel is on. */
   whatsappParams?: string[];
   bellTitle?: string;
 }
 
 export interface NotifyTemplate {
+  /** Whether the customer is notified at all. When true, they are emailed. */
   toCustomer: boolean;
-  email: boolean;
   adminBell: boolean;
   salesBell: boolean;
+  /** Meta template name for the opt-in WhatsApp copy, null where there is none. */
   whatsappTemplate: string | null;
   render: (ctx: NotifyContext) => RenderedNotification;
 }
@@ -51,17 +59,16 @@ const R = (cents?: number) => formatCents(cents ?? 0, { whole: true });
 export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   order_created: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: true,
     whatsappTemplate: "order_confirmed",
     render: (ctx) => ({
       subject: `Order ${ctx.reference ?? ""} confirmed, welcome to Needd Connect`,
-      text: `Thanks, we've received your payment of ${R(ctx.amountCents)} for order ${ctx.reference}. We're getting you set up now and will keep you posted every step. Your receipt and invoice are attached.`,
+      text: `Thanks, we've received your payment of ${R(ctx.amountCents)} for order ${ctx.reference}. We're getting you set up now and will email you at every step. Your receipt and invoice are attached.`,
       html: wrapHtml(
         `<h2>Payment received, you're in.</h2>
          <p>Thanks! We've received <strong>${R(ctx.amountCents)}</strong> for order <strong>${ctx.reference}</strong>.</p>
-         <p>We're getting your service set up now and will keep you posted, you don't need to do anything.</p>
+         <p>We're getting your service set up now and will email you at every step, you don't need to do anything.</p>
          <p>Your invoice is attached for your records.</p>`
       ),
       whatsappParams: [ctx.reference ?? "", R(ctx.amountCents)],
@@ -70,22 +77,20 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   service_provisioning: {
     toCustomer: true,
-    email: false,
     adminBell: false, // lands in the Today task queue instead
     salesBell: false,
     whatsappTemplate: "service_provisioning",
     render: (ctx) => ({
       subject: `We're setting up your ${ctx.serviceName ?? "service"}`,
-      text: `We're setting up your ${ctx.serviceName ?? "service"} now. We'll message you the moment it's live.`,
+      text: `We're setting up your ${ctx.serviceName ?? "service"} now. We'll email you the moment it's live.`,
       html: wrapHtml(
-        `<p>We're setting up your <strong>${ctx.serviceName ?? "service"}</strong> now. We'll message you the moment it's live.</p>`
+        `<p>We're setting up your <strong>${ctx.serviceName ?? "service"}</strong> now. We'll email you the moment it's live, and you can follow along in your portal.</p>`
       ),
       whatsappParams: [ctx.serviceName ?? "service"],
     }),
   },
   service_activated: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: true,
     whatsappTemplate: "service_activated",
@@ -104,7 +109,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   invoice_issued: {
     toCustomer: true,
-    email: true,
     adminBell: false,
     salesBell: false,
     whatsappTemplate: "invoice_issued",
@@ -121,7 +125,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   payment_received: {
     toCustomer: true,
-    email: true,
     adminBell: false,
     salesBell: false,
     whatsappTemplate: "payment_received",
@@ -136,7 +139,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   payment_failed: {
     toCustomer: true,
-    email: true,
     adminBell: false,
     salesBell: false,
     whatsappTemplate: "payment_failed",
@@ -152,7 +154,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   past_due_warning: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: false,
     whatsappTemplate: "past_due_warning",
@@ -170,7 +171,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   service_suspended: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: true,
     whatsappTemplate: "service_suspended",
@@ -187,7 +187,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   service_reactivated: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: false,
     whatsappTemplate: "service_reactivated",
@@ -203,7 +202,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   cancellation_scheduled: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: true,
     whatsappTemplate: "cancellation_scheduled",
@@ -223,7 +221,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   service_cancelled: {
     toCustomer: true,
-    email: true,
     adminBell: true,
     salesBell: true,
     whatsappTemplate: "service_cancelled",
@@ -240,7 +237,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   quote_sent: {
     toCustomer: true,
-    email: true,
     adminBell: false,
     salesBell: false,
     whatsappTemplate: "quote_sent",
@@ -256,7 +252,6 @@ export const TEMPLATES: Record<NotifyEvent, NotifyTemplate> = {
   },
   feasibility_result: {
     toCustomer: true,
-    email: true,
     adminBell: false,
     salesBell: true,
     whatsappTemplate: "feasibility_result",

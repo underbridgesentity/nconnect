@@ -234,8 +234,8 @@ export const users = pgTable(
   {
     id: id(),
     role: userRole("role").notNull(),
-    phone: text("phone"), // E.164; nullable for staff
-    email: text("email"), // nullable for customers
+    phone: text("phone"), // E.164; required for customers (RICA), null for staff
+    email: text("email"), // sign-in key for customers, username for staff
     passwordHash: text("password_hash"), // staff only
     name: text("name").notNull(),
     status: userStatus("status").notNull().default("active"),
@@ -244,7 +244,14 @@ export const users = pgTable(
   },
   (t) => [
     uniqueIndex("users_phone_unique").on(t.phone),
-    uniqueIndex("users_email_unique").on(t.email),
+    // Case-insensitive, because email is now the credential customers sign in
+    // with. Sign-in lowercases before it looks anyone up, so a stored
+    // Thandi@example.com would be an account nobody could ever reach while
+    // still blocking the address for the person who owns it. One address is one
+    // account, whatever case it was typed in. Postgres treats NULLs as
+    // distinct, so staff-only rows and customers still without an email are
+    // unaffected.
+    uniqueIndex("users_email_lower_unique").on(sql`lower(${t.email})`),
     index("users_role_idx").on(t.role),
   ]
 );
@@ -981,11 +988,19 @@ export const numberSequences = pgTable(
 );
 
 // OTP codes (hashed at rest, 5-minute expiry, rate-limited at the endpoint).
+//
+// Keyed on identifier plus channel, not on a phone number: customers sign in
+// with an email code, while phone codes remain for the flows that still reach
+// people on a number. The channel is part of every lookup so a code sent to an
+// address can never satisfy a challenge on a number, or the reverse.
+export const otpChannel = pgEnum("otp_channel", ["email", "phone"]);
+
 export const otpCodes = pgTable(
   "otp_codes",
   {
     id: id(),
-    phone: text("phone").notNull(),
+    identifier: text("identifier").notNull(), // email address or E.164 number
+    channel: otpChannel("channel").notNull(),
     codeHash: text("code_hash").notNull(),
     ip: text("ip"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -994,7 +1009,7 @@ export const otpCodes = pgTable(
     ...timestamps,
   },
   (t) => [
-    index("otp_codes_phone_idx").on(t.phone),
+    index("otp_codes_identifier_idx").on(t.channel, t.identifier),
     index("otp_codes_expires_at_idx").on(t.expiresAt),
   ]
 );

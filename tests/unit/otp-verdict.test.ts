@@ -18,6 +18,7 @@ import {
  */
 
 const PHONE = "+27821234567";
+const CHANNEL = "phone" as const;
 
 describe("otpFailureMessage", () => {
   it("counts the tries left on a mistyped code", () => {
@@ -25,7 +26,8 @@ describe("otpFailureMessage", () => {
       otpFailureMessage({
         ok: false,
         status: "mismatch",
-        phone: PHONE,
+        identifier: PHONE,
+        channel: CHANNEL,
         attemptsRemaining: 3,
       })
     ).toBe("That code is not right. 3 tries left before you need a new code.");
@@ -35,7 +37,8 @@ describe("otpFailureMessage", () => {
     const message = otpFailureMessage({
       ok: false,
       status: "mismatch",
-      phone: PHONE,
+      identifier: PHONE,
+      channel: CHANNEL,
       attemptsRemaining: 1,
     });
     expect(message).toContain("1 try left");
@@ -46,7 +49,8 @@ describe("otpFailureMessage", () => {
     const message = otpFailureMessage({
       ok: false,
       status: "locked",
-      phone: PHONE,
+      identifier: PHONE,
+      channel: CHANNEL,
       attemptsRemaining: 0,
     });
     expect(message).toContain("last try");
@@ -58,7 +62,12 @@ describe("otpFailureMessage", () => {
   it("names the real lifetime on an expired code", () => {
     const minutes = Math.round(OTP_TTL_SECONDS / 60);
     expect(
-      otpFailureMessage({ ok: false, status: "expired", phone: PHONE })
+      otpFailureMessage({
+        ok: false,
+        status: "expired",
+        identifier: PHONE,
+        channel: CHANNEL,
+      })
     ).toBe(
       `That code has expired, codes last ${minutes} minute${minutes === 1 ? "" : "s"}. Send a new code.`
     );
@@ -68,13 +77,15 @@ describe("otpFailureMessage", () => {
     const used = otpFailureMessage({
       ok: false,
       status: "none",
-      phone: PHONE,
+      identifier: PHONE,
+      channel: CHANNEL,
       alreadyUsed: true,
     });
     const never = otpFailureMessage({
       ok: false,
       status: "none",
-      phone: PHONE,
+      identifier: PHONE,
+      channel: CHANNEL,
       alreadyUsed: false,
     });
     expect(used).toContain("already been used");
@@ -84,11 +95,35 @@ describe("otpFailureMessage", () => {
 
   it("gives every verdict its own sentence", () => {
     const verdicts: OtpVerifyFailure[] = [
-      { ok: false, status: "mismatch", phone: PHONE, attemptsRemaining: 2 },
-      { ok: false, status: "locked", phone: PHONE, attemptsRemaining: 0 },
-      { ok: false, status: "expired", phone: PHONE },
-      { ok: false, status: "none", phone: PHONE, alreadyUsed: true },
-      { ok: false, status: "none", phone: PHONE, alreadyUsed: false },
+      {
+        ok: false,
+        status: "mismatch",
+        identifier: PHONE,
+        channel: CHANNEL,
+        attemptsRemaining: 2,
+      },
+      {
+        ok: false,
+        status: "locked",
+        identifier: PHONE,
+        channel: CHANNEL,
+        attemptsRemaining: 0,
+      },
+      { ok: false, status: "expired", identifier: PHONE, channel: CHANNEL },
+      {
+        ok: false,
+        status: "none",
+        identifier: PHONE,
+        channel: CHANNEL,
+        alreadyUsed: true,
+      },
+      {
+        ok: false,
+        status: "none",
+        identifier: PHONE,
+        channel: CHANNEL,
+        alreadyUsed: false,
+      },
     ];
     const messages = verdicts.map(otpFailureMessage);
     expect(new Set(messages).size).toBe(verdicts.length);
@@ -104,7 +139,8 @@ describe("otpFailureMessage", () => {
     const message = otpFailureMessage({
       ok: false,
       status: "mismatch",
-      phone: PHONE,
+      identifier: PHONE,
+      channel: CHANNEL,
       attemptsRemaining: 4,
     });
     expect(message).not.toContain(PHONE);
@@ -118,7 +154,8 @@ describe("otpFailureMessage", () => {
       otpFailureMessage({
         ok: false,
         status: "mismatch",
-        phone: PHONE,
+        identifier: PHONE,
+        channel: CHANNEL,
         attemptsRemaining: remaining,
       })
     ).toContain(`${remaining} tries left`);

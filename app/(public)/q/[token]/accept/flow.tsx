@@ -115,7 +115,7 @@ export function AcceptFlow({
       form.set("email", contact.email);
       const r = await acceptOtpRequestAction(token, form);
       if (r.ok) {
-        setNotice(`A new code is on its way to ${contact.phone}.`);
+        setNotice(`A new code is on its way to ${contact.email}.`);
         setCooldown(r.resendIn);
       } else {
         setError(r.error ?? "We could not send another code");
@@ -134,7 +134,7 @@ export function AcceptFlow({
         {phase === "contact"
           ? "Step 1 of 3, your details"
           : phase === "otp"
-            ? "Step 2 of 3, verify your number"
+            ? "Step 2 of 3, verify your email address"
             : "Step 3 of 3, address and payment"}
       </p>
 
@@ -173,6 +173,23 @@ export function AcceptFlow({
             />
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="email">Email address</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              defaultValue={contact.email}
+              required
+              autoComplete="email"
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "accept-error email-hint" : "email-hint"}
+            />
+            <p id="email-hint" className="text-xs text-muted-foreground">
+              We verify it with a 6-digit code, and it becomes your sign-in.
+              Invoices come here too.
+            </p>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="phone">Cellphone number</Label>
             <Input
               id="phone"
@@ -181,26 +198,16 @@ export function AcceptFlow({
               defaultValue={contact.phone}
               required
               autoComplete="tel"
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? "accept-error phone-hint" : "phone-hint"}
+              aria-describedby="phone-hint"
             />
             <p id="phone-hint" className="text-xs text-muted-foreground">
-              We verify it with a 6-digit code, it becomes your sign-in.
+              RICA requires a contactable number for any SIM-based service, so
+              we need it even though you sign in with your email.
             </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email (for invoices)</Label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              defaultValue={contact.email}
-              autoComplete="email"
-            />
           </div>
           {errorBlock}
           <Button type="submit" className="w-full touch-target" disabled={pending}>
-            {pending ? "Sending code…" : "Verify my number"}
+            {pending ? "Sending code…" : "Email me a code"}
           </Button>
         </form>
       ) : null}
@@ -241,7 +248,7 @@ export function AcceptFlow({
               className="touch-target text-center font-mono text-lg tracking-[0.4em]"
             />
             <p id="code-hint" className="text-xs text-muted-foreground">
-              Sent to {contact.phone}.
+              Sent to {contact.email}.
             </p>
           </div>
           <label className="flex items-start gap-2 rounded-2xl border bg-card p-3 text-sm">
@@ -282,7 +289,7 @@ export function AcceptFlow({
               }}
               className="touch-target rounded-full px-3 text-muted-foreground hover:text-foreground hover:underline"
             >
-              Wrong number? Change it
+              Wrong email address? Change it
             </button>
           </div>
         </form>

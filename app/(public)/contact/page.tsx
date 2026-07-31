@@ -15,12 +15,12 @@ import {
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Reach Needd Connect on WhatsApp, phone or email. Existing customers get fastest help through the portal.",
+    "Reach Needd Connect by email or phone. Existing customers get fastest help through the portal.",
   alternates: { canonical: "/contact" },
   openGraph: {
     title: "Contact | Needd Connect",
     description:
-      "Reach Needd Connect on WhatsApp, phone or email. Real local people, not a call centre.",
+      "Reach Needd Connect by email or phone. Real South African people, not a call centre.",
     url: "/contact",
     type: "website",
   },
@@ -36,15 +36,18 @@ export default async function ContactPage() {
   );
   const waNumber = whatsappNumber(company);
 
+  // Email first, then the phone, then WhatsApp if and when a real mobile is
+  // configured. The order is the promise: email is the channel we answer on
+  // every day, WhatsApp is an extra we are adding rather than the front door.
   const tiles = [
-    ...(wa && waNumber
+    ...(email
       ? [
           {
-            href: wa,
-            icon: MessageCircle,
-            title: "WhatsApp",
-            detail: formatMobile(waNumber),
-            body: "Quickest for sales and support questions.",
+            href: `mailto:${email}`,
+            icon: Mail,
+            title: "Email us",
+            detail: email,
+            body: "The main way we work. Write to us and a person replies.",
           },
         ]
       : []),
@@ -59,14 +62,14 @@ export default async function ContactPage() {
           },
         ]
       : []),
-    ...(email
+    ...(wa && waNumber
       ? [
           {
-            href: `mailto:${email}`,
-            icon: Mail,
-            title: "Email",
-            detail: email,
-            body: "For anything formal or detailed.",
+            href: wa,
+            icon: MessageCircle,
+            title: "WhatsApp",
+            detail: formatMobile(waNumber),
+            body: "Also available if you would rather chat.",
           },
         ]
       : []),
@@ -81,21 +84,21 @@ export default async function ContactPage() {
         eyebrow="Contact"
         title="Talk to a person, not a queue"
         actions={
-          wa ? (
-            <>
-              <WhatsAppPill href={wa} />
-              <PillLink href="/coverage" variant="ink">
-                Check coverage
-              </PillLink>
-            </>
-          ) : (
-            <PillLink href="/coverage">Check coverage</PillLink>
-          )
+          <>
+            {email ? (
+              <PillLink href={`mailto:${email}`}>Email us</PillLink>
+            ) : null}
+            <PillLink href="/coverage" variant={email ? "ink" : "primary"}>
+              Check coverage
+            </PillLink>
+            {wa ? <WhatsAppPill href={wa} variant="ink" /> : null}
+          </>
         }
       >
         <p>
-          Sales, support and the awkward questions in between. We answer during
-          office hours, Monday to Friday.
+          Sales, support and the awkward questions in between. Email or phone
+          us and a South African who knows your account answers, during office
+          hours, Monday to Friday.
         </p>
       </PageHeader>
 

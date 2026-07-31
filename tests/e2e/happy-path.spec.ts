@@ -16,6 +16,19 @@ loadEnv({ path: [".env.local", ".env"] });
 
 const sql = postgres(process.env.DATABASE_URL!, { prepare: false, max: 2 });
 const phone = `07${Date.now().toString().slice(-8)}`;
+/*
+ * The sign-in credential, on Resend's test domain.
+ *
+ * Accounts are created with an emailed code, so this suite makes the app send
+ * a real message. resend.dev accepts and reports delivered without touching a
+ * human inbox, which keeps the real send path under test instead of stubbed.
+ * example.com would fail the run outright: Resend refuses it by design.
+ *
+ * Subaddressed with a timestamp so reruns never collide on the
+ * case-insensitive unique index on users.email (verified: Resend accepts the
+ * plus form).
+ */
+const email = `delivered+e2e${Date.now()}@resend.dev`;
 const adminPassword = process.env.E2E_ADMIN_PASSWORD;
 
 test.describe.configure({ mode: "serial" });
@@ -35,20 +48,25 @@ test("stranger signs up for VoIP on a phone and reaches payment", async ({
   await page.getByLabel("Postal code").fill("8001");
   await page.getByRole("button", { name: "Check coverage and continue" }).click();
 
+  // Accounts are created with an email address and verified by an emailed
+  // code. The phone number is still required, because RICA needs a reachable
+  // number for any SIM-based service, it is simply no longer the credential.
   await page.getByLabel("Full name").fill("E2E Happy Path");
+  await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Cellphone number").fill(phone);
-  await page.getByLabel("Email (optional)").fill("e2e@example.com");
-  await page.getByRole("button", { name: "Verify my number" }).click();
+  await page.getByRole("button", { name: "Email me a code" }).click();
 
-  // OTPs are hashed at rest, so the test can't read the sent code. Instead,
-  // once the code screen is up (the app's OTP row exists), insert a known
-  // code, verifyOtp picks the newest unconsumed row for the phone.
+  // OTPs are hashed at rest, so the test cannot read the code that was sent.
+  // Once the code screen is up (proving the app wrote its own row), insert a
+  // known one: verifyOtp takes the newest unconsumed row for that identifier.
+  // The channel matters now, an email challenge is only satisfied by an email
+  // code, so this row has to say 'email'.
   await expect(page.getByLabel("6-digit code")).toBeVisible({ timeout: 30_000 });
   const { createHash } = await import("node:crypto");
   const code = "424242";
-  const normalized = `+27${phone.slice(1)}`;
-  await sql`insert into otp_codes (id, phone, code_hash, expires_at)
-    values (gen_random_uuid(), ${normalized}, ${createHash("sha256").update(code).digest("hex")}, now() + interval '5 minutes')`;
+  await sql`insert into otp_codes (id, identifier, channel, code_hash, expires_at)
+    values (gen_random_uuid(), ${email}, 'email',
+            ${createHash("sha256").update(code).digest("hex")}, now() + interval '5 minutes')`;
 
   await page.getByLabel("6-digit code").fill(code);
   await page.locator("[role=checkbox]").first().click(); // POPIA
@@ -73,7 +91,7 @@ test("stranger signs up for VoIP on a phone and reaches payment", async ({
   const [order] = await sql`
     select o.id from orders o
     join customers c on o.customer_id = c.id
-    where c.phone = ${normalized}
+    where c.email = ${email}
     order by o.created_at desc limit 1`;
   expect(order).toBeTruthy();
   orderId = order.id;

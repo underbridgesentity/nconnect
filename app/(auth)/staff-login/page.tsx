@@ -54,7 +54,7 @@ export default async function StaffLoginPage({
       <p className="mt-6 border-t pt-5 text-sm text-muted-foreground">
         A customer?{" "}
         <Link href="/login" className="font-medium text-primary hover:underline">
-          Sign in with your cellphone
+          Sign in with your email address
         </Link>
         .
       </p>

@@ -461,17 +461,24 @@ async function main() {
       console.log(`  DEV sales login: ${salesEmail} / ${password}\n`);
     }
 
+    // The demo customer signs in the way every customer now does: an email
+    // address plus a six-digit code. The phone number stays on the record
+    // because RICA needs a reachable number for a SIM, it is simply no longer
+    // the credential. Lowercase, because that is what the sign-in lookup and
+    // the unique index both use.
+    const demoEmail = "thandi.demo@example.com";
     const demoPhone = "+27820000001";
     const [existingCustomerUser] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.phone, demoPhone))
+      .where(eq(users.email, demoEmail))
       .limit(1);
     if (!existingCustomerUser) {
       const [custUser] = await db
         .insert(users)
         .values({
           role: "customer",
+          email: demoEmail,
           phone: demoPhone,
           name: "Thandi Demo",
           status: "active",
@@ -483,12 +490,12 @@ async function main() {
         firstName: "Thandi",
         lastName: "Demo",
         phone: demoPhone,
-        email: "thandi.demo@example.com",
+        email: demoEmail,
         source: "web",
         assignedSalesId: repId,
       });
-      console.log(`  DEV customer: OTP login with ${demoPhone} (code prints to console)\n`);
     }
+    console.log(`  DEV customer login: ${demoEmail} (email code prints to console)\n`);
   }
 
   console.log("Seed complete.");

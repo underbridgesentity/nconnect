@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { CheckCircle2, MessageCircle } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, Mail } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FilterPillLink } from "@/components/ui/filter-pill";
@@ -11,7 +12,7 @@ import { coverageCheckAction } from "./actions";
 export const metadata: Metadata = {
   title: "Check Coverage",
   description:
-    "Check LTE, 5G and fibre availability at your address. Fibre feasibility confirmed within one business day on WhatsApp.",
+    "Check LTE, 5G and fibre availability at your address. Fibre feasibility confirmed within one business day.",
   alternates: { canonical: "/coverage" },
 };
 
@@ -72,20 +73,25 @@ export default async function CoveragePage({
         {callback === "failed" ? (
           <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             We could not save your call-back request just now, that one is on
-            us. Message us on WhatsApp and we will pick it up straight away.
+            us.{" "}
+            <Link href="/contact" className="font-medium underline underline-offset-4">
+              Email or phone us
+            </Link>{" "}
+            and we will pick it up straight away.
           </p>
         ) : null}
 
         {result === "fibre-promised" ? (
           <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
             <p className="flex items-center gap-2 font-medium text-blue-800">
-              <MessageCircle className="size-5 shrink-0" aria-hidden />
+              <Mail className="size-5 shrink-0" aria-hidden />
               We&apos;re on it.
             </p>
             <p className="mt-2 text-sm text-blue-800/80">
               We confirm fibre availability at your address within one business
-              day, on WhatsApp. If more than one network reaches you, we&apos;ll
-              send the options with honest pros and cons.
+              day, and we come back to you on the number you gave us. If more
+              than one network reaches you, we&apos;ll send the options with
+              honest pros and cons.
             </p>
           </div>
         ) : null}
@@ -111,8 +117,11 @@ export default async function CoveragePage({
         {result === "system" ? (
           <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             We could not save your request just now, and that one is on us.
-            Nothing you typed was wrong. Please try again in a moment, or
-            message us on WhatsApp and we will pick it up straight away.
+            Nothing you typed was wrong. Please try again in a moment, or{" "}
+            <Link href="/contact" className="font-medium underline underline-offset-4">
+              email or phone us
+            </Link>{" "}
+            and we will pick it up straight away.
           </p>
         ) : null}
 
@@ -135,7 +144,7 @@ export default async function CoveragePage({
           <input type="hidden" name="kind" value={kind} />
           <p className="text-sm text-muted-foreground">
             {isFibre
-              ? "Fibre is confirmed with the network operator at your exact address. We come back on WhatsApp within one business day, and nothing is charged before that."
+              ? "Fibre is confirmed with the network operator at your exact address. We come back to you within one business day, and nothing is charged before that."
               : "Tell us your suburb and we will point you at the plans that work there. Name and number are optional: leave them and we will check in after installation."}
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -161,7 +170,8 @@ export default async function CoveragePage({
                 required={isFibre}
               />
               <p className="text-xs text-muted-foreground">
-                We confirm on WhatsApp, no marketing without your say-so.
+                We use it to confirm your result. No marketing without your
+                say-so.
               </p>
             </div>
           </div>

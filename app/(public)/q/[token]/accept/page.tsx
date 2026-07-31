@@ -33,7 +33,8 @@ export default async function AcceptQuotePage({
         Accept quote {quote.number}
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Three quick steps: verify your number, your address, secure payment.
+        Three quick steps: verify your email address, your address, secure
+        payment.
         Pricing stays exactly as quoted.
       </p>
 

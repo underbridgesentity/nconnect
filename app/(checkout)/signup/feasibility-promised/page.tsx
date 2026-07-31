@@ -14,9 +14,13 @@ export const metadata: Metadata = {
 };
 
 /**
- * The fibre exit. Repeating the address and the number we captured is the
- * only proof the customer gets that the form worked, so it belongs here
+ * The fibre exit. Repeating the address and the contact details we captured is
+ * the only proof the customer gets that the form worked, so it belongs here
  * alongside a way to reach a person.
+ *
+ * What it promises is what we actually hold: an email reply when an address was
+ * given, a phone call when it was not. Naming a channel we cannot use would be
+ * the same as promising nothing.
  */
 export default async function FeasibilityPromisedPage() {
   const [draft, company] = await Promise.all([
@@ -34,8 +38,9 @@ export default async function FeasibilityPromisedPage() {
         .join(", ")
     : null;
   const phone = company?.phone ?? null;
+  const replyEmail = draft.contact?.email ?? null;
   // Only when settings carry a WhatsApp-capable mobile: the 086 switchboard
-  // cannot receive wa.me, and this page promises a WhatsApp reply.
+  // cannot receive wa.me.
   const wa = whatsappHref(
     company,
     "Hi Needd Connect, I am following up on my fibre feasibility check."
@@ -47,8 +52,8 @@ export default async function FeasibilityPromisedPage() {
       <h1 className="mt-4 text-2xl font-semibold">We&apos;re on it.</h1>
       <p className="mt-2 text-muted-foreground">
         We confirm fibre availability at your address within one business day,
-        on WhatsApp. Your plan choice is saved, once we confirm, signup takes
-        two minutes.
+        {replyEmail ? " by email" : " by phone"}. Your plan choice is saved,
+        once we confirm, signup takes two minutes.
       </p>
 
       {address || draft.contact?.phone ? (
@@ -62,9 +67,17 @@ export default async function FeasibilityPromisedPage() {
                 <dd className="font-medium">{address}</dd>
               </div>
             ) : null}
+            {replyEmail ? (
+              <div>
+                <dt className="text-muted-foreground">We will email</dt>
+                <dd className="font-medium break-all">{replyEmail}</dd>
+              </div>
+            ) : null}
             {draft.contact?.phone ? (
               <div>
-                <dt className="text-muted-foreground">We will message</dt>
+                <dt className="text-muted-foreground">
+                  {replyEmail ? "And can reach you on" : "We will call"}
+                </dt>
                 <dd className="font-medium">{draft.contact.phone}</dd>
               </div>
             ) : null}

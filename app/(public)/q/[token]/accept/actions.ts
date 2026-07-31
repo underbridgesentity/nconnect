@@ -9,6 +9,8 @@ import {
   requestOtp,
   verifyOtp,
   otpFailureMessage,
+  normalizeEmail,
+  isValidEmail,
   OtpRateLimitError,
 } from "@/lib/auth/otp";
 import {
@@ -23,6 +25,11 @@ import { buildCheckout } from "@/lib/payfast";
  * Quote acceptance (spec §9.5): OTP-verified contact -> address (+ RICA if
  * the quote includes a SIM service) -> order from quote snapshots -> PayFast.
  * State is kept client-side per step; every action re-validates the token.
+ *
+ * The code goes to the customer's EMAIL, because email is now the credential
+ * a customer signs in with. The cellphone number is still required and still
+ * collected here: RICA needs a contactable number for any SIM-based service,
+ * it simply is not what proves who you are any more.
  */
 
 export type AcceptResult = { ok: boolean; error?: string };
@@ -75,14 +82,18 @@ export async function quoteRequiresRica(token: string): Promise<boolean> {
 const contactSchema = z.object({
   name: z.string().min(2).max(120),
   phone: z.string().min(9).max(15),
-  email: z.string().email().optional(),
+  email: z
+    .string()
+    .trim()
+    .refine(isValidEmail, "Enter a valid email address")
+    .transform(normalizeEmail),
 });
 
 /** Six digits. Checked before the code is spent, so a slip costs no tries. */
 const codeSchema = z
   .string()
   .trim()
-  .regex(/^\d{6}$/, "Codes are 6 digits. Check the message and try again.");
+  .regex(/^\d{6}$/, "Codes are 6 digits. Check the email and try again.");
 
 export async function acceptOtpRequestAction(
   token: string,
@@ -93,13 +104,20 @@ export async function acceptOtpRequestAction(
     const parsed = contactSchema.safeParse({
       name: form.get("name"),
       phone: form.get("phone"),
-      email: String(form.get("email") ?? "") || undefined,
+      email: String(form.get("email") ?? ""),
     });
     if (!parsed.success) {
-      return { ok: false, error: "Check your name and cellphone number" };
+      return {
+        ok: false,
+        error:
+          "Check your name, email address and cellphone number, we need all three.",
+      };
     }
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
-    const sent = await requestOtp(parsed.data.phone, ip);
+    const sent = await requestOtp(
+      { identifier: parsed.data.email, channel: "email" },
+      ip
+    );
     return { ok: true, resendIn: sent.resendInSeconds };
   } catch (err) {
     if (err instanceof OtpRateLimitError) return { ok: false, error: err.message };
@@ -116,7 +134,11 @@ export async function acceptVerifyAction(
     const phone = String(form.get("phone"));
     const code = String(form.get("code"));
     const name = String(form.get("name"));
-    const email = String(form.get("email") ?? "") || undefined;
+    const rawEmail = String(form.get("email") ?? "");
+    if (!isValidEmail(rawEmail)) {
+      return { ok: false, error: "Enter a valid email address" };
+    }
+    const email = normalizeEmail(rawEmail);
     if (form.get("popiaConsent") !== "on") {
       return {
         ok: false,
@@ -131,7 +153,10 @@ export async function acceptVerifyAction(
     // "That code didn't match" was the answer to four different problems.
     // The library's verdict tells the customer which one they have: expired,
     // out of tries, already used, or mistyped with N tries left.
-    const otp = await verifyOtp(phone, parsedCode.data);
+    const otp = await verifyOtp(
+      { identifier: email, channel: "email" },
+      parsedCode.data
+    );
     if (!otp.ok) return { ok: false, error: otpFailureMessage(otp) };
 
     const hdrs = await headers();
@@ -181,7 +206,9 @@ export async function acceptFinalizeAction(
   try {
     const quote = await validQuote(token);
     const customerId = String(form.get("customerId"));
-    if (!customerId) return { ok: false, error: "Verify your number first" };
+    if (!customerId) {
+      return { ok: false, error: "Verify your email address first" };
+    }
 
     const needsRica = await quoteRequiresRica(token);
     let rica = null;

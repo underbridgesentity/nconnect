@@ -67,9 +67,10 @@ export default function PrivacyPage() {
             <h2>Consent and marketing</h2>
             <p>
               Processing consent is captured explicitly at signup, with
-              separate, unticked opt-ins for WhatsApp and email marketing.
+              separate, unticked opt-ins for email and WhatsApp marketing.
               Transactional messages (invoices, service status) are part of
-              running your service and don&apos;t depend on marketing consent.
+              running your service, are sent to your email address, and
+              don&apos;t depend on marketing consent.
               You can change marketing preferences in your portal at any time.
             </p>
           </section>
@@ -98,7 +99,8 @@ export default function PrivacyPage() {
             <p>
               The minimum needed to deliver your service: the network or fibre
               operator provisioning your line, PayFast for payment processing,
-              and our messaging providers for WhatsApp/email/SMS delivery. We
+              and our messaging providers for email, SMS and WhatsApp delivery.
+              We
               never sell personal information.
             </p>
           </section>

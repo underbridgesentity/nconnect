@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { ArrowLeft, MessageCircle, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import {
 } from "./actions";
 
 /**
- * Sign-in: cellphone number, then the 6-digit code.
+ * Sign-in: email address, then the 6-digit code.
  *
  * Everything that can be said truthfully is said: which inbox the code went
  * to, how long it has left, how many tries remain, whether it expired or was
@@ -42,24 +42,16 @@ function useCountdown(deadline: number | null) {
   return Math.max(0, Math.ceil((deadline - now) / 1000));
 }
 
-export function OtpLoginForm({
-  callbackUrl,
-  supportPhone,
-}: {
-  callbackUrl?: string;
-  supportPhone: string | null;
-}) {
+export function OtpLoginForm({ callbackUrl }: { callbackUrl?: string }) {
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<"send" | "verify" | "resend" | null>(null);
 
-  const [step, setStep] = useState<"phone" | "code">("phone");
-  const [phoneInput, setPhoneInput] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [emailInput, setEmailInput] = useState("");
   const [code, setCode] = useState("");
-  const [sentTo, setSentTo] = useState<{
-    phone: string;
-    display: string;
-    channel?: string;
-  } | null>(null);
+  const [sentTo, setSentTo] = useState<{ email: string; via?: string } | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [expiryAt, setExpiryAt] = useState<number | null>(null);
@@ -68,12 +60,8 @@ export function OtpLoginForm({
   const expiresIn = useCountdown(expiryAt);
   const resendIn = useCountdown(resendAt);
 
-  const whatsappHref = supportPhone
-    ? `https://wa.me/27${supportPhone.replace(/\D/g, "").replace(/^0/, "")}`
-    : null;
-
   const applySend = (result: SendCodeResult) => {
-    if (!result.ok || !result.phone) {
+    if (!result.ok || !result.email) {
       setError(result.error ?? "We could not send the code just now.");
       if (result.resendInSeconds != null) {
         setResendAt(Date.now() + result.resendInSeconds * 1000);
@@ -81,11 +69,7 @@ export function OtpLoginForm({
       return;
     }
     const now = Date.now();
-    setSentTo({
-      phone: result.phone,
-      display: result.phoneDisplay ?? result.phone,
-      channel: result.channel,
-    });
+    setSentTo({ email: result.email, via: result.via });
     setExpiryAt(now + (result.expiresInSeconds ?? 300) * 1000);
     setResendAt(now + (result.resendInSeconds ?? 60) * 1000);
     setNotice(result.notice ?? null);
@@ -94,13 +78,13 @@ export function OtpLoginForm({
   };
 
   const send = (resend: boolean) => {
-    const phone = resend ? (sentTo?.phone ?? phoneInput) : phoneInput;
+    const email = resend ? (sentTo?.email ?? emailInput) : emailInput;
     setBusy(resend ? "resend" : "send");
     startTransition(async () => {
       setError(null);
       setNotice(null);
       try {
-        applySend(await sendLoginCodeAction({ phone, resend }));
+        applySend(await sendLoginCodeAction({ email, resend }));
       } catch {
         setError(
           "We could not reach Needd Connect just now. Check your connection and try again."
@@ -121,7 +105,7 @@ export function OtpLoginForm({
         // with nothing while the browser is already on its way: anything that
         // does come back is a refusal, with a reason to show.
         const result: VerifyCodeResult | undefined = await verifyLoginCodeAction(
-          { phone: sentTo.phone, code, callbackUrl }
+          { email: sentTo.email, code, callbackUrl }
         );
         if (result && !result.ok) setError(result.error);
       } catch {
@@ -133,8 +117,8 @@ export function OtpLoginForm({
     });
   };
 
-  const changeNumber = () => {
-    setStep("phone");
+  const changeEmail = () => {
+    setStep("email");
     setError(null);
     setNotice(null);
     setCode("");
@@ -170,15 +154,12 @@ export function OtpLoginForm({
             className="touch-target text-center font-mono text-lg tracking-[0.4em]"
           />
           <p id="code-hint" className="text-sm text-muted-foreground">
-            {/* Only name the inbox when we know which one it was. */}
-            Sent{" "}
-            {sentTo.channel === "whatsapp"
-              ? "on WhatsApp "
-              : sentTo.channel
-                ? "by SMS "
-                : ""}
-            to{" "}
-            <span className="font-medium text-foreground">{sentTo.display}</span>.
+            {/* Only name the inbox when we know the code actually went there. */}
+            Sent {sentTo.via === "email" ? "by email " : ""}to{" "}
+            <span className="font-medium text-foreground break-all">
+              {sentTo.email}
+            </span>
+            .
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-muted-foreground">
             <span>
@@ -202,25 +183,27 @@ export function OtpLoginForm({
           </div>
         </div>
       ) : (
-        <div key="phone-step" className="space-y-2">
-          <Label htmlFor="phone">Cellphone number</Label>
+        <div key="email-step" className="space-y-2">
+          <Label htmlFor="email">Email address</Label>
           <Input
-            id="phone"
-            name="phone"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            placeholder="082 123 4567"
+            id="email"
+            name="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="thandi@example.com"
             required
-            value={phoneInput}
-            onChange={(e) => setPhoneInput(e.target.value)}
-            aria-describedby="phone-hint otp-status"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            aria-describedby="email-hint otp-status"
             aria-invalid={error ? true : undefined}
             className="touch-target"
           />
-          <p id="phone-hint" className="text-sm text-muted-foreground">
-            The number on your Needd Connect account. We send a 6-digit code,
-            so there is no password to remember.
+          <p id="email-hint" className="text-sm text-muted-foreground">
+            The email address on your Needd Connect account. We send a 6-digit
+            code, so there is no password to remember.
           </p>
         </div>
       )}
@@ -253,25 +236,20 @@ export function OtpLoginForm({
       </Button>
 
       {onCodeStep ? (
-        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+        <div className="space-y-2 text-center text-xs text-muted-foreground">
+          <p>
+            Code not arriving? Check your spam or junk folder, then send a new
+            one.
+          </p>
           <button
             type="button"
-            onClick={changeNumber}
+            onClick={changeEmail}
             disabled={pending}
             className="inline-flex items-center gap-1 hover:text-foreground hover:underline disabled:opacity-50"
           >
             <ArrowLeft className="size-3.5" aria-hidden />
-            Change number
+            Change email address
           </button>
-          {whatsappHref ? (
-            <a
-              href={whatsappHref}
-              className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
-            >
-              <MessageCircle className="size-3.5" aria-hidden />
-              Code not arriving? WhatsApp us
-            </a>
-          ) : null}
         </div>
       ) : null}
     </form>

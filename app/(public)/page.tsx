@@ -3,7 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowRight,
-  MessageCircle,
+  Mail,
   Receipt,
   Headset,
   ShieldCheck,
@@ -32,7 +32,7 @@ export const revalidate = 300;
 export const metadata: Metadata = {
   title: "Needd Connect | One provider, one bill, local support",
   description:
-    "Uncapped LTE, 5G and fibre from R331/month, business VoIP and SIM data deals. One provider, one bill, real local support on WhatsApp.",
+    "Uncapped LTE, 5G and fibre from R331/month, business VoIP and SIM data deals. One provider, one bill, real South African support by email and phone.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "Needd Connect | One provider, one bill, local support",
@@ -88,7 +88,7 @@ const STEPS = [
   },
   {
     title: "We set you up",
-    body: "We activate your service and keep you posted on WhatsApp until you're online.",
+    body: "We activate your service and email you at every step until you're online.",
   },
 ];
 
@@ -183,7 +183,7 @@ export default async function HomePage() {
           </h1>
           <p className="mt-5 max-w-xl text-lg text-white/75">
             One provider, one bill, local support. Uncapped LTE, 5G and fibre
-            across South Africa, with real people answering on WhatsApp.
+            across South Africa, answered by real people in South Africa.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <PillLink href="/coverage" className="px-7">
@@ -223,7 +223,7 @@ export default async function HomePage() {
               <dt className="text-xs uppercase tracking-wider text-white/50">
                 Support
               </dt>
-              <dd className="text-2xl font-semibold">WhatsApp-first</dd>
+              <dd className="text-2xl font-semibold">Real people</dd>
             </div>
           </dl>
         </div>
@@ -387,7 +387,7 @@ export default async function HomePage() {
             </Reveal>
             <div className="mt-10 grid gap-6 sm:grid-cols-3">
               {[
-                { icon: MessageCircle, label: "WhatsApp-first support" },
+                { icon: Headset, label: "Support from real people" },
                 { icon: Receipt, label: "One honest bill" },
                 { icon: ShieldCheck, label: "POPIA and RICA compliant" },
               ].map((item, index) => (
@@ -432,9 +432,9 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 sm:grid-cols-3">
           {[
             {
-              icon: MessageCircle,
-              title: "WhatsApp-first support",
-              body: "Your order updates, invoices and support all happen where you already are.",
+              icon: Mail,
+              title: "Support from real people",
+              body: "Order updates and invoices arrive by email, and when you reply a South African who knows your account answers.",
             },
             {
               icon: Receipt,
@@ -524,6 +524,14 @@ export default async function HomePage() {
                   aria-hidden
                 />
               </PillLink>
+              <PillLink href="/contact" variant="ink" className="px-8">
+                Talk to a person
+              </PillLink>
+              {/*
+                WhatsApp is an extra channel, never the promise. whatsappHref
+                returns null until a real mobile is configured in settings, so
+                this pill simply is not there until the business is ready.
+              */}
               {wa ? (
                 <WhatsAppPill href={wa} variant="ink" className="px-8" />
               ) : null}

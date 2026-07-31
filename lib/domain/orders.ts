@@ -24,7 +24,7 @@ import { writeAudit } from "./audit";
 import { emitDomainEvent, forwardDomainEvent } from "./events";
 import { nextNumber } from "./sequences";
 import { encryptSensitive } from "@/lib/crypto";
-import { normalizePhone } from "@/lib/auth/otp";
+import { normalizeEmail, normalizePhone } from "@/lib/auth/otp";
 
 /**
  * Orders (spec §4.3, §9.2): checkout charges once-off fees + hardware + the
@@ -396,10 +396,23 @@ export async function cancelStaleOrder(
 
 // ------------------------------------------------- customer + user creation
 
+/**
+ * Find or create the customer account behind a signup.
+ *
+ * Keyed on EMAIL, because that is the credential customers sign in with. It
+ * used to key on phone, and when accounts moved to emailed codes that left two
+ * defects: the user row was created with no email at all, so nobody who signed
+ * up could ever sign in, and a returning customer on a new handset would get a
+ * second account whose email collided with their first.
+ *
+ * Phone is still required and still stored, because RICA needs a reachable
+ * number for any SIM-based service.
+ */
 export async function findOrCreateCustomer(input: {
   phone: string;
   name: string;
-  email?: string | null;
+  /** The sign-in credential. Required: an account without one cannot be used. */
+  email: string;
   popiaConsent: boolean;
   marketingWhatsapp?: boolean;
   marketingEmail?: boolean;
@@ -407,12 +420,16 @@ export async function findOrCreateCustomer(input: {
   userAgent?: string | null;
 }): Promise<{ userId: string; customerId: string; created: boolean }> {
   const phone = normalizePhone(input.phone);
+  const email = normalizeEmail(input.email);
 
   return db.transaction(async (tx) => {
+    // lower(email), matching the case-insensitive unique index on users.email
+    // and the lookup sign-in performs, so the account found here is exactly the
+    // account the customer will later sign in to.
     const [existingUser] = await tx
       .select()
       .from(users)
-      .where(eq(users.phone, phone))
+      .where(sql`lower(${users.email}) = lower(${email})`)
       .limit(1);
 
     let userId: string;
@@ -430,7 +447,13 @@ export async function findOrCreateCustomer(input: {
     } else {
       const [user] = await tx
         .insert(users)
-        .values({ role: "customer", phone, name: input.name, status: "active" })
+        .values({
+          role: "customer",
+          email,
+          phone,
+          name: input.name,
+          status: "active",
+        })
         .returning({ id: users.id });
       userId = user.id;
       created = true;
@@ -446,7 +469,7 @@ export async function findOrCreateCustomer(input: {
           firstName: nameParts[0],
           lastName: nameParts.slice(1).join(" ") || null,
           phone,
-          email: input.email ?? null,
+          email,
           source: "web",
         })
         .returning({ id: customers.id });

@@ -3,17 +3,22 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { users, customers, notifications } from "@/lib/db/schema";
 import { sendEmail } from "./email";
-import { sendWhatsAppTemplate, whatsappEnabled } from "./whatsapp";
+import { sendWhatsAppTemplate, whatsappRecipient } from "./whatsapp";
 import { TEMPLATES, type NotifyEvent } from "./templates";
 
 /**
- * Single notification dispatcher (spec §8). Fans out per the matrix:
- * customer WhatsApp (template) with email as the formal record; if WhatsApp
- * is disabled the WhatsApp leg falls back to email so no event is silent.
- * Bell notifications are written for staff where the matrix says so.
+ * Single notification dispatcher (spec §8).
  *
- * M2 ships the dispatcher + the events used so far; the full matrix and
- * template copy land with M5 and only extend `templates.ts`.
+ * Email is the channel. Every customer notification goes out by email, which
+ * is both the delivery and the formal record, so a customer with an account
+ * is never dependent on a messaging platform to hear from us.
+ *
+ * WhatsApp is an optional extra copy of the same message, sent only to
+ * customers who opted in while WHATSAPP_ENABLED is on (see `whatsappRecipient`).
+ * It is sent after the email and its failure is logged rather than escalated:
+ * the customer has already been told, so a Meta outage is not a lost event.
+ *
+ * Bell notifications are written for staff where the matrix says so.
  */
 
 export interface NotifyContext {
@@ -48,31 +53,43 @@ export async function notify(
 
   const rendered = template.render(ctx);
 
-  // Customer legs
+  // Customer legs. Email first and always, WhatsApp only as an opt-in echo.
   if (customer && template.toCustomer) {
-    let whatsappSent = false;
-    if (whatsappEnabled() && customer.phone && template.whatsappTemplate) {
-      const result = await sendWhatsAppTemplate({
-        to: customer.phone,
-        template: template.whatsappTemplate,
-        bodyParams: rendered.whatsappParams,
-      });
-      whatsappSent = result.ok;
-    }
-    const shouldEmail =
-      template.email || (!whatsappSent && template.whatsappTemplate != null);
-    if (shouldEmail && customer.email) {
-      await sendEmail({
+    if (customer.email) {
+      const result = await sendEmail({
         to: customer.email,
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
         attachments: ctx.attachments,
       });
-    } else if (shouldEmail && !customer.email && !whatsappSent) {
+      if (!result.ok) {
+        console.error(
+          `notify(${event}): email to customer ${customer.id} failed: ${result.detail}`
+        );
+      }
+    } else {
+      // Customers sign in with an email address, so this means an older or
+      // staff-created record. Surface it instead of quietly going silent.
       console.warn(
-        `notify(${event}): customer ${customer.id} unreachable (no email, WhatsApp ${whatsappEnabled() ? "failed" : "disabled"})`
+        `notify(${event}): customer ${customer.id} has no email address on file, notification not delivered`
       );
+    }
+
+    const whatsappTo = template.whatsappTemplate
+      ? whatsappRecipient(customer)
+      : null;
+    if (whatsappTo && template.whatsappTemplate) {
+      const result = await sendWhatsAppTemplate({
+        to: whatsappTo,
+        template: template.whatsappTemplate,
+        bodyParams: rendered.whatsappParams,
+      });
+      if (!result.ok) {
+        console.warn(
+          `notify(${event}): WhatsApp copy to customer ${customer.id} failed: ${result.detail}`
+        );
+      }
     }
   }
 

@@ -149,9 +149,9 @@ export default async function PlanDetailPage({
   const afterSignup: string[] =
     plan.category === "fibre"
       ? [
-          "We confirm fibre availability at your address within one business day, on WhatsApp.",
+          "We confirm fibre availability at your address within one business day, by email.",
           "Once confirmed, the fibre operator schedules any installation needed.",
-          "We activate your line and message you the moment it's live.",
+          "We activate your line and email you the moment it's live.",
           "Your first invoice is only for the month after activation, the month you paid at checkout starts when the service works.",
         ]
       : [
@@ -292,7 +292,7 @@ export default async function PlanDetailPage({
                   className="mt-0.5 size-4 shrink-0 text-primary"
                   aria-hidden
                 />
-                <span>Support on WhatsApp from real local people</span>
+                <span>Support from real local people, by email or phone</span>
               </li>
               {plan.onceOffCents === 0 ? (
                 <li className="flex gap-2.5">

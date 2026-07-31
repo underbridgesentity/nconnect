@@ -32,6 +32,11 @@ import {
  * Step 3 (spec §9.2): contact + inline OTP (creates the account), POPIA
  * consent, conditional RICA capture, order review, PayFast redirect.
  *
+ * The account is made on an email address: the one-time code goes there, and
+ * so does every order update afterwards. The cellphone number is still
+ * required, because a SIM cannot be activated without one under RICA, but it
+ * is no longer the credential anybody signs in with.
+ *
  * Every field the customer fills in is controlled, so a rejected code, a
  * failed upload or a validation error never empties the form underneath the
  * error message.
@@ -88,7 +93,7 @@ function useCountdown(deadlineMs: number | null) {
 
 export function StepThree({
   contact,
-  phoneVerified,
+  verified,
   requiresRica,
   ricaDone,
   ricaIdSaved,
@@ -102,7 +107,8 @@ export function StepThree({
   otpResendAt,
 }: {
   contact: { name: string; phone: string; email?: string } | null;
-  phoneVerified: boolean;
+  /** The email address is confirmed and the account exists. */
+  verified: boolean;
   requiresRica: boolean;
   ricaDone: boolean;
   ricaIdSaved: boolean;
@@ -127,7 +133,7 @@ export function StepThree({
   const [phase, setPhase] = useState<
     "contact" | "otp" | "rica" | "review" | "paying"
   >(
-    phoneVerified
+    verified
       ? requiresRica && !ricaDone
         ? "rica"
         : "review"
@@ -193,8 +199,8 @@ export function StepThree({
             e.preventDefault();
             const form = new FormData();
             form.set("name", name);
-            form.set("phone", phone);
             form.set("email", email);
+            form.set("phone", phone);
             startTransition(async () => {
               setError(null);
               const result = await requestSignupOtpAction(form);
@@ -225,6 +231,24 @@ export function StepThree({
             </p>
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="email">Email address</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              We send your 6-digit code here in a moment. It is how you sign in
+              afterwards, and where your invoices and order updates arrive.
+            </p>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="phone">Cellphone number</Label>
             <Input
               id="phone"
@@ -237,21 +261,8 @@ export function StepThree({
               onChange={(e) => setPhone(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Your sign-in and where order updates arrive (WhatsApp).
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email (optional)</Label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              For invoices and receipts, recommended.
+              Required by law for any SIM we activate, and how we reach you
+              about a delivery. You do not sign in with it.
             </p>
           </div>
           {error ? (
@@ -260,7 +271,7 @@ export function StepThree({
             </p>
           ) : null}
           <Button type="submit" className="w-full touch-target" disabled={pending}>
-            {pending ? "Sending code..." : "Verify my number"}
+            {pending ? "Sending code..." : "Email me a code"}
           </Button>
         </form>
       ) : null}
@@ -283,7 +294,11 @@ export function StepThree({
         >
           <h2 className="font-semibold">Enter the 6-digit code</h2>
           <p className="text-sm text-muted-foreground">
-            Sent to {phone || contact?.phone}. Codes last {ttlMinutes}{" "}
+            Emailed to{" "}
+            <span className="font-medium text-foreground">
+              {email || contact?.email}
+            </span>
+            . Codes last {ttlMinutes}{" "}
             {ttlMinutes === 1 ? "minute" : "minutes"}. This creates your Needd
             Connect account.
           </p>
@@ -359,17 +374,6 @@ export function StepThree({
             </label>
             <label className="flex items-start gap-2">
               <Checkbox
-                name="marketingWhatsapp"
-                className="mt-0.5"
-                checked={waOptIn}
-                onCheckedChange={(v) => setWaOptIn(v === true)}
-              />
-              <span className="text-muted-foreground">
-                Send me deals on WhatsApp (optional).
-              </span>
-            </label>
-            <label className="flex items-start gap-2">
-              <Checkbox
                 name="marketingEmail"
                 className="mt-0.5"
                 checked={emailOptIn}
@@ -377,6 +381,18 @@ export function StepThree({
               />
               <span className="text-muted-foreground">
                 Send me deals by email (optional).
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <Checkbox
+                name="marketingWhatsapp"
+                className="mt-0.5"
+                checked={waOptIn}
+                onCheckedChange={(v) => setWaOptIn(v === true)}
+              />
+              <span className="text-muted-foreground">
+                Send me deals on WhatsApp too (optional). Everything about your
+                order comes by email either way.
               </span>
             </label>
           </div>
@@ -403,7 +419,7 @@ export function StepThree({
               }}
               className="hover:underline"
             >
-              Wrong number? Go back
+              Wrong email address? Go back
             </button>
             {whatsapp ? (
               <a href={whatsapp} className="hover:underline">
@@ -411,6 +427,10 @@ export function StepThree({
               </a>
             ) : null}
           </div>
+          <p className="text-center text-xs text-muted-foreground">
+            No email yet? Check your spam or promotions folder before asking for
+            a new code.
+          </p>
         </form>
       ) : null}
 

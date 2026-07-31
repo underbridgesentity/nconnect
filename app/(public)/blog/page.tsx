@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Blog | Needd Connect",
     description:
-      "Practical connectivity guides, written the way we answer questions on WhatsApp.",
+      "Practical connectivity guides, written the way we answer questions when you email us.",
     url: "/blog",
     type: "website",
   },
@@ -31,8 +31,8 @@ export default async function BlogIndexPage() {
         title="Practical guides, no hype"
       >
         <p>
-          Written the way we answer questions on WhatsApp: what works in South
-          Africa, and what to watch out for.
+          Written the way we answer questions when you write to us: what works
+          in South Africa, and what to watch out for.
         </p>
       </PageHeader>
 

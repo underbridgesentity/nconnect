@@ -1,13 +1,46 @@
 import "server-only";
 
 /**
- * Meta WhatsApp Cloud API sender. Env-gated: when WHATSAPP_ENABLED !== "true"
- * callers (the dispatcher, OTP service) fall back to email/SMS so no event is
- * silent while Meta verification is pending (spec §3, §8).
+ * Meta WhatsApp Cloud API sender.
+ *
+ * WhatsApp is a later addition, not the backbone. Email carries every customer
+ * notification; WhatsApp is an extra copy that only goes out when BOTH gates
+ * are open:
+ *   1. WHATSAPP_ENABLED === "true" (the platform switch), and
+ *   2. the customer opted in (the per-customer switch, off by default).
+ *
+ * Both gates matter. Flipping the env var on later must not silently redirect
+ * anyone's notifications away from email, which is why `whatsappRecipient`
+ * below refuses to return a number without an explicit opt-in.
  */
 
 export function whatsappEnabled(): boolean {
   return process.env.WHATSAPP_ENABLED === "true";
+}
+
+/**
+ * The bits of a customer row this module needs.
+ *
+ * `whatsappOptIn` is optional because the column does not exist yet: WhatsApp
+ * is a later stage, and until the opt-in is stored and collectable the field
+ * reads as undefined, which means "not opted in" and therefore email only.
+ * When the column lands, the value flows through here with no further change.
+ */
+export interface WhatsAppRecipient {
+  phone: string | null;
+  whatsappOptIn?: boolean | null;
+}
+
+/**
+ * The number to send a WhatsApp copy to, or null when WhatsApp must stay out
+ * of it. Null is the normal answer today.
+ */
+export function whatsappRecipient(
+  customer: WhatsAppRecipient
+): string | null {
+  if (!whatsappEnabled()) return null;
+  if (customer.whatsappOptIn !== true) return null;
+  return customer.phone ?? null;
 }
 
 export interface TemplateSend {

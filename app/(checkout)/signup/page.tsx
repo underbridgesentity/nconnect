@@ -184,6 +184,16 @@ export default async function SignupWizardPage({
     selectedPlan?.category === "fibre" ||
     Boolean(selectedBundle?.items.some((i) => i.plan?.category === "fibre"));
 
+  /*
+   * Is the code screen the right place to land?
+   *
+   * Drafts started before codes moved to email carry an otpSentAt with no
+   * address behind it. Those belong on the details form: a code screen that
+   * cannot name where the code went, and whose resend has nothing to send to,
+   * is a dead end in the middle of a checkout.
+   */
+  const otpSent = Boolean(draft.otpSentAt && draft.contact?.email);
+
   // Two very different failures: the catalogue changed under the customer, or
   // our infrastructure is unwell. Never tell someone their choice expired
   // because the database blinked.
@@ -252,7 +262,7 @@ export default async function SignupWizardPage({
       {step === 3 ? (
         <StepThree
           contact={draft.contact ?? null}
-          phoneVerified={Boolean(draft.phoneVerified)}
+          verified={Boolean(draft.phoneVerified)}
           requiresRica={Boolean(priced?.requiresRica)}
           ricaDone={Boolean(draft.ricaIdDocPath && draft.ricaPoaDocPath)}
           ricaIdSaved={Boolean(draft.ricaIdDocPath)}
@@ -265,7 +275,7 @@ export default async function SignupWizardPage({
             company,
             "Hi Needd Connect, I have a question before I pay."
           )}
-          otpSent={Boolean(draft.otpSentAt)}
+          otpSent={otpSent}
           otpTtlSeconds={OTP_TTL_SECONDS}
           otpExpiresAt={deadline(draft.otpSentAt, OTP_TTL_SECONDS)}
           otpResendAt={deadline(draft.otpSentAt, OTP_RESEND_COOLDOWN_SECONDS)}
@@ -532,8 +542,8 @@ function Step2Address({
           <p className="mt-1 text-sm text-blue-800/90">
             We confirm fibre availability at your address with the network
             operator before taking any payment, it takes one business day at
-            most. Leave your details and we&apos;ll come back to you on
-            WhatsApp with a yes (and next steps) or honest alternatives.
+            most. Leave your details and we&apos;ll come back to you with a yes
+            (and next steps) or honest alternatives.
           </p>
         </div>
         {error === "contact" ? (
@@ -550,6 +560,12 @@ function Step2Address({
         {error === "name" ? (
           <p className="text-sm text-destructive">
             Please give us your full name so we know who to confirm with.
+          </p>
+        ) : null}
+        {error === "email" ? (
+          <p className="text-sm text-destructive">
+            That email address doesn&apos;t look right. Correct it, or leave it
+            blank and we&apos;ll phone you instead.
           </p>
         ) : null}
         {error === "system" ? (
@@ -583,11 +599,26 @@ function Step2Address({
               />
             </div>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="email">Email (optional)</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              defaultValue={draft.contact?.email}
+            />
+            <p className="text-xs text-muted-foreground">
+              Give it and we&apos;ll send the answer in writing, so you have the
+              detail to hand. Otherwise we phone you.
+            </p>
+          </div>
           <PendingSubmit
             pendingLabel="Sending your details..."
             className={PRIMARY_CTA}
           >
-            Check my address and WhatsApp me
+            Check my address and get back to me
           </PendingSubmit>
         </form>
       </div>
@@ -604,7 +635,7 @@ function Step2Address({
       <h2 className="font-semibold">Where should the service live?</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         {isFibre
-          ? "Fibre feasibility is per property, so we need the street number. We check with the network operator and come back on WhatsApp within one business day. Nothing is charged before that."
+          ? "Fibre feasibility is per property, so we need the street number. We check with the network operator and come back to you within one business day. Nothing is charged before that."
           : "We use this to check coverage and deliver hardware."}
       </p>
       {error === "address" ? (

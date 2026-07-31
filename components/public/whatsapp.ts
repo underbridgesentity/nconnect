@@ -4,12 +4,15 @@
  * wa.me only resolves real mobile numbers. The company switchboard seeded in
  * settings is 086 686 3078, a share-call prefix, so deriving a WhatsApp link
  * from `company.phone` produced a link that opened "phone number shared via
- * url is invalid". WhatsApp is the headline support promise on this site, so
- * a broken link is worse than no link: we only render the affordance when
- * settings carry a number that really is a South African mobile.
+ * url is invalid". A broken link is worse than no link, so we only render the
+ * affordance when settings carry a number that really is a South African
+ * mobile.
  *
- * Set `company.whatsapp` in settings (E.164 "27821234567", or the local
- * "082 123 4567") to switch the WhatsApp buttons on across the public site.
+ * WhatsApp is deliberately not the promise the site makes: email and phone
+ * carry sales, support and every notification. This module is the "add it
+ * later" switch. Set `company.whatsapp` in settings (E.164 "27821234567", or
+ * the local "082 123 4567") and the WhatsApp affordances appear across the
+ * public site as an extra channel, never as the headline one.
  */
 
 export type CompanySettings = {

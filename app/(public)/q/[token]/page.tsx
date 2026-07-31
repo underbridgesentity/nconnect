@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { Check, MessageCircle, RefreshCw, XCircle } from "lucide-react";
+import { Check, Mail, MessageCircle, RefreshCw, XCircle } from "lucide-react";
 import { db } from "@/lib/db/client";
 import { orders } from "@/lib/db/schema";
 import { quoteDocument, type OrderStatus } from "@/lib/domain/quotes";
@@ -105,6 +105,10 @@ export default async function QuotePage({
   // line and the company number is an 086 share-call, so both routes are
   // filtered through the same guard and the affordance simply disappears when
   // there is nothing behind it.
+  //
+  // WhatsApp is the extra here, not the promise: when no mobile is configured
+  // the customer still gets a route, it is email at the consultant's address
+  // or the contact page, never a dead end.
   const repWhatsApp = whatsappHrefFor(
     rep?.phone,
     `Hi${rep?.name ? ` ${rep.name}` : ""}, I have a question about quote ${quote.number}.`
@@ -113,8 +117,24 @@ export default async function QuotePage({
     company,
     `Hi Needd Connect, I have a question about quote ${quote.number}.`
   );
-  const chatHref = repWhatsApp ?? companyWhatsApp;
-  const chatLabel = repWhatsApp && rep?.name ? `WhatsApp ${rep.name}` : "WhatsApp us";
+  const repMail = rep?.email
+    ? `mailto:${rep.email}?subject=${encodeURIComponent(`Quote ${quote.number}`)}`
+    : null;
+  const whatsApp = repWhatsApp ?? companyWhatsApp;
+  const chatHref = whatsApp ?? repMail ?? "/contact";
+  // The label names the consultant only when the link really goes to them.
+  const chatToRep = whatsApp ? Boolean(repWhatsApp) : Boolean(repMail);
+  const chatWho = chatToRep && rep?.name ? ` with ${rep.name}` : " with us";
+  const chatLabel = whatsApp
+    ? repWhatsApp && rep?.name
+      ? `WhatsApp ${rep.name}`
+      : "WhatsApp us"
+    : repMail && rep?.name
+      ? `Email ${rep.name}`
+      : "Email or phone us";
+  const ChatIcon = whatsApp ? MessageCircle : Mail;
+  const chatTarget = whatsApp ? "_blank" : undefined;
+  const chatRel = whatsApp ? "noreferrer" : undefined;
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
@@ -251,17 +271,15 @@ export default async function QuotePage({
             token={token}
             label={`Resume payment of ${formatCents(view.totalCents)}`}
           />
-          {chatHref ? (
-            <a
-              href={chatHref}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex text-sm font-medium text-amber-900 underline underline-offset-4"
-            >
-              Rather sort it out{repWhatsApp && rep?.name ? ` with ${rep.name}` : ""}{" "}
-              on WhatsApp
-            </a>
-          ) : null}
+          <a
+            href={chatHref}
+            target={chatTarget}
+            rel={chatRel}
+            className="inline-flex text-sm font-medium text-amber-900 underline underline-offset-4"
+          >
+            Rather sort it out{chatWho}
+            {whatsApp ? " on WhatsApp" : ""}
+          </a>
         </div>
       ) : view.kind === "cancelled" ? (
         <div className="mt-6 space-y-3 rounded-2xl border bg-muted/40 p-4">
@@ -276,23 +294,17 @@ export default async function QuotePage({
               ? `${rep.name} can send you a fresh one at current prices.`
               : "Ask us for a fresh one at current prices."}
           </p>
-          {chatHref ? (
-            // chatLabel carries the rep's name, so the label has no fixed
-            // length and is allowed to wrap rather than run out of the card.
-            <PillLink
-              href={chatHref}
-              target="_blank"
-              rel="noreferrer"
-              className="px-7 whitespace-normal"
-            >
-              <MessageCircle className="size-4 shrink-0" aria-hidden />
-              {chatLabel} for a fresh quote
-            </PillLink>
-          ) : (
-            <PillLink href="/contact" className="px-7">
-              Ask for a fresh quote
-            </PillLink>
-          )}
+          {/* chatLabel carries the rep's name, so the label has no fixed
+              length and is allowed to wrap rather than run out of the card. */}
+          <PillLink
+            href={chatHref}
+            target={chatTarget}
+            rel={chatRel}
+            className="px-7 whitespace-normal"
+          >
+            <ChatIcon className="size-4 shrink-0" aria-hidden />
+            {chatLabel} for a fresh quote
+          </PillLink>
         </div>
       ) : expired ? (
         <div className="mt-6 space-y-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
@@ -304,23 +316,17 @@ export default async function QuotePage({
             can no longer honour.{" "}
             {rep?.name
               ? `${rep.name} can send you a fresh one in a minute.`
-              : "Message us and we will send a fresh one in a minute."}
+              : "Ask us and we will send a fresh one in a minute."}
           </p>
-          {chatHref ? (
-            <PillLink
-              href={chatHref}
-              target="_blank"
-              rel="noreferrer"
-              className="px-7 whitespace-normal"
-            >
-              <MessageCircle className="size-4 shrink-0" aria-hidden />
-              {chatLabel} for a fresh quote
-            </PillLink>
-          ) : (
-            <PillLink href="/contact" className="px-7">
-              Ask for a fresh quote
-            </PillLink>
-          )}
+          <PillLink
+            href={chatHref}
+            target={chatTarget}
+            rel={chatRel}
+            className="px-7 whitespace-normal"
+          >
+            <ChatIcon className="size-4 shrink-0" aria-hidden />
+            {chatLabel} for a fresh quote
+          </PillLink>
         </div>
       ) : (
         <PillLink href={`/q/${token}/accept`} className="mt-6 flex px-7">
@@ -331,21 +337,16 @@ export default async function QuotePage({
       {view.kind === "none" && !expired ? (
         <p className="mt-3 text-center text-xs text-muted-foreground">
           {rep?.name ? `${rep.name} wrote this quote. ` : ""}Ask anything before
-          you pay, it stays exactly as shown.
-          {chatHref ? (
-            <>
-              {" "}
-              <a
-                href={chatHref}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium underline underline-offset-4"
-              >
-                {chatLabel}
-              </a>
-              .
-            </>
-          ) : null}
+          you pay, it stays exactly as shown.{" "}
+          <a
+            href={chatHref}
+            target={chatTarget}
+            rel={chatRel}
+            className="font-medium underline underline-offset-4"
+          >
+            {chatLabel}
+          </a>
+          .
         </p>
       ) : null}
 

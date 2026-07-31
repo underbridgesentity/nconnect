@@ -4,8 +4,8 @@ import { verify as argon2Verify } from "@node-rs/argon2";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
-import { verifyOtp } from "./otp";
-import { findCustomerAccount } from "./customer-account";
+import { normalizeEmail, verifyOtp } from "./otp";
+import { findCustomerAccountByEmail } from "./customer-account";
 import type { Role } from "./permissions";
 import type { Actor } from "./authorize";
 
@@ -68,22 +68,41 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         };
       },
     }),
+    /**
+     * The only customer credential. Email plus a six-digit code, no password.
+     *
+     * The phone-code provider it replaces has been removed rather than left
+     * beside it: two credential paths into one account means the account is
+     * only as safe as the weaker one, and a number is easier to take over than
+     * a mailbox. Phone stays on the record because RICA requires it, but it no
+     * longer opens the door.
+     */
     Credentials({
-      id: "customer-otp",
-      name: "Customer OTP",
+      id: "customer-email-otp",
+      name: "Customer email code",
       credentials: {
-        phone: { label: "Phone", type: "tel" },
+        email: { label: "Email", type: "email" },
         code: { label: "Code", type: "text" },
       },
       async authorize(credentials) {
-        const phone = credentials?.phone as string | undefined;
+        const rawEmail = credentials?.email as string | undefined;
         const code = credentials?.code as string | undefined;
-        if (!phone || !code) return null;
+        if (!rawEmail || !code) return null;
 
-        const result = await verifyOtp(phone, code);
+        let email: string;
+        try {
+          email = normalizeEmail(rawEmail);
+        } catch {
+          return null;
+        }
+
+        const result = await verifyOtp(
+          { identifier: email, channel: "email" },
+          code
+        );
         if (!result.ok) return null;
 
-        const account = await findCustomerAccount(result.phone);
+        const account = await findCustomerAccountByEmail(result.identifier);
         if (account.status !== "ok") return null;
 
         await db

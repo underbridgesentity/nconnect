@@ -222,7 +222,7 @@ export default async function SignupSuccessPage({
               went through, and PayFast&apos;s confirmation has not reached us
               yet. That occasionally takes a few minutes. Order{" "}
               <span className="font-mono">{order.number}</span> is safe either
-              way, and we will WhatsApp you the moment it clears.
+              way, and we will email you the moment it clears.
             </>
           )}
         </p>
@@ -285,14 +285,14 @@ export default async function SignupSuccessPage({
               <span className="font-semibold text-foreground">
                 {hasHardware ? "3." : "2."}
               </span>{" "}
-              We activate your service and WhatsApp you the moment it&apos;s
-              live, your paid month starts then.
+              We activate your service and email you the moment it&apos;s live,
+              your paid month starts then.
             </p>
           </div>
         ) : (
           <p className="mx-auto mt-6 max-w-sm text-sm text-muted-foreground">
             {view.stage === "processing"
-              ? "We are preparing it now and will WhatsApp you at every step. Your portal has the current status."
+              ? "We are preparing it now and will email you at every step. Your portal has the current status."
               : "Everything about your service and your invoices now lives in your portal."}
           </p>
         )}

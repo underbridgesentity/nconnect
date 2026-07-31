@@ -15,12 +15,20 @@ import {
   verifyOtp,
   otpThrottleState,
   otpFailureMessage,
+  emailTarget,
+  isValidEmail,
+  normalizeEmail,
   OtpRateLimitError,
-  PhoneFormatError,
+  EmailFormatError,
   OTP_TTL_SECONDS,
   OTP_RESEND_COOLDOWN_SECONDS,
+  type OtpTarget,
   type OtpThrottleState,
 } from "@/lib/auth/otp";
+import {
+  checkEmailAvailability,
+  emailTakenMessage,
+} from "@/lib/auth/customer-account";
 import {
   findOrCreateCustomer,
   createOrder,
@@ -170,7 +178,14 @@ export async function submitAddressAction(form: FormData): Promise<void> {
 export async function fibreFeasibilityAction(form: FormData): Promise<void> {
   const name = String(form.get("name") ?? "").trim();
   const phone = String(form.get("phone") ?? "").trim();
+  // Optional here, unlike at signup: this is a lead, not an account, and a
+  // feasibility answer can be delivered on the number alone. Captured when it
+  // is given so the reply can go by email, which is the channel that carries
+  // everything once the order is real.
+  const rawEmail = String(form.get("email") ?? "").trim();
+  const email = rawEmail && isValidEmail(rawEmail) ? normalizeEmail(rawEmail) : null;
   if (!name || !phone) redirect("/signup?step=2&fibre=1&error=contact");
+  if (rawEmail && !email) redirect("/signup?step=2&fibre=1&error=email");
 
   const draft = await readDraft();
   const addressText = draft.address
@@ -187,6 +202,7 @@ export async function fibreFeasibilityAction(form: FormData): Promise<void> {
     await createLead({
       name,
       phone,
+      email,
       source: "web_coverage",
       interest: `Fibre signup: ${draft.planSlug ?? draft.bundleSlug ?? "unspecified plan"}`,
       addressText,
@@ -202,8 +218,9 @@ export async function fibreFeasibilityAction(form: FormData): Promise<void> {
   // Keep who we promised to come back to: the confirmation page repeats it
   // so the customer can see we captured the right number, and a later signup
   // starts prefilled.
+  const carriedEmail = email ?? draft.contact?.email;
   await writeDraft({
-    contact: { name, phone, ...(draft.contact?.email ? { email: draft.contact.email } : {}) },
+    contact: { name, phone, ...(carriedEmail ? { email: carriedEmail } : {}) },
     abandonedLeadCaptured: true,
   });
   redirect("/signup/feasibility-promised");
@@ -211,11 +228,25 @@ export async function fibreFeasibilityAction(form: FormData): Promise<void> {
 
 // ------------------------------------------------------------------ step 3
 
+/**
+ * Who is buying.
+ *
+ * Email is the credential: it is what the one-time code goes to, what the
+ * account is keyed on and where every order update lands. The cellphone number
+ * stays required because a SIM cannot be activated without one under RICA, it
+ * simply is not how anybody signs in any more.
+ */
 const contactSchema = z.object({
   name: z.string().min(2).max(120),
+  email: z
+    .string()
+    .trim()
+    .refine(isValidEmail, "Enter a valid email address")
+    .transform(normalizeEmail),
   phone: z.string().min(9).max(15),
-  email: z.string().email().optional(),
 });
+
+type SignupContact = z.infer<typeof contactSchema>;
 
 /**
  * The answer to "send a code".
@@ -247,21 +278,29 @@ const WHATSAPP_OFFER = " WhatsApp us and we will finish the order with you.";
 /**
  * Send a code, or explain why not.
  *
- * The throttle is read before a code is spent: two taps on "Verify my number"
- * must not burn two of the five codes an hour this number gets, and the
+ * The throttle is read before a code is spent: two taps on "Email me a code"
+ * must not burn two of the five codes an hour this address gets, and the
  * countdown the customer sees has to belong to the code that is actually live,
  * not restart at five minutes because they tapped again.
  */
 async function sendOtp(
-  contact: { name: string; phone: string; email?: string },
+  contact: SignupContact,
   ip: string | null,
   options: { resend?: boolean } = {}
 ): Promise<OtpSendResult> {
+  let target: OtpTarget;
+  try {
+    target = emailTarget(contact.email);
+  } catch (err) {
+    if (err instanceof EmailFormatError) return { ok: false, error: err.message };
+    throw err;
+  }
+
   let throttle: OtpThrottleState;
   try {
-    throttle = await otpThrottleState(contact.phone);
+    throttle = await otpThrottleState(target);
   } catch (err) {
-    if (err instanceof PhoneFormatError) return { ok: false, error: err.message };
+    if (err instanceof EmailFormatError) return { ok: false, error: err.message };
     throw err;
   }
 
@@ -274,7 +313,7 @@ async function sendOtp(
         resendIn: throttle.resendInSeconds,
       };
     }
-    // A code for this number went out seconds ago and is still good: carry on
+    // A code for this address went out seconds ago and is still good: carry on
     // to the code screen rather than spending another one, with the countdown
     // set from when that code was actually sent.
     await writeDraft({
@@ -290,7 +329,7 @@ async function sendOtp(
   }
 
   try {
-    await requestOtp(contact.phone, ip);
+    await requestOtp(target, ip);
   } catch (err) {
     if (err instanceof OtpRateLimitError) {
       // The library already works out how long until a slot frees up.
@@ -318,8 +357,8 @@ export async function requestSignupOtpAction(
 ): Promise<OtpSendResult> {
   const parsed = contactSchema.safeParse({
     name: form.get("name"),
+    email: form.get("email"),
     phone: form.get("phone"),
-    email: String(form.get("email") ?? "") || undefined,
   });
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
@@ -327,12 +366,31 @@ export async function requestSignupOtpAction(
       ok: false,
       error:
         field === "email"
-          ? "That email address does not look right, or leave it blank."
+          ? "That email address does not look right. We send your code there, so it has to be one you can open."
           : field === "name"
             ? "Please give us your full name."
             : "Check your cellphone number, for example 082 123 4567.",
     };
   }
+
+  /*
+   * Ask before a code goes out. users.email is uniquely indexed on lower(email),
+   * so an address already spoken for cannot become a second account: sending a
+   * code first would only walk the customer up to a failed insert mid-checkout.
+   *
+   * An address already held by a *customer* is not an error. It is somebody
+   * buying a second service, and the code they are about to receive proves the
+   * address is theirs, so checkout carries on and the existing account is
+   * reused. A staff login is the one that has to stop here.
+   */
+  const availability = await checkEmailAvailability(parsed.data.email);
+  if (availability.status === "invalid") {
+    return { ok: false, error: emailTakenMessage(availability) };
+  }
+  if (availability.status === "taken" && availability.by === "staff") {
+    return { ok: false, error: emailTakenMessage(availability) };
+  }
+
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
   return sendOtp(parsed.data, ip);
 }
@@ -340,11 +398,26 @@ export async function requestSignupOtpAction(
 /** "Send a new code". The cooldown is the library's, not a copy of it. */
 export async function resendSignupOtpAction(): Promise<OtpSendResult> {
   const draft = await readDraft();
-  if (!draft.contact) {
+  const contact = draftContact(draft);
+  if (!contact) {
     return { ok: false, error: "Start with your details" };
   }
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
-  return sendOtp(draft.contact, ip, { resend: true });
+  return sendOtp(contact, ip, { resend: true });
+}
+
+/**
+ * The draft's contact, but only once it carries an email address.
+ *
+ * The stored shape still allows a contact without one: the fibre feasibility
+ * form captures a name and a number long before anybody has an account. Signup
+ * cannot send a code to that, so it is treated as "no contact yet" and the
+ * customer is sent back to the details form rather than into a broken send.
+ */
+function draftContact(draft: SignupDraftState): SignupContact | null {
+  const contact = draft.contact;
+  if (!contact?.email) return null;
+  return { name: contact.name, email: contact.email, phone: contact.phone };
 }
 
 /** Six digits. Checked before the code is spent, so a slip costs no tries. */
@@ -370,7 +443,8 @@ export async function verifySignupOtpAction(
   }
 
   const draft = await readDraft();
-  if (!draft.contact) return { ok: false, error: "Start with your details" };
+  const contact = draftContact(draft);
+  if (!contact) return { ok: false, error: "Start with your details" };
 
   const parsedCode = codeSchema.safeParse(code);
   if (!parsedCode.success) {
@@ -380,7 +454,10 @@ export async function verifySignupOtpAction(
   // The library owns the diagnosis and the wording, so a customer who abandons
   // checkout and tries to sign in instead hears the same thing about the same
   // code: expired, locked, already used, or mistyped with N tries left.
-  const verdict = await verifyOtp(draft.contact.phone, parsedCode.data);
+  const verdict = await verifyOtp(
+    { identifier: contact.email, channel: "email" },
+    parsedCode.data
+  );
   if (!verdict.ok) {
     return { ok: false, error: otpFailureMessage(verdict) };
   }
@@ -389,22 +466,49 @@ export async function verifySignupOtpAction(
   const ip = hdrs.get("x-forwarded-for")?.split(",")[0] ?? null;
 
   // Create (or reuse) user + customer atomically (spec §10.1).
-  const { userId, customerId } = await findOrCreateCustomer({
-    phone: draft.contact.phone,
-    name: draft.contact.name,
-    email: draft.contact.email,
-    popiaConsent,
-    marketingWhatsapp,
-    marketingEmail,
-    ip,
-    userAgent: hdrs.get("user-agent"),
-  });
+  //
+  // The availability check before the code went out closes the ordinary
+  // duplicate; this catch closes the race between that check and this insert,
+  // and any address that slipped past it. Either way the customer reads a
+  // sentence they can act on instead of a 500 with their card already out.
+  let userId: string;
+  let customerId: string;
+  try {
+    const account = await findOrCreateCustomer({
+      phone: contact.phone,
+      name: contact.name,
+      email: contact.email,
+      popiaConsent,
+      marketingWhatsapp,
+      marketingEmail,
+      ip,
+      userAgent: hdrs.get("user-agent"),
+    });
+    userId = account.userId;
+    customerId = account.customerId;
+  } catch (err) {
+    console.error("signup account creation failed:", err);
+    const duplicateEmail =
+      err instanceof Error && /users_email_lower_unique|duplicate key/i.test(err.message);
+    return {
+      ok: false,
+      error: duplicateEmail
+        ? emailTakenMessage({
+            status: "taken",
+            email: contact.email,
+            by: "customer",
+            userId: "",
+          })
+        : "We could not finish creating your account just now. Nothing has been charged, please try again in a moment.",
+    };
+  }
 
+  // `phoneVerified` is the draft's long-standing name for "this person proved
+  // who they are and the account exists". What they prove now is the email
+  // address, not the number. See needsCoordination: the key wants renaming
+  // once the flows that read it move together.
   await writeDraft({ phoneVerified: true, userId, customerId });
 
-  // Authenticate the session immediately: mint a fresh OTP consumed straight
-  // into the customer-otp provider (the just-verified phone is trusted).
-  // Simplest correct approach: sign in with a one-time internal code.
   return { ok: true };
 }
 
@@ -454,7 +558,9 @@ async function processDocUpload(
  */
 export async function submitRicaAction(form: FormData): Promise<WizardResult> {
   const draft = await readDraft();
-  if (!draft.customerId) return { ok: false, error: "Verify your number first" };
+  if (!draft.customerId) {
+    return { ok: false, error: "Verify your email address first" };
+  }
 
   const idNumber = idNumberSchema.safeParse(
     String(form.get("idNumber") ?? "").replace(/\s/g, "")
@@ -575,11 +681,12 @@ export async function startCheckoutAction(
   expectedTotalCents: number
 ): Promise<CheckoutResult> {
   const draft = await readDraft();
-  if (!draft.customerId || !draft.phoneVerified || !draft.contact) {
+  const contact = draftContact(draft);
+  if (!draft.customerId || !draft.phoneVerified || !contact) {
     return {
       ok: false,
       block: "verify",
-      error: "Verify your cellphone number first",
+      error: "Verify your email address first",
     };
   }
   if (!draft.address) {
@@ -731,14 +838,14 @@ export async function startCheckoutAction(
   }
 
   const { buildCheckout } = await import("@/lib/payfast");
-  const nameParts = draft.contact.name.trim().split(/\s+/);
+  const nameParts = contact.name.trim().split(/\s+/);
   const checkout = buildCheckout({
     paymentId: order.id,
     amountCents: order.totalCents,
     itemName: `Needd Connect order ${order.number}`,
     customerFirstName: nameParts[0],
     customerLastName: nameParts.slice(1).join(" ") || undefined,
-    customerEmail: draft.contact.email,
+    customerEmail: contact.email,
     tokenize: true,
   });
   return {
@@ -752,11 +859,12 @@ export async function startCheckoutAction(
 /** After payment return: sign the verified customer into the portal. */
 export async function signInVerifiedCustomerAction(): Promise<void> {
   const draft = await readDraft();
-  if (!draft.phoneVerified || !draft.contact) redirect("/login");
-  // The customer's phone was OTP-verified minutes ago in this same flow;
-  // issue a fresh code internally and consume it to mint the session.
+  const contact = draftContact(draft);
+  if (!draft.phoneVerified || !contact) redirect("/login");
+  // The customer's email address was OTP-verified minutes ago in this same
+  // flow; issue a fresh code internally and consume it to mint the session.
   const { issueInternalSession } = await import("@/lib/auth/internal-session");
-  await issueInternalSession(draft.contact.phone);
+  await issueInternalSession(contact.email);
   // The purchase is done: retire the draft so a later visit to /signup starts
   // a clean order instead of reviewing one that is already paid.
   const { clearDraft } = await import("@/lib/domain/signup");

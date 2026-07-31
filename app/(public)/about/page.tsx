@@ -66,7 +66,7 @@ export default async function AboutPage() {
             Being a reseller is the point, not a compromise. We buy wholesale
             from the networks and sell to you directly, which means you never
             phone a network call centre again. One provider, one bill, and
-            support from people who know your account, on WhatsApp.
+            support from people who know your account, by email or phone.
           </p>
           <p>
             We keep our promises deliberately small and keep them: honest

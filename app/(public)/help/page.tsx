@@ -28,11 +28,15 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
     faqs: [
       {
         q: "How do I know which plan suits me?",
-        a: "Streaming and working from home? Start at 300GB full-speed (LTE Plus) or 30Mbps fibre. Big households and heavy streaming want 50Mbps+ fibre or the LTE Advanced/Max plans. If you tell us on WhatsApp how many people and screens are in the house, we'll give you a straight recommendation.",
+        a: "Streaming and working from home? Start at 300GB full-speed (LTE Plus) or 30Mbps fibre. Big households and heavy streaming want 50Mbps+ fibre or the LTE Advanced/Max plans. Email us how many people and screens are in the house and we'll give you a straight recommendation.",
       },
       {
         q: "Do I need a special router?",
         a: "For MTN/Vodacom LTE and 5G, yes, the router must be network-approved, and we sell approved models. Telkom LTE works with any LTE-compatible device. Fibre routers connect to the operator's equipment; ours are pre-configured.",
+      },
+      {
+        q: "How do I sign in to my account?",
+        a: "With your email address. We send a 6-digit code to that address and you type it in, so there is no password to forget. We still ask for your cellphone number at signup because RICA requires a contactable number for any SIM-based service, but your email is what signs you in.",
       },
       {
         q: "How long until I'm online?",
@@ -66,7 +70,7 @@ const SECTIONS: { title: string; faqs: { q: string; a: string }[] }[] = [
       },
       {
         q: "What happens if a payment fails?",
-        a: "We retry your card and remind you on WhatsApp and email. If an invoice is 10 days overdue the service is suspended, pay the outstanding invoice and it reactivates automatically. We'd rather warn you early than surprise you.",
+        a: "We retry your card and email you a reminder. If an invoice is 10 days overdue the service is suspended, pay the outstanding invoice and it reactivates automatically. We'd rather warn you early than surprise you.",
       },
     ],
   },
@@ -115,20 +119,23 @@ export default async function HelpPage() {
         title="Straight answers, no runaround"
         actions={
           <>
-            {wa ? (
-              <WhatsAppPill href={wa}>Ask on WhatsApp</WhatsAppPill>
-            ) : (
-              <PillLink href="/contact">Ask us directly</PillLink>
-            )}
+            <PillLink href="/contact">Ask us directly</PillLink>
             <PillLink href="/coverage" variant="ink">
               Check coverage
             </PillLink>
+            {/* An extra route, not the headline one: this disappears until a
+                real WhatsApp mobile is configured in settings. */}
+            {wa ? (
+              <WhatsAppPill href={wa} variant="ink">
+                Ask on WhatsApp
+              </WhatsAppPill>
+            ) : null}
           </>
         }
       >
         <p>
           The questions we actually get asked, answered the way we answer them
-          on WhatsApp.
+          when you write to us.
         </p>
       </PageHeader>
 

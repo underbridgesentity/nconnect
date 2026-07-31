@@ -10,6 +10,11 @@ import type { SignupDraftState } from "@/lib/domain/signup";
  * Abandoned-signup capture (spec §9.2 edge cases): drafts that got past
  * step 2 with contact details but never paid become `web_abandoned` leads.
  * Runs hourly; each draft is captured once.
+ *
+ * Signup is email-first, but a lead still needs the phone number RICA
+ * requires, so drafts abandoned before the number was captured cannot become
+ * leads. They are counted rather than silently skipped, so the gap is visible
+ * in the run result instead of looking like nobody abandoned.
  */
 export const abandonedSignups = inngest.createFunction(
   { id: "abandoned-signups", triggers: [cron("0 * * * *")] },
@@ -24,14 +29,19 @@ export const abandonedSignups = inngest.createFunction(
       .limit(200);
 
     let captured = 0;
+    let noPhoneYet = 0;
     for (const draft of drafts) {
       const state = draft.state as SignupDraftState;
       if (
-        !state.contact?.phone ||
+        !state.contact ||
         state.orderId || // paid or paying, not abandoned
         state.abandonedLeadCaptured ||
         !(state.address || state.planSlug || state.bundleSlug)
       ) {
+        continue;
+      }
+      if (!state.contact.phone) {
+        noPhoneYet++;
         continue;
       }
       const interest = [
@@ -68,6 +78,6 @@ export const abandonedSignups = inngest.createFunction(
         console.error(`abandoned-signup capture failed for ${draft.id}:`, err);
       }
     }
-    return { scanned: drafts.length, captured };
+    return { scanned: drafts.length, captured, noPhoneYet };
   }
 );
