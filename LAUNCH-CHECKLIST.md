@@ -12,11 +12,21 @@ marked **dev** are configuration/deploy work.
       notify URLs. `lib/config.ts` throws at first use in production if it is
       unset or not https, so a missing value fails the deploy loudly instead
       of silently shipping localhost links to customers.
-- [ ] **client: Set the WhatsApp number** in Settings, Company details.
-      WhatsApp is the headline support promise on the public site, but wa.me
-      cannot deliver to the seeded 086 share-call number, so every WhatsApp
-      button stays hidden until a real mobile (06x, 07x, 081 to 084) is saved.
-      Nothing is broken while it is blank, the affordance simply does not render.
+- [ ] **client, optional: Set the WhatsApp number** in Settings, Company
+      details. No longer a launch blocker, see the WhatsApp section below.
+      wa.me cannot deliver to the seeded 086 share-call number, so the WhatsApp
+      buttons stay hidden until a real mobile (06x, 07x, 081 to 084) is saved.
+      Leaving it blank is a valid launch state: nothing breaks and no affordance
+      renders. This is the switch that turns WhatsApp on when the business is
+      ready for it.
+
+- [ ] **dev: Verify the Resend sending domain** (SPF and DKIM for
+      needdconnect.co.za) and set `RESEND_API_KEY`.
+      **This now gates every account.** Customers sign in with a one-time code
+      sent by email, so if mail does not deliver, nobody can sign up or sign in
+      at all. It was a soft dependency while accounts were phone-based; it is a
+      hard launch blocker now. Send a real test to a Gmail, an Outlook and a
+      corporate address before launch, and check none of them land in spam.
 
 ## Money and catalogue
 
@@ -87,7 +97,14 @@ marked **dev** are configuration/deploy work.
       fails every recurring collection while leaving first payments working,
       so it would surface a month after launch rather than on day one.
 
-## WhatsApp (Meta Cloud API)
+## WhatsApp (Meta Cloud API), deferred to a later stage
+
+The client's decision (2026-07-29): accounts are email-based and WhatsApp is
+added properly later rather than being the headline channel. None of the items
+below block launch. Email carries every notification today, and the WhatsApp
+affordances stay hidden until a real mobile number is saved in Settings, so
+nothing is broken while this section is untouched.
+
 
 - [ ] **client: Meta Business verification** for Needd Technology
       Solutions and a WhatsApp Business number.
@@ -103,6 +120,17 @@ marked **dev** are configuration/deploy work.
       verify token.
 
 ## Decisions taken, do not re-litigate
+
+- **Accounts are email-based, WhatsApp comes later (2026-07-29).** Customers
+  sign in with a six-digit one-time code sent to their email address. There are
+  no customer passwords, so there is no reset flow to build or attack, and the
+  existing OTP protections carry over unchanged: codes hashed at rest, a five
+  minute expiry, a sixty second resend cooldown, five verify attempts per code,
+  and per-address and per-IP hourly rate limits.
+  A phone number is still required at signup because RICA requires one for any
+  SIM-based service. It is simply no longer the login credential.
+  The consequence worth remembering: email deliverability now gates every
+  account, so the Resend domain is a hard launch blocker rather than a nicety.
 
 - **Cloudflare instead of Vercel: considered and declined (2026-07-28).**
   Three dependencies cannot run on Cloudflare Workers: `sharp` (native libvips,
@@ -126,8 +154,6 @@ marked **dev** are configuration/deploy work.
 
 - [ ] **client: SMS provider account** (SMSPortal or Clickatell) +
       `SMS_PROVIDER`/`SMS_API_KEY`, OTP fallback channel.
-- [ ] **dev: Resend domain** (SPF/DKIM for needdconnect.co.za) +
-      RESEND_API_KEY.
 - [ ] **dev: Supabase project (af-south-1 is no longer offered for new
       projects; staging used eu-west-2, see the region note above)**: run
       migrations against the
