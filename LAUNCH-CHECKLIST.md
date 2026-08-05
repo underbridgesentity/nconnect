@@ -89,11 +89,23 @@ marked **dev** are configuration/deploy work.
       the deployed one, every live checkout fails with the same signature
       error, so this is worth thirty seconds before the live test.
 
-- [ ] **client: Confirm the PayFast account is live-enabled** and that the
-      notify URL `https://needdconnect.co.za/api/webhooks/payfast` is
-      whitelisted if the account restricts ITN destinations.
-- [ ] **dev: Flip `PAYFAST_MODE` to `live`** only once DNS resolves and one
-      real low-value checkout has been completed and refunded.
+- [x] **dev: `PAYFAST_MODE` flipped to `live`** (2026-08-05, client
+      instruction) and verified to the edge of moving money: a checkout on
+      www.needdconnect.co.za now posts to www.payfast.co.za and the LIVE host
+      accepts the signature (the sandbox-era "signature does not match" is
+      gone, and PayFast validates the signature before anything else). The
+      merchant id, key and passphrase are therefore all correct in production.
+- [ ] **client, BLOCKING: Enable the PayFast account to receive payments.**
+      The live host currently answers: "The merchant cannot accept these kind
+      of payments at the moment." That is an account-status message, not a
+      code or configuration problem, and only the account holder can clear it
+      in the PayFast dashboard. Usual causes: account verification (FICA
+      documents, bank confirmation) not finished, or card payments not enabled
+      on the account. Until it is cleared, every checkout fails at PayFast.
+- [ ] **client+dev: First real checkout and refund** once the account can
+      accept payments: one low-value order end to end (ITN will fire at
+      https://www.needdconnect.co.za/api/webhooks/payfast), then refund it in
+      the PayFast dashboard.
 - [ ] **dev: Live-mode ITN test** after DNS cutover (ITN needs a public
       URL; sandbox cannot reach localhost, `scripts/simulate-itn.ts`
       covers dev).
