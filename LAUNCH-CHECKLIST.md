@@ -6,7 +6,10 @@ marked **dev** are configuration/deploy work.
 
 ## Go-live configuration (do these first)
 
-- [ ] **dev: Set `APP_URL=https://needdconnect.co.za`** in Vercel production.
+- [x] **dev: `APP_URL` set to `https://www.needdconnect.co.za`** in Vercel
+      production (2026-08-05) and verified live: the canonical on the home page
+      now names the real domain, so PayFast returns, emailed links and SEO all
+      agree with the host customers are on.
       This is now the single source for canonical URLs, the sitemap, every
       notification link, staff setup links and PayFast's return, cancel and
       notify URLs. `lib/config.ts` throws at first use in production if it is
@@ -23,14 +26,9 @@ marked **dev** are configuration/deploy work.
 - [x] **dev: Resend sending domain verified.** `needdconnect.co.za` returns
       `status=verified` on the account, and `EMAIL_FROM=hello@needdconnect.co.za`
       matches it. Checked against the Resend API, not assumed.
-- [ ] **dev: Set `RESEND_API_KEY` in Vercel production**, then redeploy:
-
-      ```bash
-      vercel env add RESEND_API_KEY production
-      ```
-
-      Held in `.env.local` for local work; never committed (`.env*` is
-      gitignored).
+- [x] **dev: `RESEND_API_KEY` set in Vercel production** (2026-08-05) and
+      verified live: a sign-in code requested on www.needdconnect.co.za was
+      created and reported delivered by the Resend API.
 - [ ] **dev: One real inbox test before launch.** Domain verification proves DNS
       is right, not that mail lands in an inbox. Send a sign-in code to a Gmail,
       an Outlook and a corporate address and confirm none are filed as spam.
@@ -77,17 +75,19 @@ marked **dev** are configuration/deploy work.
 - [x] **client: PayFast account credentials supplied** (merchant id, merchant
       key, security passphrase from Developer Settings). Held in `.env.local`
       for local work; never committed (`.env*` is gitignored).
-- [ ] **dev: Set the same three values in Vercel** for the production
-      environment, then redeploy. The passphrase is required: without it the
-      signature PayFast expects differs and every checkout is rejected with
-      "signature does not match".
-
-      ```bash
-      vercel env add PAYFAST_MERCHANT_ID production
-      vercel env add PAYFAST_MERCHANT_KEY production
-      vercel env add PAYFAST_PASSPHRASE production
-      vercel env add PAYFAST_MODE production   # value: live
-      ```
+- [x] **dev: Merchant id, key and passphrase set in Vercel production**
+      (2026-08-05). `PAYFAST_MODE` stays `sandbox` until the first live test.
+      Verified as far as sandbox allows: a full signup on the live domain
+      builds and submits the signed form, and the sandbox answers "signature
+      does not match", which is the documented behaviour for LIVE merchant
+      credentials posted at the sandbox host (the shared sandbox does not know
+      this merchant). It does not indicate a bad passphrase. The real proof is
+      the first live checkout below.
+- [ ] **client: Confirm the passphrase was saved in the PayFast dashboard.**
+      The screenshot shared on 2026-07-27 showed it typed into Developer
+      Settings with Save not yet clicked. If the dashboard value differs from
+      the deployed one, every live checkout fails with the same signature
+      error, so this is worth thirty seconds before the live test.
 
 - [ ] **client: Confirm the PayFast account is live-enabled** and that the
       notify URL `https://needdconnect.co.za/api/webhooks/payfast` is
