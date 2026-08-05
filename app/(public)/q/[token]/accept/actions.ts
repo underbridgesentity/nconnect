@@ -20,6 +20,8 @@ import {
 } from "@/lib/domain/orders";
 import { uploadFile, randomFileName } from "@/lib/storage";
 import { buildCheckout } from "@/lib/payfast";
+import { setAcceptVerified, readAcceptVerified } from "./verified";
+import { VERIFY_FIRST_ERROR } from "./messages";
 
 /**
  * Quote acceptance (spec §9.5): OTP-verified contact -> address (+ RICA if
@@ -128,7 +130,7 @@ export async function acceptOtpRequestAction(
 export async function acceptVerifyAction(
   token: string,
   form: FormData
-): Promise<AcceptResult & { customerId?: string }> {
+): Promise<AcceptResult> {
   try {
     await validQuote(token);
     const phone = String(form.get("phone"));
@@ -168,7 +170,12 @@ export async function acceptVerifyAction(
       ip: hdrs.get("x-forwarded-for")?.split(",")[0] ?? null,
       userAgent: hdrs.get("user-agent"),
     });
-    return { ok: true, customerId };
+    // The verified identity never travels to the browser. It is held in an
+    // httpOnly cookie signed over this quote's token, and the finalize action
+    // reads it back from there: a form field would let anyone skip this step
+    // and accept the quote as whatever customer id they typed in.
+    await setAcceptVerified(token, customerId);
+    return { ok: true };
   } catch (err) {
     return fail(err);
   }
@@ -205,9 +212,12 @@ export async function acceptFinalizeAction(
 > {
   try {
     const quote = await validQuote(token);
-    const customerId = String(form.get("customerId"));
+    // Identity comes from the signed httpOnly cookie the verify step set for
+    // this exact quote, never from the form: a browser-supplied customerId
+    // would make the email code decorative.
+    const customerId = await readAcceptVerified(token);
     if (!customerId) {
-      return { ok: false, error: "Verify your email address first" };
+      return { ok: false, error: VERIFY_FIRST_ERROR };
     }
 
     const needsRica = await quoteRequiresRica(token);

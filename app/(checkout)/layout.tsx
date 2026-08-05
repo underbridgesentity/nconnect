@@ -27,7 +27,7 @@ import {
  */
 
 const DESCRIPTION =
-  "Uncapped LTE, 5G, fibre and business VoIP across South Africa. One provider, one bill, real local support on WhatsApp.";
+  "Uncapped LTE, 5G, fibre and business VoIP across South Africa. One provider, one bill, real local support by email and phone.";
 
 /**
  * The share card. It comes free to the marketing group from its

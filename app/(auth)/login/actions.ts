@@ -169,9 +169,13 @@ export async function verifyLoginCodeAction(input: {
   // means a customer who mistyped their address keeps their live code.
   const account = await findCustomerAccountByEmail(verdict.identifier);
   if (account.status === "unknown") {
+    // Two honest possibilities, and we cannot tell them apart from here: this
+    // address really has no account, or it belongs to a customer from before
+    // sign-in moved to email whose account is not yet linked to an address.
+    // So the copy offers both doors instead of asserting no account exists.
     return {
       ok: false,
-      error: `That code was right, but ${verdict.identifier} does not have a Needd Connect account yet. Order a service and we will create one for you.`,
+      error: `That code was right, but we could not find an account for ${verdict.identifier}. New to Needd Connect? Order a service and we will create your account. Already a customer? Get in touch and we will link this address to your account.`,
     };
   }
   if (account.status === "disabled") {

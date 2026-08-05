@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, desc, eq, ilike, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { Users } from "lucide-react";
 import { db } from "@/lib/db/client";
-import { customers } from "@/lib/db/schema";
+import { customers, users } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { normalizePhone } from "@/lib/auth/otp";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -20,6 +20,9 @@ function searchPredicate(term: string): SQL | undefined {
     ilike(customers.lastName, like),
     ilike(customers.companyName, like),
     ilike(customers.email, like),
+    // The sign-in email lives on users.email and can drift from the contact
+    // email; a rep pasting the address a customer signs in with must land.
+    sql`exists (select 1 from ${users} where ${users.id} = ${customers.userId} and ${users.email} ilike ${like})`,
   ];
   const digits = term.replace(/[\s()-]/g, "");
   if (/\d{3,}/.test(digits)) {

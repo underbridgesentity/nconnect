@@ -111,6 +111,21 @@ export default async function QuoteDetailPage({
   const view = order ? describeQuoteOrder(order) : null;
   const midCheckout = view?.kind === "mid_checkout";
 
+  // Coach the rep toward a channel the quote actually travelled by. WhatsApp
+  // is off by default now, so pointing every rep there suggests a channel the
+  // customer may never have heard from.
+  const lastSend = [...trail]
+    .reverse()
+    .find((entry) => entry.action === "quote.send");
+  const sentChannels = Array.isArray(lastSend?.after?.channels)
+    ? (lastSend.after.channels as string[])
+    : [];
+  const nudgeLine = sentChannels.includes("whatsapp")
+    ? "A nudge on WhatsApp is the useful move."
+    : sentChannels.includes("email")
+      ? "A reply on the quote email, or a quick call, is the useful move."
+      : "A quick call is the useful move.";
+
   // Expiry is a date, acceptance is an event, and the date must not overrule
   // the event. A quote the customer has taken to PayFast is in checkout, not
   // lapsed, whatever the calendar says.
@@ -179,7 +194,7 @@ export default async function QuoteDetailPage({
             {expired && quote.expiresAt
               ? ` even though the validity date passed on ${formatDate(quote.expiresAt)}`
               : ""}
-            . A nudge on WhatsApp is the useful move.
+            . {nudgeLine}
           </p>
         ) : view.kind === "settled" ? (
           <p className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">

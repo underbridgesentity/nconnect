@@ -296,6 +296,28 @@ async function sendOtp(
     throw err;
   }
 
+  /*
+   * Ask before a code goes out, on EVERY path that can send one. users.email
+   * is uniquely indexed on lower(email), so an address already spoken for
+   * cannot become a second account: sending a code first would only walk the
+   * customer up to a failed insert mid-checkout.
+   *
+   * An address already held by a *customer* is not an error. It is somebody
+   * buying a second service, and the code they are about to receive proves the
+   * address is theirs, so checkout carries on and the existing account is
+   * reused. A staff login is the one that has to stop here, and it has to stop
+   * here rather than only in requestSignupOtpAction: the fibre lead form also
+   * writes a contact into the draft, and the resend action sends to whatever
+   * the draft holds.
+   */
+  const availability = await checkEmailAvailability(contact.email);
+  if (
+    availability.status === "invalid" ||
+    (availability.status === "taken" && availability.by === "staff")
+  ) {
+    return { ok: false, error: emailTakenMessage(availability) };
+  }
+
   let throttle: OtpThrottleState;
   try {
     throttle = await otpThrottleState(target);
@@ -373,24 +395,9 @@ export async function requestSignupOtpAction(
     };
   }
 
-  /*
-   * Ask before a code goes out. users.email is uniquely indexed on lower(email),
-   * so an address already spoken for cannot become a second account: sending a
-   * code first would only walk the customer up to a failed insert mid-checkout.
-   *
-   * An address already held by a *customer* is not an error. It is somebody
-   * buying a second service, and the code they are about to receive proves the
-   * address is theirs, so checkout carries on and the existing account is
-   * reused. A staff login is the one that has to stop here.
-   */
-  const availability = await checkEmailAvailability(parsed.data.email);
-  if (availability.status === "invalid") {
-    return { ok: false, error: emailTakenMessage(availability) };
-  }
-  if (availability.status === "taken" && availability.by === "staff") {
-    return { ok: false, error: emailTakenMessage(availability) };
-  }
-
+  // The staff-address and validity gate lives in sendOtp itself, so this
+  // path, the resend path and any contact the fibre lead form wrote into the
+  // draft all pass through the same check.
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0] ?? null;
   return sendOtp(parsed.data, ip);
 }
@@ -449,6 +456,19 @@ export async function verifySignupOtpAction(
   const parsedCode = codeSchema.safeParse(code);
   if (!parsedCode.success) {
     return { ok: false, error: parsedCode.error.issues[0]!.message };
+  }
+
+  // Re-check the address before the code is spent. The send-time gate can be
+  // raced, and the draft's contact can be written by paths that never sent a
+  // code at all; without this, findOrCreateCustomer would quietly attach a
+  // customers row to a staff user. Checking first also means a doomed attempt
+  // does not burn one of the customer's tries.
+  const availability = await checkEmailAvailability(contact.email);
+  if (
+    availability.status === "invalid" ||
+    (availability.status === "taken" && availability.by === "staff")
+  ) {
+    return { ok: false, error: emailTakenMessage(availability) };
   }
 
   // The library owns the diagnosis and the wording, so a customer who abandons
@@ -856,13 +876,43 @@ export async function startCheckoutAction(
   };
 }
 
-/** After payment return: sign the verified customer into the portal. */
+/**
+ * After payment return: sign the verified customer into the portal.
+ *
+ * The verified flag alone is not enough to mint a session. The draft cookie
+ * lives for seven days, so a checkout abandoned after the email code but
+ * before payment would leave a cookie behind that was password-equivalent on
+ * any shared machine. Issuance is therefore bound to what this button
+ * actually means on the success page: the draft's own order exists, belongs
+ * to the draft's customer, and has been paid. Anyone without that, including
+ * a stale cookie, goes to /login and proves the address with a fresh code.
+ */
 export async function signInVerifiedCustomerAction(): Promise<void> {
   const draft = await readDraft();
   const contact = draftContact(draft);
-  if (!draft.phoneVerified || !contact) redirect("/login");
-  // The customer's email address was OTP-verified minutes ago in this same
-  // flow; issue a fresh code internally and consume it to mint the session.
+  if (!draft.phoneVerified || !contact || !draft.customerId || !draft.orderId) {
+    redirect("/login");
+  }
+
+  const { db } = await import("@/lib/db/client");
+  const { orders } = await import("@/lib/db/schema");
+  const { eq } = await import("drizzle-orm");
+  const [order] = await db
+    .select({ customerId: orders.customerId, status: orders.status })
+    .from(orders)
+    .where(eq(orders.id, draft.orderId))
+    .limit(1);
+  const paid =
+    order &&
+    order.customerId === draft.customerId &&
+    (order.status === "paid" ||
+      order.status === "processing" ||
+      order.status === "fulfilled");
+  if (!paid) redirect("/login");
+
+  // The customer's email address was OTP-verified in this same flow and the
+  // order is confirmed paid; issue a fresh code internally and consume it to
+  // mint the session.
   const { issueInternalSession } = await import("@/lib/auth/internal-session");
   await issueInternalSession(contact.email);
   // The purchase is done: retire the draft so a later visit to /signup starts

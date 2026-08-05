@@ -54,7 +54,7 @@ export async function createLead(
         checklist: [
           { label: "Check address on FNO coverage tools", done: false },
           { label: "Confirm availability (or honest alternatives)", done: false },
-          { label: "WhatsApp the customer the outcome", done: false },
+          { label: "Email the customer the outcome", done: false },
         ],
       });
     }

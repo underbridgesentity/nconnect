@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { customers, addresses, consents } from "@/lib/db/schema";
+import { customers, addresses, consents, users } from "@/lib/db/schema";
 import { currentActor } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { SignOutButton } from "@/components/shared/sign-out-button";
@@ -24,6 +24,15 @@ export default async function PortalAccountPage() {
     .where(eq(customers.id, actor.customerId))
     .limit(1);
   if (!customer) redirect("/login");
+
+  // The credential lives on users.email; customers.email is the contact copy.
+  // The account screen shows the address that actually signs this person in,
+  // and the change flow keeps the two in step from here on.
+  const [account] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, actor.userId))
+    .limit(1);
 
   const [addressRows, consentRows] = await Promise.all([
     db
@@ -52,7 +61,7 @@ export default async function PortalAccountPage() {
         <ProfileForm
           firstName={customer.firstName ?? ""}
           lastName={customer.lastName ?? ""}
-          email={customer.email ?? ""}
+          email={account?.email ?? customer.email ?? ""}
           phone={customer.phone ?? ""}
         />
       </section>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ilike, or, sql, eq, desc } from "drizzle-orm";
-import { Users, Download } from "lucide-react";
+import { Users, Download, UserPlus } from "lucide-react";
 import { db } from "@/lib/db/client";
 import {
   customers,
@@ -40,6 +40,9 @@ export default async function CustomersPage({
         ilike(customers.companyName, pattern),
         ilike(customers.phone, pattern),
         ilike(customers.email, pattern),
+        // The sign-in email lives on users.email and can diverge from the
+        // contact email above; a lookup by either must land here.
+        sql`exists (select 1 from ${users} where ${users.id} = ${customers.userId} and ${users.email} ilike ${pattern})`,
         sql`exists (select 1 from ${invoices} where ${invoices.customerId} = ${customers.id} and ${invoices.number} ilike ${pattern})`,
         sql`exists (select 1 from ${sims} join ${services} on ${services.id} = ${sims.serviceId} where ${services.customerId} = ${customers.id} and (${sims.iccid} ilike ${pattern} or ${sims.msisdn} ilike ${pattern}))`,
         sql`exists (select 1 from ${providerAccounts} where ${providerAccounts.customerId} = ${customers.id} and (${providerAccounts.externalRef} ilike ${pattern} or ${providerAccounts.msisdn} ilike ${pattern} or ${providerAccounts.circuitId} ilike ${pattern}))`
@@ -73,13 +76,21 @@ export default async function CustomersPage({
             Every customer, their services and balance, one page each.
           </p>
         </div>
-        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- file download, not navigation */}
-        <a
-          href="/admin/customers/export"
-          className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
-        >
-          <Download className="size-3.5" /> Export CSV
-        </a>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin/customers/new"
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <UserPlus className="size-3.5" /> New customer
+          </Link>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- file download, not navigation */}
+          <a
+            href="/admin/customers/export"
+            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+          >
+            <Download className="size-3.5" /> Export CSV
+          </a>
+        </div>
       </div>
 
       <form method="get" action="/admin/customers">
@@ -98,7 +109,7 @@ export default async function CustomersPage({
           description={
             search
               ? `No customers match "${search}". Try an invoice number, a SIM number or the phone number they are calling from.`
-              : "No customers yet. They appear here the moment someone signs up, or when a sales quote is accepted and paid."
+              : "No customers yet. They appear here when someone signs up, when a quote is accepted and paid, or when you create one with the New customer button."
           }
         />
       ) : (

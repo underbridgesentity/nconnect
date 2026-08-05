@@ -2,7 +2,12 @@ import "server-only";
 
 /**
  * Pluggable SMS adapter (spec §3): console driver in dev; SMSPortal or
- * Clickatell wired via env in production. OTP fallback channel only at launch.
+ * Clickatell wired via env in production.
+ *
+ * Since the 2026-07-29 move to email-only customer sign-in, no production
+ * code path sends an OTP by SMS: the phone leg of lib/auth/otp.ts is dormant.
+ * This adapter remains for future transactional SMS (and for that dormant
+ * leg, should a phone challenge ever return), not as a login channel.
  */
 
 export interface SmsAdapter {

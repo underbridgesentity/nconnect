@@ -12,6 +12,7 @@ import {
   acceptVerifyAction,
   acceptFinalizeAction,
 } from "./actions";
+import { VERIFY_FIRST_ERROR } from "./messages";
 
 type Phase = "contact" | "otp" | "details" | "paying";
 type Contact = { name: string; phone: string; email: string; requiresRica: boolean };
@@ -27,7 +28,6 @@ export function AcceptFlow({
 }) {
   const [phase, setPhase] = useState<Phase>("contact");
   const [contact, setContact] = useState<Contact>(prefill);
-  const [customerId, setCustomerId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
@@ -51,7 +51,6 @@ export function AcceptFlow({
     let saved: {
       phase?: Phase;
       contact?: Contact;
-      customerId?: string | null;
     } | null = null;
     try {
       const raw = window.sessionStorage.getItem(storageKey);
@@ -63,9 +62,10 @@ export function AcceptFlow({
     if (!saved) return;
     /* eslint-disable react-hooks/set-state-in-effect */
     if (saved.contact) setContact({ ...prefill, ...saved.contact });
-    if (saved.customerId) setCustomerId(saved.customerId);
-    // "paying" is never restored: the PayFast form has to be rebuilt.
-    if (saved.phase === "otp" || (saved.phase === "details" && saved.customerId)) {
+    // "paying" is never restored: the PayFast form has to be rebuilt. The
+    // verified identity itself lives in a server-held cookie, not here; if it
+    // has expired, finalize refuses and the flow returns to the code step.
+    if (saved.phase === "otp" || saved.phase === "details") {
       setPhase(saved.phase);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -77,12 +77,12 @@ export function AcceptFlow({
     try {
       window.sessionStorage.setItem(
         storageKey,
-        JSON.stringify({ phase, contact, customerId })
+        JSON.stringify({ phase, contact })
       );
     } catch {
       // Nothing to persist to, the flow still works in memory.
     }
-  }, [phase, contact, customerId, storageKey]);
+  }, [phase, contact, storageKey]);
 
   // Moving the heading into focus is what tells a screen reader the step
   // changed; without it focus falls to document.body when the form unmounts.
@@ -220,8 +220,7 @@ export function AcceptFlow({
               setError(null);
               setNotice(null);
               const r = await acceptVerifyAction(token, form);
-              if (r.ok && r.customerId) {
-                setCustomerId(r.customerId);
+              if (r.ok) {
                 setPhase("details");
               } else setError(r.error ?? "Failed");
             })
@@ -307,11 +306,17 @@ export function AcceptFlow({
                 clearStorage();
                 setCheckout({ actionUrl: r.actionUrl, fields: r.fields });
                 setPhase("paying");
+              } else if (r.error === VERIFY_FIRST_ERROR) {
+                // The server no longer holds a verified identity for this
+                // quote (the cookie expired or was cleared). Send the customer
+                // back to the code step rather than leaving them on a form
+                // that can never submit.
+                setError(r.error);
+                setPhase("otp");
               } else setError(r.error ?? "Failed");
             })
           }
         >
-          <input type="hidden" name="customerId" value={customerId ?? ""} />
           <input type="hidden" name="name" value={contact.name} />
           <input type="hidden" name="email" value={contact.email} />
           <h2 ref={headingRef} tabIndex={-1} className="font-semibold outline-none">

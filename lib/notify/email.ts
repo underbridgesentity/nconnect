@@ -2,8 +2,16 @@ import "server-only";
 import { Resend } from "resend";
 
 /**
- * Outbound transactional email via Resend. Without an API key (dev) the
- * message is logged to the console so no flow silently drops mail.
+ * Outbound transactional email via Resend.
+ *
+ * The console fallback exists for development only. Outside production (or
+ * when EMAIL_DRIVER=console is set explicitly) a missing API key logs the
+ * message and reports success, so local flows keep moving. In production a
+ * missing key is a real failure and is reported as one: pretending the mail
+ * went out would tell a customer their sign-in code was sent while it was
+ * actually written to the platform logs, which is the worst of both worlds.
+ * The production failure path never logs the body; sign-in codes and invoice
+ * contents have no business in a log stream.
  */
 
 export interface EmailMessage {
@@ -14,6 +22,11 @@ export interface EmailMessage {
   attachments?: { filename: string; content: Buffer }[];
 }
 
+function consoleDriverAllowed(): boolean {
+  if (process.env.EMAIL_DRIVER === "console") return true;
+  return process.env.NODE_ENV !== "production";
+}
+
 export async function sendEmail(
   msg: EmailMessage
 ): Promise<{ ok: boolean; detail?: string }> {
@@ -21,12 +34,21 @@ export async function sendEmail(
   const from = process.env.EMAIL_FROM ?? "hello@needdconnect.co.za";
 
   if (!apiKey) {
-    console.log(
-      `[email:console] to=${msg.to} subject=${JSON.stringify(msg.subject)}\n${
-        msg.text ?? msg.html
-      }`
+    if (consoleDriverAllowed()) {
+      // Dev convenience: the body is logged so a local sign-in can read its
+      // code off the terminal. This branch is unreachable in production.
+      console.log(
+        `[email:console] to=${msg.to} subject=${JSON.stringify(msg.subject)}\n${
+          msg.text ?? msg.html
+        }`
+      );
+      return { ok: true };
+    }
+    // Recipient and subject only; never the body.
+    console.error(
+      `[email] RESEND_API_KEY not configured; refusing to drop mail. to=${msg.to} subject=${JSON.stringify(msg.subject)}`
     );
-    return { ok: true };
+    return { ok: false, detail: "Email sending is not configured" };
   }
 
   const resend = new Resend(apiKey);

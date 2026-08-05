@@ -81,19 +81,20 @@ export default async function PortalHelpPage() {
       {whatsapp || phone || email ? (
         <section className="rounded-2xl border bg-card p-4">
           <h2 className="text-sm font-semibold">Rather talk to someone?</h2>
+          {/* Email first, then the phone, then WhatsApp: the same order as the
+              public contact page. Email is the channel we answer every day;
+              WhatsApp is an extra, not the front door. */}
           <div className="mt-2 space-y-1">
-            {whatsapp ? (
+            {email ? (
               <a
-                href={whatsapp}
-                target="_blank"
-                rel="noreferrer"
+                href={`mailto:${email}`}
                 className="flex touch-target items-center gap-3 rounded-full px-2 text-sm hover:bg-muted"
               >
-                <MessageCircle className="size-4 text-primary" aria-hidden />
+                <Mail className="size-4 text-primary" aria-hidden />
                 <span>
-                  <span className="block font-medium">WhatsApp us</span>
+                  <span className="block font-medium">{email}</span>
                   <span className="block text-xs text-muted-foreground">
-                    Quickest, and it works on a weak connection.
+                    The main way we work. Write to us and a person replies.
                   </span>
                 </span>
               </a>
@@ -112,16 +113,18 @@ export default async function PortalHelpPage() {
                 </span>
               </a>
             ) : null}
-            {email ? (
+            {whatsapp ? (
               <a
-                href={`mailto:${email}`}
+                href={whatsapp}
+                target="_blank"
+                rel="noreferrer"
                 className="flex touch-target items-center gap-3 rounded-full px-2 text-sm hover:bg-muted"
               >
-                <Mail className="size-4 text-primary" aria-hidden />
+                <MessageCircle className="size-4 text-primary" aria-hidden />
                 <span>
-                  <span className="block font-medium">{email}</span>
+                  <span className="block font-medium">WhatsApp us</span>
                   <span className="block text-xs text-muted-foreground">
-                    For anything formal or detailed.
+                    Also available if you would rather chat.
                   </span>
                 </span>
               </a>

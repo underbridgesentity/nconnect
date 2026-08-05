@@ -31,9 +31,13 @@ Done:
 - Full Drizzle schema for every §4 table + enums + FK/queue indexes, plus
   `number_sequences`, `otp_codes`, `invite_tokens`, `signup_drafts`.
   Migrations committed; local dev DB `nconnect_dev` (Homebrew Postgres 17).
-- Auth.js v5: staff email+argon2 login, customer phone-OTP login (6-digit,
-  hashed at rest, 5-min expiry, per-phone and per-IP rate limits; WhatsApp →
-  SMS fallback; console SMS driver in dev). JWT carries role + customerId.
+- Auth.js v5: staff email+argon2 login, customer email-OTP login (6-digit
+  emailed code, hashed at rest, 5-min expiry, per-identifier and per-IP rate
+  limits; console email driver in dev). JWT carries role + customerId.
+  Originally built as phone-OTP; moved to email one-time codes on the
+  2026-07-29 client decision. The phone number stays required at signup
+  because RICA needs a contactable number, but it is no longer a credential,
+  and WhatsApp is an optional opt-in channel, off by default.
 - `lib/auth/permissions.ts` capability map (§12) + `authorize()` gate with
   own/self resource scoping; fails closed.
 - `lib/crypto.ts`: AES-256-GCM for ID numbers + maskIdNumber.
@@ -57,7 +61,8 @@ code) → portal. `tsc --noEmit`, eslint, vitest all green.
 Decisions where the spec was silent:
 - MTN/Vodacom dual-network LTE plans are seeded once under MTN with
   `metadata.network = "MTN / Vodacom"` (catalogue sells them as one offer).
-- OTP rate limits: 5/phone/hour, 15/IP/hour, 5 verify attempts per code.
+- OTP rate limits: 5/identifier/hour (the email address since 2026-07-29),
+  15/IP/hour, 5 verify attempts per code.
 - Sales role may also enter /sales via admin accounts (admin ⊇ sales nav
   access); customer surface is customer-only.
 - Dev seed prints random credentials rather than fixed passwords.

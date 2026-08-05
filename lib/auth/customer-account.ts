@@ -26,7 +26,10 @@ export type CustomerAccount =
     }
   /** No user at all with this identifier. */
   | { status: "unknown" }
-  /** Blocked by us; sign-in is not the place to argue about it. */
+  /**
+   * Not allowed to hold a session: disabled, or any status that is not
+   * "active". Sign-in is not the place to argue about it.
+   */
   | { status: "disabled" }
   /** A staff account: real account, wrong door. */
   | { status: "staff" };
@@ -38,8 +41,12 @@ type UserRow = Pick<
 
 async function accountFor(user: UserRow | undefined): Promise<CustomerAccount> {
   if (!user) return { status: "unknown" };
-  if (user.status === "disabled") return { status: "disabled" };
+  // Wrong door first: a staff account is a staff account whatever its status.
   if (user.role !== "customer") return { status: "staff" };
+  // Allowlist, not blocklist: only "active" may hold a customer session. Any
+  // status added later (suspended, pending review) is fail-closed here rather
+  // than silently waved through, and sign-in never mutates the status to fit.
+  if (user.status !== "active") return { status: "disabled" };
 
   const [customer] = await db
     .select({ id: customers.id })

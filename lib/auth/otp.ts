@@ -265,6 +265,14 @@ export function emailTarget(rawEmail: string): OtpTarget {
   return { channel: "email", identifier: normalizeEmail(rawEmail) };
 }
 
+/**
+ * DORMANT: no production code path requests a phone OTP since the 2026-07-29
+ * move to email-only customer sign-in. This stays as a typed constructor for
+ * a possible future phone challenge (for example quote acceptance), but do
+ * not wire a login path to it without revisiting the product decisions made
+ * for email: rate-limit keys, screen copy, and the RICA framing of the phone
+ * number as contact detail rather than credential.
+ */
 export function phoneTarget(rawPhone: string): OtpTarget {
   return { channel: "phone", identifier: normalizePhone(rawPhone) };
 }
@@ -475,9 +483,12 @@ function otpEmailBody(code: string): { text: string; html: string } {
 async function deliverOtp(target: OtpTarget, code: string): Promise<string> {
   if (target.channel === "email") {
     const { text, html } = otpEmailBody(code);
+    // The code lives in the body only. Subjects are copied into mail-server
+    // logs, spam-filter metadata and lock-screen notification previews, none
+    // of which should ever hold a live credential.
     const result = await sendEmail({
       to: target.identifier,
-      subject: `${code} is your Needd Connect sign-in code`,
+      subject: "Your Needd Connect sign-in code",
       text,
       html,
     });
@@ -487,7 +498,10 @@ async function deliverOtp(target: OtpTarget, code: string): Promise<string> {
     return "email";
   }
 
-  // WhatsApp first, SMS fallback (console driver in dev).
+  // DORMANT channel: nothing in production requests a phone OTP any more
+  // (email is the only customer credential). Kept so the delivery contract
+  // stays whole if a phone challenge returns. WhatsApp first, SMS fallback
+  // (console driver in dev).
   if (whatsappEnabled()) {
     const wa = await sendWhatsAppTemplate({
       to: target.identifier,

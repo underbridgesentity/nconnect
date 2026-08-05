@@ -287,8 +287,8 @@ export default async function PortalHomePage() {
                 service.status === "pending" ? (
                   <p className="mt-2 text-sm text-muted-foreground">
                     {progress && progress.total > 0
-                      ? `Being activated, ${progress.done} of ${progress.total} steps done. We'll WhatsApp you the moment it's live.`
-                      : "Being activated, we'll WhatsApp you the moment it's live."}
+                      ? `Being activated, ${progress.done} of ${progress.total} steps done. We'll email you the moment it's live.`
+                      : "Being activated, we'll email you the moment it's live."}
                   </p>
                 ) : service.status === "suspended" ? (
                   <p className="mt-2 text-sm text-amber-700">

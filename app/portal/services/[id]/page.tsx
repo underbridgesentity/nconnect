@@ -287,7 +287,7 @@ export default async function PortalServicePage({
             <>
               <p className="mt-1 text-sm text-muted-foreground">
                 {doneCount} of {checklist.length} steps done. We&apos;ll
-                WhatsApp you the moment it&apos;s live.
+                email you the moment it&apos;s live.
               </p>
               <ul className="mt-3 space-y-2">
                 {checklist.map((step, index) => (
@@ -323,7 +323,7 @@ export default async function PortalServicePage({
           ) : (
             <p className="mt-1 text-sm text-muted-foreground">
               We&apos;re setting this up with {provider.name} now, and
-              we&apos;ll WhatsApp you the moment it&apos;s live.
+              we&apos;ll email you the moment it&apos;s live.
             </p>
           )}
           {rica?.status === "pending" ? (

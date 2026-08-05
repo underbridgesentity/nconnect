@@ -68,12 +68,21 @@ export default async function Customer360Page({
   if (!isUuid(id)) notFound();
   const { tab = "overview" } = await searchParams;
 
-  const [customer] = await db
-    .select()
+  // users.email is what sign-in actually matches; customers.email is only a
+  // contact field. The 360 needs both, or a locked-out customer cannot be
+  // diagnosed from here.
+  const [row] = await db
+    .select({ customer: customers, signInEmail: users.email })
     .from(customers)
+    .leftJoin(users, eq(users.id, customers.userId))
     .where(eq(customers.id, id))
     .limit(1);
-  if (!customer) notFound();
+  if (!row) notFound();
+  const { customer, signInEmail } = row;
+  const contactEmail = customer.email?.trim().toLowerCase() || null;
+  const emailsDiverge = Boolean(
+    signInEmail && contactEmail && signInEmail.toLowerCase() !== contactEmail
+  );
 
   const name =
     customer.companyName ??
@@ -136,6 +145,9 @@ export default async function Customer360Page({
           : "RICA rejected";
 
   const facts: [string, string][] = [
+    // The address that actually receives sign-in codes. "None" is a real
+    // state: this customer cannot use the portal until an account exists.
+    ["Sign-in email", signInEmail ?? "No sign-in account"],
     ["Customer since", formatDate(customer.createdAt)],
     [
       "Services",
@@ -156,8 +168,10 @@ export default async function Customer360Page({
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">
             {name || "(no name)"}
           </h1>
+          {/* Email leads: it is the account key now, the phone is contact only. */}
           <p className="text-sm text-muted-foreground">
-            {customer.phone} {customer.email ? `· ${customer.email}` : ""}
+            {[customer.email, customer.phone].filter(Boolean).join(" · ") ||
+              "No contact details on file"}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -182,6 +196,21 @@ export default async function Customer360Page({
           </div>
         ))}
       </dl>
+
+      {/* The email-era lockout call: the operator must know which address the
+          codes actually go to when it is not the one on the contact card. */}
+      {emailsDiverge ? (
+        <p className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          The sign-in email differs from the contact email. Sign-in codes go to{" "}
+          <span className="font-medium">{signInEmail}</span>, not to{" "}
+          <span className="font-medium">{customer.email}</span>. If the customer
+          cannot sign in, that is the address to check first.
+        </p>
+      ) : !signInEmail ? (
+        <p className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          This customer has no sign-in account, so they cannot use the portal.
+        </p>
+      ) : null}
 
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground">Sales rep:</span>

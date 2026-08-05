@@ -54,7 +54,7 @@ export type SignInNotice = {
  * once.
  *
  * Staff sign in with an email and a password; customers sign in with a code
- * sent to the cellphone on their account. "Sign in below with an account that
+ * sent to the email address on their account. "Sign in below with an account that
  * can" is therefore advice nobody can act on in front of the customer form,
  * and that is the only kind of sentence worth splitting in two.
  */
@@ -84,12 +84,12 @@ const SURFACE_COPY: Record<
     // open the page has already been redirected onto it. So the advice names
     // what this form actually wants, without assuming they hold one.
     wrongAccountAdvice:
-      "Sign in below with the cellphone number on a customer account, or carry on where you were.",
+      "Sign in below with the email address on a customer account, or carry on where you were.",
     needAccountTitle: "That page needs your customer account",
     needAccountDetail: (hasDestination) =>
       hasDestination
-        ? "Sign in with the cellphone number on your Needd Connect account and we will take you straight there."
-        : "Sign in with the cellphone number on your Needd Connect account.",
+        ? "Sign in with the email address on your Needd Connect account and we will take you straight there."
+        : "Sign in with the email address on your Needd Connect account.",
   },
 };
 
@@ -216,7 +216,7 @@ export function staffSignInNotice(input: SignInNoticeInput) {
 }
 
 /**
- * What to say above the customer sign-in form (a code to their cellphone).
+ * What to say above the customer sign-in form (a code to their email address).
  *
  * The role gate sends a signed-in admin or sales rep who opens a /portal link
  * here, exactly as it sends a customer to the staff form, so this screen has

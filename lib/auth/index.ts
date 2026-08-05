@@ -105,9 +105,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const account = await findCustomerAccountByEmail(result.identifier);
         if (account.status !== "ok") return null;
 
+        // lastLoginAt only. Signing in must never change an account's status:
+        // that is a state-machine transition with an audit trail, not a side
+        // effect of typing the right code. accountFor already refuses any
+        // account whose status may not hold a session.
         await db
           .update(users)
-          .set({ lastLoginAt: new Date(), status: "active" })
+          .set({ lastLoginAt: new Date() })
           .where(eq(users.id, account.userId));
 
         return {

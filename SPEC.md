@@ -12,7 +12,8 @@
 
 Next.js (App Router, RSC, TS strict) · Tailwind + shadcn/ui (restyled) ·
 Supabase Postgres af-south-1 via Drizzle over the pooler · Auth.js v5 (JWT;
-customers phone-OTP, staff argon2 passwords) · Supabase Storage (catalogue
+customers email-OTP per the 2026-07-29 client decision, phone kept for RICA
+contact only, staff argon2 passwords) · Supabase Storage (catalogue
 public, compliance/documents private + signed URLs) · Supabase Realtime
 (server-minted scoped tokens) · Inngest (billing cron, dunning, lifecycle,
 notifications, outbox) · PayFast (redirect + ITN + tokenisation, sandbox

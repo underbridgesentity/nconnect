@@ -4,7 +4,12 @@
  * simulate the PayFast ITN so the M3 lifecycle can be exercised in the
  * admin UI. Mirrors exactly what the signup wizard actions do.
  *
- * Usage: pnpm tsx scripts/dev-create-sim-order.ts [phone]
+ * Usage: pnpm tsx scripts/dev-create-sim-order.ts [email] [phone]
+ *
+ * findOrCreateCustomer keys on EMAIL (the sign-in credential), so the email
+ * argument is what distinguishes one test customer from another. Pass a
+ * different email to get a different customer; the phone is just the RICA
+ * contact number written onto that account.
  */
 import { config as loadEnv } from "dotenv";
 loadEnv({ path: [".env.local", ".env"] });
@@ -21,7 +26,8 @@ moduleAny._resolveFilename = function (request: string, ...args: unknown[]) {
 };
 
 async function main() {
-  const phone = process.argv[2] ?? "+27840000003";
+  const email = process.argv[2] ?? "lerato.molefe@example.com";
+  const phone = process.argv[3] ?? "+27840000003";
   const sharp = (await import("sharp")).default;
   const { findOrCreateCustomer, createOrder } = await import(
     "../lib/domain/orders"
@@ -32,7 +38,7 @@ async function main() {
   const { customerId } = await findOrCreateCustomer({
     phone,
     name: "Lerato Molefe",
-    email: "lerato.molefe@example.com",
+    email,
     popiaConsent: true,
   });
   console.log("customer:", customerId);
