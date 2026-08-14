@@ -40,21 +40,19 @@ marked **dev** are configuration/deploy work.
 
 ## Money and catalogue
 
-- [ ] **client + dev: VAT treatment: invoices are not currently valid tax
-      invoices.** The company VAT number is seeded and prints on every invoice
-      footer, and the terms page says prices are "Rands including VAT where
-      applicable", but nothing in the system computes VAT: there is no rate, no
-      VAT amount and no exclusive/inclusive split on an invoice or its line
-      items. A South African tax invoice must show the VAT amount and rate, so
-      printing a VAT number beside a total with no breakdown is worse than
-      printing neither.
-      The client must confirm three things before this can be built: whether
-      Needd is VAT registered, whether catalogue prices are VAT inclusive
-      (they read as inclusive today), and the rate to apply. Then it needs
-      `vat_rate_basis_points` and `vat_cents` on invoices and invoice lines, the
-      split computed in integer cents through `lib/money` (inclusive VAT is
-      `total * rate / (100 + rate)`, never a float), and the invoice PDF and
-      portal updated to show subtotal, VAT and total. Do not guess the rate.
+- [x] **client: VAT questions answered (2026-08-05).** Needd IS VAT
+      registered, catalogue prices ARE VAT inclusive, and the rate is 15%
+      (1500 basis points). Recorded here because the figures on every invoice
+      depend on all three, and a later change of any one of them must be a
+      deliberate decision rather than a quiet edit.
+- [ ] **dev: Set the `vat` setting in production** once the VAT build is
+      deployed: `{ registered: true, rateBasisPoints: 1500,
+      pricesIncludeVat: true }`. Until it is set the system stays honest but
+      VAT-free: no VAT line, and the VAT registration number does not print,
+      which is correct because an invoice showing a VAT number with no
+      breakdown is not a valid tax invoice.
+      The rate is snapshotted onto each invoice at issue time, so setting this
+      changes future invoices only and never rewrites history.
 
 - [ ] **client: Confirm hardware retail pricing conflict.** The previous
       live site sold some routers higher than the May 2026 catalogue now
