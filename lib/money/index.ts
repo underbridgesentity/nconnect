@@ -47,7 +47,12 @@ export function percentOf(amount: Cents, percent: number): Cents {
 
 function divRoundHalfUp(numerator: number, denominator: number): Cents {
   const q = numerator / denominator;
-  return Math.sign(q) * Math.round(Math.abs(q));
+  const magnitude = Math.round(Math.abs(q));
+  // Never return negative zero. It compares equal to zero, so it slips through
+  // every guard, but Intl formats it as "-R 0,00": a small negative percentage
+  // of a small amount, such as a rounding credit on a cent, would print on a
+  // customer's invoice as a credit that does not exist.
+  return magnitude === 0 ? 0 : Math.sign(q) * magnitude;
 }
 
 /**

@@ -625,7 +625,23 @@ export const invoices = pgTable(
     issueDate: date("issue_date").notNull(),
     dueDate: date("due_date").notNull(),
     status: invoiceStatus("status").notNull().default("draft"),
+    /** Sum of the line amounts, excluding VAT. */
     subtotalCents: integer("subtotal_cents").notNull(),
+    /**
+     * The VAT rate that applied when this invoice was issued, in basis points
+     * (1500 = 15%), snapshotted like every other price in this system so a
+     * later rate change never rewrites history.
+     *
+     * Null means this is not a tax invoice: it was issued while the company
+     * was not VAT registered. Null is the honest state for every row that
+     * exists today, which is why both VAT columns are nullable rather than
+     * defaulted to zero. `lib/domain/vat.ts` treats a non-null rate as the
+     * one and only signal that the VAT number may be printed.
+     */
+    vatRateBasisPoints: integer("vat_rate_basis_points"),
+    /** VAT on this invoice. Null exactly when vat_rate_basis_points is null. */
+    vatCents: integer("vat_cents"),
+    /** subtotal_cents + vat_cents. Equals the subtotal when there is no VAT. */
     totalCents: integer("total_cents").notNull(),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     ...timestamps,
@@ -663,7 +679,24 @@ export const invoiceLines = pgTable(
     kind: invoiceLineKind("kind").notNull(),
     description: text("description").notNull(),
     serviceId: uuid("service_id").references(() => services.id),
-    amountCents: integer("amount_cents").notNull(), // signed; credits negative
+    /**
+     * Signed, credits negative, and always EXCLUDING VAT.
+     *
+     * Under no VAT (every row that exists today) net equals gross and this
+     * column means what it always meant. Once VAT is switched on, inclusive
+     * catalogue prices are split at issue time and the net lands here, so
+     * `sum(amount_cents) = invoices.subtotal_cents` holds in both regimes and
+     * an invoice can never appear not to add up. See lib/domain/vat.ts.
+     */
+    amountCents: integer("amount_cents").notNull(),
+    /** VAT on this line. Null exactly when the invoice carries no VAT. */
+    vatCents: integer("vat_cents"),
+    /**
+     * The rate applied to this line, in basis points. Held per line as well as
+     * per invoice so a future mixed-rate invoice (a zero-rated line beside a
+     * standard-rated one) needs no further migration.
+     */
+    vatRateBasisPoints: integer("vat_rate_basis_points"),
     qty: integer("qty").notNull().default(1),
     ...timestamps,
   },

@@ -2,6 +2,12 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/public/page-header";
 import { Prose } from "@/components/public/prose";
 import { LegalNav } from "@/components/public/legal-nav";
+import { getSettingForDisplay } from "@/lib/domain/settings";
+import {
+  VAT_SETTING_KEY,
+  parseVatSettings,
+  pricingTermsSentence,
+} from "@/lib/domain/vat";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
@@ -17,7 +23,21 @@ export const metadata: Metadata = {
   },
 };
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  /*
+   * The pricing sentence is generated from the company's actual VAT position
+   * rather than asserted in prose. This page used to say prices were "Rands
+   * including VAT where applicable" while nothing in the system computed VAT,
+   * which was a claim we could not stand behind.
+   *
+   * A null here means the setting could not be read at all, and that branch
+   * says only what is true under every possible VAT position, so a database
+   * blip can never turn a legal page into a false statement.
+   */
+  const storedVat = await getSettingForDisplay<unknown>(VAT_SETTING_KEY);
+  const vat = storedVat === null ? null : parseVatSettings(storedVat);
+  const pricingSentence = pricingTermsSentence(vat);
+
   return (
     <>
       <PageHeader size="compact" eyebrow="Legal" title="Terms of Service">
@@ -44,10 +64,10 @@ export default function TermsPage() {
             <p>
               You pay your first month, hardware and once-off fees at checkout.
               Monthly billing starts from activation and recurs on your
-              activation date. Invoices are due within 7 days. Prices are in
-              Rands including VAT where applicable; price changes are announced
-              at least one billing cycle ahead.
+              activation date. Invoices are due within 7 days. Price changes are
+              announced at least one billing cycle ahead.
             </p>
+            <p>{pricingSentence}</p>
           </section>
           <section>
             <h2>3. Fair usage</h2>

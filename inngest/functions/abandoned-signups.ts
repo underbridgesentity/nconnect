@@ -4,6 +4,7 @@ import { inngest } from "../client";
 import { db } from "@/lib/db/client";
 import { signupDrafts } from "@/lib/db/schema";
 import { createLead } from "@/lib/domain/leads";
+import { recordJobHeartbeat } from "@/lib/domain/ops-health";
 import type { SignupDraftState } from "@/lib/domain/signup";
 
 /**
@@ -78,6 +79,13 @@ export const abandonedSignups = inngest.createFunction(
         console.error(`abandoned-signup capture failed for ${draft.id}:`, err);
       }
     }
+    // A quiet hour and a dead scheduler both capture zero leads. The
+    // heartbeat is what separates them on the admin readout.
+    await recordJobHeartbeat("abandoned-signups", "inngest", {
+      scanned: drafts.length,
+      captured,
+      noPhoneYet,
+    });
     return { scanned: drafts.length, captured, noPhoneYet };
   }
 );

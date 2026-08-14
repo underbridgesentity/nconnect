@@ -38,6 +38,14 @@ describe("arithmetic", () => {
     expect(percentOf(10000, 12.5)).toBe(1250);
     expect(percentOf(-10000, 10)).toBe(-1000);
   });
+
+  it("percentOf never returns negative zero", () => {
+    // Intl formats -0 as "-R 0,00", so a tiny negative percentage reaching a
+    // customer document would show a credit that does not exist.
+    expect(Object.is(percentOf(-1, 10), 0)).toBe(true);
+    expect(Object.is(percentOf(-4, 10), 0)).toBe(true);
+    expect(formatCents(percentOf(-1, 10))).toBe(formatCents(0));
+  });
 });
 
 describe("allocate", () => {

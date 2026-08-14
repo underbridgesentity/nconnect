@@ -16,6 +16,11 @@ import {
   type PlanWithProvider,
 } from "@/lib/domain/catalogue";
 import { getSetting } from "@/lib/domain/settings";
+import {
+  VAT_SETTING_KEY,
+  parseVatSettings,
+  pricingTermsSentence,
+} from "@/lib/domain/vat";
 
 /**
  * On-demand PDF catalogue (spec §9.4.3): renders the current published
@@ -127,7 +132,7 @@ function PlanTable({ plans: rows }: { plans: PlanWithProvider[] }) {
 }
 
 export async function renderCataloguePdf(): Promise<Buffer> {
-  const [allPlans, hardware, company] = await Promise.all([
+  const [allPlans, hardware, company, storedVat] = await Promise.all([
     publishedPlans(),
     publishedHardware(),
     getSetting<{
@@ -139,7 +144,16 @@ export async function renderCataloguePdf(): Promise<Buffer> {
       reg: string;
       bbbee: string;
     }>("company"),
+    getSetting<unknown>(VAT_SETTING_KEY),
   ]);
+  /*
+   * A price list carrying a VAT registration number is making a statement
+   * about the prices beside it. While the company is not registered the number
+   * is left off and the sheet says plainly that no VAT is charged, so the
+   * catalogue can never imply a VAT treatment the invoices do not apply.
+   */
+  const vat = parseVatSettings(storedVat);
+  const pricingSentence = pricingTermsSentence(vat);
 
   const logoPath = path.join(process.cwd(), "public/brand/logo-dark.png");
   const generatedOn = new Intl.DateTimeFormat("en-ZA", {
@@ -150,8 +164,10 @@ export async function renderCataloguePdf(): Promise<Buffer> {
   const byCategory = (cat: string) => allPlans.filter((p) => p.category === cat);
   const hwByCategory = (cat: string) => hardware.filter((h) => h.category === cat);
 
+  const vatPart =
+    vat.registered && company?.vat ? `  |  VAT: ${company.vat}` : "";
   const footerText = company
-    ? `${company.legalName}  |  ${company.website}  |  ${company.phone}  |  ${company.email}  |  VAT: ${company.vat}  |  Reg: ${company.reg}  |  ${company.bbbee}`
+    ? `${company.legalName}  |  ${company.website}  |  ${company.phone}  |  ${company.email}${vatPart}  |  Reg: ${company.reg}  |  ${company.bbbee}`
     : "Needd Technology Solutions (Pty) Ltd";
 
   const doc = (
@@ -171,6 +187,7 @@ export async function renderCataloguePdf(): Promise<Buffer> {
         <Text style={styles.subtitle}>
           Your partner for reliable, affordable & tailored connectivity
         </Text>
+        <Text style={styles.subtitle}>{pricingSentence}</Text>
 
         {(["lte_home", "telkom_lte", "fibre", "voip", "sim_data"] as const).map(
           (cat) => {

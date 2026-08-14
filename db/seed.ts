@@ -384,6 +384,20 @@ async function main() {
   await setSettingIfMissing("quote_validity_days", 14);
   await setSettingIfMissing("commission_percent", 10);
   await setSettingIfMissing("reactivation_fee_cents", 0);
+  // VAT position. Seeded conservatively as NOT registered, which is the only
+  // honest default while the client has not confirmed whether Needd is
+  // registered, whether catalogue prices are quoted inclusive of VAT, and the
+  // rate. While `registered` is false nothing computes or claims VAT: no VAT
+  // amount is written to an invoice, the VAT registration number does not
+  // print on any document, and the terms page says plainly that no VAT is
+  // charged. Turning it on is a settings change, not a code change: set
+  // registered true, rateBasisPoints (basis points, so 15% is 1500) and
+  // pricesIncludeVat to match the catalogue. See lib/domain/vat.ts.
+  await setSettingIfMissing("vat", {
+    registered: false,
+    rateBasisPoints: 0,
+    pricesIncludeVat: true,
+  });
   await setSettingIfMissing("company", {
     legalName: "Needd Technology Solutions (Pty) Ltd",
     website: "www.needd.co.za",

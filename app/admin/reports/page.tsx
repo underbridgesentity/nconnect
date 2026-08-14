@@ -14,6 +14,11 @@ import {
   reconciliationWorksheet,
 } from "@/lib/domain/reports";
 import { getSetting, getSettingOr } from "@/lib/domain/settings";
+import {
+  scheduledJobsHealth,
+  type JobHealth,
+  type ScheduledJobsHealth,
+} from "@/lib/domain/ops-health";
 import { DEFAULT_DUNNING } from "@/lib/domain/billing-engine";
 import { TEMPLATES } from "@/lib/notify/templates";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -82,10 +87,13 @@ function integrationStatus() {
         ? "configured"
         : "local drivers (dev), polling fallback",
     },
-    {
-      name: "Inngest",
-      state: process.env.INNGEST_EVENT_KEY ? "configured" : "dev mode",
-    },
+    // Inngest is deliberately not in this list. It used to sit here reading
+    // "dev mode" whenever INNGEST_EVENT_KEY was absent, which is a phrase that
+    // sounds like a setting somebody chose. What it actually meant in
+    // production was that the nightly billing run, the outbox drain and
+    // abandoned-signup capture had never run once, so month-two invoices were
+    // not being issued at all. A one-word status cannot carry that, so it has
+    // its own panel above with the evidence behind it.
   ];
 }
 
@@ -483,14 +491,17 @@ async function StaffTab() {
   );
 }
 
-function IntegrationsTab({
+async function IntegrationsTab({
   items,
 }: {
   items: { name: string; state: string }[];
 }) {
+  const health = await scheduledJobsHealth();
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <ScheduledJobsPanel health={health} />
       <div className="space-y-2">
+        <h2 className="text-sm font-semibold">Connected services</h2>
         {items.map((item) => (
           <div
             key={item.name}
@@ -512,6 +523,170 @@ function IntegrationsTab({
       </div>
       <TestSendPanel />
     </div>
+  );
+}
+
+const JOB_STATUS_COPY: Record<
+  JobHealth["status"],
+  { label: string; tone: string; dot: string }
+> = {
+  not_configured: {
+    label: "Not running",
+    tone: "text-red-700",
+    dot: "bg-red-600",
+  },
+  never_observed: {
+    label: "Never seen running",
+    tone: "text-red-700",
+    dot: "bg-red-600",
+  },
+  stale: { label: "Overdue", tone: "text-amber-700", dot: "bg-amber-500" },
+  ok: { label: "Running", tone: "text-emerald-700", dot: "bg-emerald-600" },
+};
+
+/**
+ * The honest readout for the scheduled jobs.
+ *
+ * It answers three different questions separately, because collapsing them is
+ * what let a month of unbilled customers go unnoticed: is it configured at
+ * all, has it ever actually been observed running, and what does the database
+ * say about the work it is supposed to have done. Every number names the table
+ * it came from, so nobody has to take this screen's word for it.
+ */
+function ScheduledJobsPanel({ health }: { health: ScheduledJobsHealth }) {
+  const { config, jobs, evidenceError } = health;
+  const broken = jobs.some((j) => j.status !== "ok");
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold">Scheduled jobs</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Recurring invoices are issued here, not at checkout. If the nightly
+          run is not going, month one still looks perfect because the PayFast
+          webhook writes that invoice inline, and month two is simply never
+          billed.
+        </p>
+      </div>
+
+      {!config.ready ? (
+        <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm dark:border-red-900 dark:bg-red-950/40">
+          <p className="font-semibold text-red-800 dark:text-red-300">
+            Inngest is not configured on this deployment, so nothing is
+            scheduled.
+          </p>
+          <p className="mt-1 text-red-800/90 dark:text-red-300/90">
+            Missing:{" "}
+            <span className="font-mono text-xs">
+              {config.missing.join(", ")}
+            </span>
+            . Create them at app.inngest.com under Manage, add them to the
+            Vercel project and redeploy. Until then no invoice will be issued
+            for any existing customer&apos;s second month.
+          </p>
+        </div>
+      ) : null}
+
+      {config.ready && broken ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-semibold text-amber-900 dark:text-amber-300">
+            The keys are set, but at least one job has not been seen finishing
+            when it should have.
+          </p>
+          <p className="mt-1 text-amber-900/90 dark:text-amber-300/90">
+            Check the app is synced at app.inngest.com and that the serve URL
+            there is /api/inngest on this domain.
+          </p>
+        </div>
+      ) : null}
+
+      {evidenceError ? (
+        <p className="rounded-lg border bg-card p-3 text-xs text-muted-foreground">
+          The configuration above is accurate, but the supporting numbers could
+          not be read from the database: {evidenceError}
+        </p>
+      ) : null}
+
+      <div className="space-y-2">
+        {jobs.map((job) => {
+          const copy = JOB_STATUS_COPY[job.status];
+          return (
+            <div key={job.key} className="rounded-lg border bg-card p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">{job.name}</p>
+                  <p className="text-xs text-muted-foreground">{job.what}</p>
+                </div>
+                <span
+                  className={cn(
+                    "flex items-center gap-1.5 text-xs font-medium",
+                    copy.tone
+                  )}
+                >
+                  <span
+                    className={cn("size-2 rounded-full", copy.dot)}
+                    aria-hidden
+                  />
+                  {copy.label}
+                </span>
+              </div>
+
+              <dl className="mt-3 space-y-1 text-xs">
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-muted-foreground">Schedule</dt>
+                  <dd>{job.schedule}</dd>
+                </div>
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-muted-foreground">Last completed</dt>
+                  <dd>
+                    {job.lastRun ? (
+                      <>
+                        {formatDateTime(job.lastRun.at)}{" "}
+                        <span className="text-muted-foreground">
+                          via {job.lastRun.source}
+                          {Object.keys(job.lastRun.summary).length > 0
+                            ? `, ${Object.entries(job.lastRun.summary)
+                                .map(([k, v]) => `${k} ${v}`)
+                                .join(", ")}`
+                            : ""}
+                        </span>
+                      </>
+                    ) : (
+                      <span className={copy.tone}>
+                        no completed run has ever been recorded
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+
+              {job.evidence.length > 0 ? (
+                <dl className="mt-3 space-y-1 border-t pt-2 text-xs">
+                  {job.evidence.map((e) => (
+                    <div key={e.label} className="flex flex-wrap gap-x-2">
+                      <dt className="text-muted-foreground">{e.label}</dt>
+                      <dd
+                        className={cn(
+                          e.alarming && "font-medium text-amber-700"
+                        )}
+                      >
+                        {e.at ? formatDateTime(e.at) : e.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+
+              {job.fallback ? (
+                <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+                  {job.fallback}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

@@ -11,6 +11,7 @@ import {
   unallocatedPaymentsSummary,
 } from "@/lib/domain/reports";
 import { getSettingOr } from "@/lib/domain/settings";
+import { isTaxInvoice, formatVatRate } from "@/lib/domain/vat";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { paymentMethodLabel } from "../labels";
 import { ResolveUnallocatedForm } from "./client";
@@ -213,13 +214,15 @@ export default async function AdminBillingPage({
           ) : (
             <>
               <div className="max-h-[70vh] overflow-auto rounded-lg border bg-card">
-                <table className="w-full min-w-[640px] text-sm">
+                <table className="w-full min-w-[760px] text-sm">
                   <thead>
                     <tr className={headRow}>
                       <th className="p-3 font-medium">Invoice</th>
                       <th className="p-3 font-medium">Customer</th>
                       <th className="p-3 font-medium">Issued</th>
                       <th className="p-3 font-medium">Due</th>
+                      <th className="p-3 text-right font-medium">Excl. VAT</th>
+                      <th className="p-3 text-right font-medium">VAT</th>
                       <th className="p-3 text-right font-medium">Total</th>
                       <th className="p-3 text-right font-medium">Outstanding</th>
                       <th className="p-3 font-medium">Status</th>
@@ -254,6 +257,28 @@ export default async function AdminBillingPage({
                           </td>
                           <td className="p-3 text-muted-foreground">
                             {formatDate(invoice.dueDate)}
+                          </td>
+                          <td className="p-3 text-right text-muted-foreground">
+                            <MoneyText cents={invoice.subtotalCents} />
+                          </td>
+                          {/*
+                            VAT is read off the invoice's own snapshot, not
+                            today's setting, so an invoice raised before the
+                            company registered shows a dash rather than a rate
+                            it was never charged at.
+                          */}
+                          <td className="p-3 text-right text-muted-foreground">
+                            {isTaxInvoice(invoice) &&
+                            invoice.vatCents !== null &&
+                            invoice.vatRateBasisPoints !== null ? (
+                              <span
+                                title={`VAT at ${formatVatRate(invoice.vatRateBasisPoints)}`}
+                              >
+                                <MoneyText cents={invoice.vatCents} />
+                              </span>
+                            ) : (
+                              <span aria-label="No VAT on this invoice">-</span>
+                            )}
                           </td>
                           <td className="p-3 text-right">
                             <MoneyText cents={invoice.totalCents} />

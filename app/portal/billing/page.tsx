@@ -19,6 +19,7 @@ import {
   type DunningConfig,
 } from "@/lib/domain/billing-engine";
 import { getSettingOr } from "@/lib/domain/settings";
+import { isTaxInvoice, vatLineLabel } from "@/lib/domain/vat";
 import { todayInJohannesburg } from "@/lib/domain/services";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -311,6 +312,20 @@ export default async function PortalBillingPage({
                     <StatusPill status={invoice.status} />
                   </div>
                 </div>
+                {/*
+                  The VAT split comes off the invoice's own snapshot, so an
+                  invoice issued before the company registered shows no VAT
+                  line and never appears to have been charged any.
+                */}
+                {isTaxInvoice(invoice) &&
+                invoice.vatCents !== null &&
+                invoice.vatRateBasisPoints !== null ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <MoneyText cents={invoice.subtotalCents} /> excl. VAT plus{" "}
+                    <MoneyText cents={invoice.vatCents} />{" "}
+                    {vatLineLabel(invoice.vatRateBasisPoints).toLowerCase()}.
+                  </p>
+                ) : null}
                 {partiallyPaid ? (
                   <p className="mt-2 text-xs text-amber-700">
                     <MoneyText cents={balanceCents} /> still due of{" "}
