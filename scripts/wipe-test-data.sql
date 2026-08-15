@@ -39,8 +39,10 @@ DELETE FROM users WHERE role = 'customer';
 
 -- Numbering restarts at NC-2026-00001 for the first real customer. Safe once
 -- the tables holding the old numbers are empty; the only artifacts carrying
--- them went to resend.dev test inboxes.
-UPDATE number_sequences SET counter = 0;
+-- them went to resend.dev test inboxes. The column is last_value, not counter:
+-- verified against information_schema rather than assumed, after the first
+-- attempt failed on exactly that guess and rolled the whole transaction back.
+DELETE FROM number_sequences;
 
 COMMIT;
 
