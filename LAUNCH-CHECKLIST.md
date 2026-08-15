@@ -60,15 +60,15 @@ code:
       deliberate decision rather than a quiet edit.
 - [x] **dev: `vat` setting live in production (2026-08-15)**:
       `{ registered: true, rateBasisPoints: 1500, pricesIncludeVat: true }`.
-      Migration 0008 applied. Arithmetic checked against reference vectors
-      computed independently before reading the implementation. Superseded: once the VAT build is
-      deployed: `{ registered: true, rateBasisPoints: 1500,
-      pricesIncludeVat: true }`. Until it is set the system stays honest but
-      VAT-free: no VAT line, and the VAT registration number does not print,
-      which is correct because an invoice showing a VAT number with no
-      breakdown is not a valid tax invoice.
-      The rate is snapshotted onto each invoice at issue time, so setting this
-      changes future invoices only and never rewrites history.
+      Migration 0008 applied to production. Arithmetic checked against
+      reference vectors computed independently before reading the
+      implementation: nine amounts, a negative credit line, and lines that
+      would each round the same way, with per-line VAT summing exactly to the
+      invoice VAT.
+      Because prices are VAT inclusive, no customer-facing price moved: R388
+      is now shown as R337.39 plus R50.61 VAT. The rate is snapshotted per
+      invoice at issue time, so a future rate change cannot rewrite a document
+      already sent.
 
 - [ ] **client: Confirm hardware retail pricing conflict.** The previous
       live site sold some routers higher than the May 2026 catalogue now
