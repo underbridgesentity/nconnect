@@ -27,7 +27,6 @@
     "drizzle-orm": "^0.45.2",
     "geist": "^1.7.2",
     "gray-matter": "^4.0.3",
-    "inngest": "^4.13.0",
     "lucide-react": "^1.25.0",
     "motion": "^12.42.2",
     "next": "16.2.10",

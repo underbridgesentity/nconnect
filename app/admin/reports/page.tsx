@@ -87,13 +87,11 @@ function integrationStatus() {
         ? "configured"
         : "local drivers (dev), polling fallback",
     },
-    // Inngest is deliberately not in this list. It used to sit here reading
-    // "dev mode" whenever INNGEST_EVENT_KEY was absent, which is a phrase that
-    // sounds like a setting somebody chose. What it actually meant in
-    // production was that the nightly billing run, the outbox drain and
-    // abandoned-signup capture had never run once, so month-two invoices were
-    // not being issued at all. A one-word status cannot carry that, so it has
-    // its own panel above with the evidence behind it.
+    // The scheduler is deliberately not in this list. A one-word status next
+    // to a name is fine for a thing that sends email; it cannot carry "the
+    // nightly billing run has not fired, so nobody's second month is being
+    // invoiced", which is what a missing scheduler actually means here. That
+    // gets its own panel above, with the evidence behind it.
   ];
 }
 
@@ -554,7 +552,7 @@ const JOB_STATUS_COPY: Record<
  * it came from, so nobody has to take this screen's word for it.
  */
 function ScheduledJobsPanel({ health }: { health: ScheduledJobsHealth }) {
-  const { config, jobs, evidenceError } = health;
+  const { config, jobs, eventLog, evidenceError } = health;
   const broken = jobs.some((j) => j.status !== "ok");
 
   return (
@@ -562,27 +560,29 @@ function ScheduledJobsPanel({ health }: { health: ScheduledJobsHealth }) {
       <div>
         <h2 className="text-sm font-semibold">Scheduled jobs</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Recurring invoices are issued here, not at checkout. If the nightly
-          run is not going, month one still looks perfect because the PayFast
-          webhook writes that invoice inline, and month two is simply never
-          billed.
+          Run by Vercel Cron, which calls the routes below on the schedules in
+          vercel.json. Recurring invoices are issued by the nightly run, not at
+          checkout: if it is not going, month one still looks perfect because
+          the PayFast webhook writes that invoice inline, and month two is
+          simply never billed.
         </p>
       </div>
 
       {!config.ready ? (
         <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm dark:border-red-900 dark:bg-red-950/40">
           <p className="font-semibold text-red-800 dark:text-red-300">
-            Inngest is not configured on this deployment, so nothing is
-            scheduled.
+            No scheduled job can run on this deployment.
           </p>
           <p className="mt-1 text-red-800/90 dark:text-red-300/90">
             Missing:{" "}
             <span className="font-mono text-xs">
               {config.missing.join(", ")}
             </span>
-            . Create them at app.inngest.com under Manage, add them to the
-            Vercel project and redeploy. Until then no invoice will be issued
-            for any existing customer&apos;s second month.
+            . Without it every cron route refuses the request rather than
+            running open, so nothing is scheduled. Set it in the Vercel project
+            (Settings, Environment Variables) and redeploy. Until then no
+            invoice will be issued for any existing customer&apos;s second
+            month.
           </p>
         </div>
       ) : null}
@@ -590,12 +590,14 @@ function ScheduledJobsPanel({ health }: { health: ScheduledJobsHealth }) {
       {config.ready && broken ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/40">
           <p className="font-semibold text-amber-900 dark:text-amber-300">
-            The keys are set, but at least one job has not been seen finishing
+            CRON_SECRET is set, but at least one job has not been seen finishing
             when it should have.
           </p>
           <p className="mt-1 text-amber-900/90 dark:text-amber-300/90">
-            Check the app is synced at app.inngest.com and that the serve URL
-            there is /api/inngest on this domain.
+            Check the Cron Jobs tab in the Vercel project: it lists every
+            schedule with its last run and status code. A job missing from that
+            list means the deployed vercel.json does not declare it; a red run
+            there means the route itself failed and the log will say why.
           </p>
         </div>
       ) : null}
@@ -634,7 +636,16 @@ function ScheduledJobsPanel({ health }: { health: ScheduledJobsHealth }) {
               <dl className="mt-3 space-y-1 text-xs">
                 <div className="flex flex-wrap gap-x-2">
                   <dt className="text-muted-foreground">Schedule</dt>
-                  <dd>{job.schedule}</dd>
+                  <dd>
+                    {job.schedule}{" "}
+                    <span className="font-mono text-muted-foreground">
+                      {job.cron}
+                    </span>
+                  </dd>
+                </div>
+                <div className="flex flex-wrap gap-x-2">
+                  <dt className="text-muted-foreground">Route</dt>
+                  <dd className="font-mono">{job.path}</dd>
                 </div>
                 <div className="flex flex-wrap gap-x-2">
                   <dt className="text-muted-foreground">Last completed</dt>
@@ -676,15 +687,39 @@ function ScheduledJobsPanel({ health }: { health: ScheduledJobsHealth }) {
                   ))}
                 </dl>
               ) : null}
-
-              {job.fallback ? (
-                <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
-                  {job.fallback}
-                </p>
-              ) : null}
             </div>
           );
         })}
+      </div>
+
+      {/*
+        Where the outbox drain used to be listed. Deleting the row without
+        saying anything would leave whoever remembers it wondering whether the
+        job is missing or the panel is. It is missing on purpose, and the log
+        it drained is still being written.
+      */}
+      <div className="rounded-lg border bg-card p-3 text-xs text-muted-foreground">
+        <p>
+          <span className="font-medium text-foreground">
+            Domain event log, no job attached.
+          </span>{" "}
+          Every mutation still writes a <span className="font-mono">
+            domain_events
+          </span>{" "}
+          row inside its own transaction, as the audit and replay record.
+          Nothing consumes those events today, so there is no forwarding job to
+          watch and no backlog to measure, and{" "}
+          <span className="font-mono">forwarded_at</span> is always null.
+        </p>
+        {eventLog ? (
+          <p className="mt-1">
+            {eventLog.total.toLocaleString("en-ZA")} events recorded
+            {eventLog.newestAt
+              ? `, newest ${formatDateTime(eventLog.newestAt)}`
+              : ", none yet"}
+            .
+          </p>
+        ) : null}
       </div>
     </section>
   );

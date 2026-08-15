@@ -54,7 +54,10 @@ describe("per-line VAT sums exactly to the invoice VAT", () => {
     // Three lines that individually round up; a naive per-line round would
     // overstate the invoice VAT by a cent or more.
     const split = splitInvoiceVat([33333, 33333, 33334], REGISTERED);
-    const summed = split.lines.reduce((t, l) => t + l.vatCents, 0);
+    // vatCents is null on a line that carries no VAT. None of these do, and a
+    // null reaching here would make the sum wrong rather than throw, so it is
+    // coerced explicitly instead of assumed away.
+    const summed = split.lines.reduce((t, l) => t + (l.vatCents ?? 0), 0);
     expect(summed).toBe(split.vatCents);
     expect(split.subtotalCents + (split.vatCents ?? 0)).toBe(100000);
   });
@@ -62,6 +65,8 @@ describe("per-line VAT sums exactly to the invoice VAT", () => {
   it("agrees with the whole-invoice figure on a realistic invoice", () => {
     const split = splitInvoiceVat([38800, 183300], REGISTERED);
     expect(split.vatCents).toBe(vatFromGross(222100, RATE));
-    expect(split.lines.reduce((t, l) => t + l.vatCents, 0)).toBe(split.vatCents);
+    expect(split.lines.reduce((t, l) => t + (l.vatCents ?? 0), 0)).toBe(
+      split.vatCents
+    );
   });
 });

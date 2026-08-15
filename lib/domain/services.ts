@@ -602,7 +602,10 @@ export async function withdrawCancellation(
   });
 }
 
-/** pending_cancellation -> cancelled (Inngest on effective date, §5). */
+/**
+ * pending_cancellation -> cancelled (§5). Called by the nightly billing run's
+ * cancellation sweep once the effective date has arrived.
+ */
 export async function finalizeCancellation(serviceId: string): Promise<void> {
   const ctx = await db.transaction(async (tx) => {
     const context = await serviceContext(tx, serviceId);

@@ -11,7 +11,7 @@ one Next.js codebase.
 ## Stack
 
 Next.js (App Router, RSC) · TypeScript strict · Tailwind + shadcn/ui ·
-Drizzle ORM on Supabase Postgres (af-south-1) · Auth.js v5 · Inngest ·
+Drizzle ORM on Supabase Postgres (af-south-1) · Auth.js v5 · Vercel Cron ·
 PayFast · Resend · Meta WhatsApp Cloud API · Vercel (cpt1).
 
 ## Development
@@ -37,4 +37,23 @@ pnpm typecheck && pnpm lint && pnpm test
 
 All money is integer cents through `lib/money`. Every state-changing
 operation flows through a domain service: zod → authorize → transaction →
-audit log → domain event (outbox → Inngest).
+audit log → domain event.
+
+The domain event is written to `domain_events` in the same transaction as the
+mutation. Nothing consumes those events today, so the table is the audit and
+replay log rather than a queue; see `lib/domain/events.ts`.
+
+## Scheduled jobs
+
+Vercel Cron calls two routes, declared in `vercel.json` and authenticated with
+`CRON_SECRET`:
+
+| Route | Schedule (UTC) | What it does |
+| --- | --- | --- |
+| `/api/cron/billing` | `0 0 * * *` (02:00 SAST) | Recurring invoices, dunning, cancellation sweep |
+| `/api/cron/abandoned-signups` | `0 * * * *` | Stalled signups become `web_abandoned` leads |
+
+The work itself lives in `lib/jobs/`, not in the routes, so the scheduler owns
+no business logic. Each route stands down if the job already ran in its slot,
+because Vercel can fire a cron more than once. /admin/reports, Integrations
+shows the last completion of each job.

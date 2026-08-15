@@ -7,16 +7,22 @@ marked **dev** are configuration/deploy work.
 ## Go-live configuration (do these first)
 
 **State on 2026-08-15.** The platform is live on www.needdconnect.co.za with a
-clean database (no test data), VAT on, email working, and a billing safety net
-proven. Two things stop a real customer completing a purchase, both outside the
-code:
+clean database (no test data), VAT on, email working, and the nightly billing
+run scheduled and proven. One thing stops a real customer completing a
+purchase, and it is outside the code:
 
 1. **PayFast account not enabled.** The live gateway accepts our signature and
    then answers "The merchant cannot accept these kind of payments at the
    moment". Only the account holder can clear that.
-2. **Inngest keys not set**, so the nightly billing run is not scheduled. The
-   Vercel Cron backstop at 02:40 SAST covers it (verified: it ran, and stood
-   down on a second call), but Inngest is the primary path and should be wired.
+
+The scheduling blocker that used to sit here is gone. On 2026-08-15 Inngest
+was dropped and Vercel Cron became the only scheduler: all three Inngest
+functions were plain crons and nothing subscribed to the domain events, so it
+was a cron scheduler with an account attached. The billing route is now the
+primary runner at 02:00 SAST rather than a backstop at 02:40, and it needs
+`CRON_SECRET` and nothing else. Verified before the change: it ran, and stood
+down on a second call the same night. See the SPEC.md amendment for the
+tradeoff (no per-step retries, no run-history dashboard).
 
 
 - [x] **dev: `APP_URL` set to `https://www.needdconnect.co.za`** in Vercel
@@ -199,8 +205,13 @@ nothing is broken while this section is untouched.
       `documents` (private), set SUPABASE_* env. Storage and realtime
       drivers switch over automatically; the dev fallbacks
       (.uploads/ + 5s polling) retire by themselves.
-- [ ] **dev: Inngest account** + event/signing keys; verify the
-      billing-run cron fires 02:00 Africa/Johannesburg.
+- [x] **dev: Scheduled jobs on Vercel Cron** (2026-08-15). `CRON_SECRET` is
+      set in Vercel production and both schedules are declared in
+      `vercel.json`: `/api/cron/billing` at `0 0 * * *` (02:00 SAST) and
+      `/api/cron/abandoned-signups` at `0 * * * *`. No third-party account,
+      no keys to sync. Confirm after each deploy in the Vercel project's
+      Cron Jobs tab, and in /admin/reports, Integrations, which shows the
+      last completion of each job with what it did.
 - [ ] **dev: Vercel project** pinned to cpt1 (vercel.json committed), env
       vars set, staging subdomain first.
 - [ ] **dev: Production seed**: `pnpm seed` (no --dev) seeds catalogue +

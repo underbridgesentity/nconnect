@@ -45,6 +45,8 @@ Done:
   /admin, /sales, /portal; role-aware post-login router at /after-login.
 - Inngest v4 wired (`/api/inngest`), outbox pattern: `domain_events` written
   in-transaction, best-effort forward + 5-min drain cron.
+  *(Inngest removed 2026-08-15, see "Scheduling moved to Vercel Cron" below.
+  The `domain_events` write is unchanged.)*
 - Notification channel adapters: WhatsApp Cloud API (env-gated), Resend email
   (console fallback without key), pluggable SMS (console/smsportal/clickatell).
 - Shells: admin sidebar (six §9.4 areas), sales nav, portal bottom tabs , 
@@ -142,8 +144,10 @@ Done:
   camera/file uploads → compliance bucket, normalised to webp), order
   review, PayFast auto-submitting redirect, honest "confirming payment"
   return page, one-tap portal sign-in via a single-use internal OTP.
-- Abandoned-signup capture: hourly Inngest cron turns stale drafts (contact
+- Abandoned-signup capture: hourly cron turns stale drafts (contact
   + selection, no order) into `web_abandoned` leads with what they chose.
+  *(Scheduler changed from Inngest to Vercel Cron 2026-08-15; the capture
+  logic is unchanged and now lives in `lib/jobs/abandoned-signups.ts`.)*
 - `scripts/simulate-itn.ts`: signs and posts a sandbox-grade ITN to the
   local webhook (PayFast can't reach localhost).
 
@@ -230,8 +234,10 @@ Done:
 - Pay links: HMAC-tokenised public `/pay/[invoiceId]` page rendering lines
   + PayFast form (`m_payment_id = inv:<id>`); ITN webhook routes the inv:
   prefix through `markInvoicePaidFromGateway` (idempotent, amount-checked).
-- Inngest `billing-run` daily at 02:00 Africa/Johannesburg: invoices →
+- `billing-run` daily at 02:00 Africa/Johannesburg: invoices →
   dunning → cancellation sweep, in that order.
+  *(Scheduler changed from Inngest to Vercel Cron 2026-08-15; the sequence
+  is unchanged and now lives in `lib/jobs/billing-run.ts`.)*
 - Admin Billing area: invoice list with status filters, age analysis,
   payments log, read-only dunning timeline from settings.
 - Tests (29 total green): §5 pro-rata unit tests across 28/29/30/31-day
@@ -373,9 +379,11 @@ Done:
 - Staff management: invite by email (Resend setup link, 7-day one-time
   token), /setup page (name + password + auto sign-in), role change and
   disable (self-protects; disabled users hard-blocked in proxy.ts).
-- Integrations panel: PayFast / WhatsApp / Resend / SMS / Supabase /
-  Inngest states from env (configured / sandbox / live / dev fallback),
-  email + SMS test-send buttons.
+- Integrations panel: PayFast / WhatsApp / Resend / SMS / Supabase states
+  from env (configured / sandbox / live / dev fallback), email + SMS
+  test-send buttons.
+  *(A Scheduled jobs panel was added later and the scheduler moved out of
+  this one-word list; see 2026-08-15 below.)*
 - Notification template viewer (per-event rendered samples + Meta template
   names); audit log viewer with entity filters + before/after JSON.
 - Trigram search migration (pg_trgm + GIN indexes on customer names/
@@ -396,8 +404,8 @@ Done:
   (`pnpm test:e2e`, needs E2E_ADMIN_PASSWORD from seed output).
 - LAUNCH-CHECKLIST.md: honest client/dev split, pricing conflict, cost
   prices, PayFast own-account sandbox + live ITN test, Meta verification +
-  template approval, SMS creds, Supabase project, Resend domain, Inngest
-  keys, imagery, legal review, staging → DNS cutover with the Lovable site
+  template approval, SMS creds, Supabase project, Resend domain, scheduler
+  secret, imagery, legal review, staging → DNS cutover with the Lovable site
   live until the switch, plus the documented deferrals.
 
 State at M8 close: all milestones M0–M8 complete; typecheck, lint, 29
@@ -505,3 +513,66 @@ State: typecheck, lint, 42 vitest tests and 4 Playwright end-to-end tests green.
 Two harness bugs were fixed along the way: simulate-itn.ts hardcoded port 3000
 (delivering the ITN to an unrelated app when that port was taken), and the pay
 button matcher expected an unlocalised amount.
+
+## Scheduling moved to Vercel Cron, Inngest removed (2026-08-15)
+
+A deliberate simplification, not a downgrade. Inngest was in the spec for
+"billing cron, dunning, lifecycle, notifications, outbox", but the built
+platform used it for exactly one of those things. Verified before touching
+anything: all three Inngest functions were plain crons (`outbox-drain` every 5
+minutes, `abandoned-signups` hourly, `billing-run` daily) and nothing anywhere
+subscribed to a `domain/*` event. It was a cron scheduler with an account
+attached.
+
+Vercel Cron schedules the same jobs from `vercel.json`, on a plan (Pro) that
+allows sub-daily schedules and up to 40 crons. That is one less account to
+hold, one less set of keys that can be unset, and one less third party between
+the business and its invoicing.
+
+What changed:
+
+- Business logic moved out of the scheduler. `lib/jobs/billing-run.ts` and
+  `lib/jobs/abandoned-signups.ts` hold the work; the routes under
+  `app/api/cron/` only authenticate, guard against a repeat, and call it. The
+  arithmetic and the state machine were not touched.
+- `/api/cron/abandoned-signups` added, hourly (`0 * * * *`).
+- `/api/cron/billing` is now the primary runner rather than a backstop, so it
+  moved from 00:40 UTC back to 00:00 UTC (02:00 SAST), which is what the spec
+  always said.
+- `lib/jobs/cron-auth.ts` holds the one CRON_SECRET check both routes use:
+  constant-time over SHA-256 digests, refusing to run at all when the secret
+  is unset rather than running open.
+- Double-trigger protection kept and now tested. Vercel can fire a cron more
+  than once, so billing stands down when a heartbeat already exists for the
+  Africa/Johannesburg date (`ranOnDate`) and the hourly capture stands down
+  when one exists inside the last 50 minutes (`ranWithinMinutes`, added
+  because a calendar date is far too coarse for an hourly job).
+  `tests/unit/cron-stand-down.test.ts` covers both guards and the auth gate,
+  15 tests.
+- The `outbox-drain` cron was deleted rather than ported. `forwardDomainEvent`
+  is now an explicit no-op: with no subscriber there is nowhere to forward to,
+  and a drainer that drains to nowhere is a job that can only succeed at
+  nothing. It would also have spent a Vercel invocation every 5 minutes to do
+  it. `domain_events` is still written in every mutation's transaction, as the
+  audit and replay log. `domain_events.forwarded_at` stays in the schema and
+  is now always null; dropping a column would be a migration against a live
+  database for no benefit.
+- The admin readout (/admin/reports, Integrations) was rewritten for Vercel
+  Cron: each job's route, cron expression, human schedule, last completion
+  with its summary, and the corroborating counts. "Not configured" now means
+  CRON_SECRET is absent, which is the thing that actually stops the jobs. A
+  job that is not running is still the loudest thing on the panel, which was
+  the whole point of building it. Where the outbox drain used to be listed
+  there is now a plain statement that the event log is written and nothing
+  consumes it, so its absence reads as a decision rather than an omission.
+- Removed: `inngest/**`, `app/api/inngest/**`, the `inngest` dependency and its
+  lockfile entries, and INNGEST_* from `.env.example`.
+
+The tradeoff, stated once: no per-step retries (a failed stage fails the run
+and the next run picks it up, which the sweeps' idempotency already makes
+safe) and no run-history dashboard (Vercel's Cron Jobs tab shows the last
+invocation and status code; the platform's own heartbeats record the last
+completion of each job with what it did). Neither touches correctness, and
+both were being paid for in an integration that delivered nothing else.
+
+State: typecheck, lint, 343 vitest tests green.

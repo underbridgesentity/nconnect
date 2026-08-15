@@ -1,15 +1,16 @@
 import "server-only";
-import { isNull, eq, asc } from "drizzle-orm";
-import { db, type Tx } from "@/lib/db/client";
+import type { Tx } from "@/lib/db/client";
 import { domainEvents } from "@/lib/db/schema";
-import { inngest } from "@/inngest/client";
 
 /**
- * Outbox pattern (spec §4.7): domain functions write events in the same
- * transaction as their mutation via `emitDomainEvent(tx, ...)`, then a
- * best-effort forward happens after commit. The Inngest poller
- * (`outbox-drain`) picks up anything the best-effort pass missed, so no
- * event is ever lost.
+ * Outbox pattern (spec 4.7): domain functions write events in the same
+ * transaction as their mutation via `emitDomainEvent(tx, ...)`.
+ *
+ * The write is the part that matters and it is unchanged. `domain_events` is
+ * the platform's append-only record of what happened and why, and it is what
+ * anyone would replay from if event-driven work is ever built. Every mutation
+ * still writes to it, in the same transaction, so an event cannot exist
+ * without its mutation or the other way round.
  */
 
 export async function emitDomainEvent(
@@ -24,54 +25,33 @@ export async function emitDomainEvent(
   return row.id;
 }
 
-/** Fire-and-forget forward after the transaction commits. */
-export async function forwardDomainEvent(eventId: string): Promise<void> {
-  try {
-    const [event] = await db
-      .select()
-      .from(domainEvents)
-      .where(eq(domainEvents.id, eventId))
-      .limit(1);
-    if (!event || event.forwardedAt) return;
-    await inngest.send({
-      name: `domain/${event.name}`,
-      data: { ...event.payload, eventId: event.id },
-    });
-    await db
-      .update(domainEvents)
-      .set({ forwardedAt: new Date() })
-      .where(eq(domainEvents.id, event.id));
-  } catch (err) {
-    // The outbox drainer will retry; never fail the caller.
-    console.error(`forwardDomainEvent(${eventId}) failed:`, err);
-  }
-}
-
-/** Used by the Inngest outbox-drain cron. Returns number forwarded. */
-export async function drainUnforwardedEvents(limit = 100): Promise<number> {
-  const pending = await db
-    .select()
-    .from(domainEvents)
-    .where(isNull(domainEvents.forwardedAt))
-    .orderBy(asc(domainEvents.createdAt))
-    .limit(limit);
-
-  let forwarded = 0;
-  for (const event of pending) {
-    try {
-      await inngest.send({
-        name: `domain/${event.name}`,
-        data: { ...event.payload, eventId: event.id },
-      });
-      await db
-        .update(domainEvents)
-        .set({ forwardedAt: new Date() })
-        .where(eq(domainEvents.id, event.id));
-      forwarded++;
-    } catch (err) {
-      console.error(`outbox drain failed for ${event.id}:`, err);
-      break; // preserve ordering; retry next run
-    }
-  }
-  return forwarded;
+/**
+ * Deliberately does nothing, and says so rather than pretending.
+ *
+ * This used to push each committed event to Inngest. Inngest was dropped on
+ * 2026-08-15 because nothing subscribed to `domain/*`: all three of its
+ * functions were plain crons, which Vercel Cron now runs directly. With no
+ * subscriber there is nowhere for a forward to go, so the honest version of
+ * this function is an empty one. The alternative, leaving a send that always
+ * fails, would produce a permanent trickle of errors that mean nothing and
+ * would train everyone to ignore the log.
+ *
+ * The call sites are kept on purpose. They mark the exact points where an
+ * event has committed and is safe to act on, which is precisely where a
+ * consumer would hook in, and finding those points again later is harder than
+ * leaving them in place.
+ *
+ * `domain_events.forwarded_at` stays in the schema and is now always null.
+ * Dropping the column would be a migration against a live database for no
+ * benefit. Nothing reads it, so it is dead weight rather than a wrong answer.
+ *
+ * When event-driven work is wanted, the shape of it is: replace this body with
+ * the dispatch (a queue, a webhook, an in-process handler table), stamp
+ * `forwarded_at` on success, and add a `/api/cron/*` route that sweeps rows
+ * with a null `forwarded_at` so a dispatch that failed after commit is
+ * retried. That sweeper is the piece deliberately not built today, because a
+ * drainer with no destination is a job that can only ever succeed at nothing.
+ */
+export async function forwardDomainEvent(_eventId: string): Promise<void> {
+  // Intentionally empty. See the comment above.
 }

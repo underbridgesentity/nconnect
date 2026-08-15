@@ -4,7 +4,11 @@
   "crons": [
     {
       "path": "/api/cron/billing",
-      "schedule": "40 0 * * *"
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/abandoned-signups",
+      "schedule": "0 * * * *"
     }
   ]
 }
