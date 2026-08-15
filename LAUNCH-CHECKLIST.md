@@ -6,6 +6,19 @@ marked **dev** are configuration/deploy work.
 
 ## Go-live configuration (do these first)
 
+**State on 2026-08-15.** The platform is live on www.needdconnect.co.za with a
+clean database (no test data), VAT on, email working, and a billing safety net
+proven. Two things stop a real customer completing a purchase, both outside the
+code:
+
+1. **PayFast account not enabled.** The live gateway accepts our signature and
+   then answers "The merchant cannot accept these kind of payments at the
+   moment". Only the account holder can clear that.
+2. **Inngest keys not set**, so the nightly billing run is not scheduled. The
+   Vercel Cron backstop at 02:40 SAST covers it (verified: it ran, and stood
+   down on a second call), but Inngest is the primary path and should be wired.
+
+
 - [x] **dev: `APP_URL` set to `https://www.needdconnect.co.za`** in Vercel
       production (2026-08-05) and verified live: the canonical on the home page
       now names the real domain, so PayFast returns, emailed links and SEO all
@@ -45,7 +58,10 @@ marked **dev** are configuration/deploy work.
       (1500 basis points). Recorded here because the figures on every invoice
       depend on all three, and a later change of any one of them must be a
       deliberate decision rather than a quiet edit.
-- [ ] **dev: Set the `vat` setting in production** once the VAT build is
+- [x] **dev: `vat` setting live in production (2026-08-15)**:
+      `{ registered: true, rateBasisPoints: 1500, pricesIncludeVat: true }`.
+      Migration 0008 applied. Arithmetic checked against reference vectors
+      computed independently before reading the implementation. Superseded: once the VAT build is
       deployed: `{ registered: true, rateBasisPoints: 1500,
       pricesIncludeVat: true }`. Until it is set the system stays honest but
       VAT-free: no VAT line, and the VAT registration number does not print,
