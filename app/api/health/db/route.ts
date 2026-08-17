@@ -29,7 +29,7 @@ import { sql } from "drizzle-orm";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * Time a stage, but never let it outlive its own deadline.
@@ -125,14 +125,40 @@ export async function GET(req: NextRequest): Promise<Response> {
     return Array.isArray(rows) ? (rows[0]?.ok ?? null) : "unexpected shape";
   });
 
-  // Eight at once, matching what the heaviest admin page fires, to show
-  // whether concurrency is where it falls over.
-  const [fanOutMs, fanOutResult] = await timed(async () => {
-    const results = await Promise.all(
-      Array.from({ length: 8 }, () => db.execute(sql`select 1 as ok`))
+  // Where exactly does concurrency fall over? A single pooled query is fast
+  // and eight at once never return, so the interesting number is the width at
+  // which it breaks. If it breaks the moment width exceeds the pool's `max`,
+  // the cause is postgres.js pipelining several queries down one connection,
+  // which Supavisor's transaction mode does not support. That is a claim worth
+  // measuring rather than assuming, because the fix differs entirely.
+  const fanOut: Record<string, string> = {};
+  for (const width of [2, 3, 4, 6, 8]) {
+    const [ms, result] = await timed(
+      () => Promise.all(Array.from({ length: width }, () => db.execute(sql`select 1 as ok`))),
+      5_000
     );
-    return results.length;
-  });
+    fanOut[`width${width}`] =
+      typeof result === "string" ? `${result} (${ms}ms)` : `ok in ${ms}ms`;
+  }
+
+  // The proposed fix, tested in the same breath: a pool wide enough that
+  // every concurrent query gets its own connection and nothing is pipelined.
+  const [wideMs, wideResult] = await timed(async () => {
+    const wide = postgres(url, {
+      prepare: false,
+      max: 12,
+      connect_timeout: 6,
+      idle_timeout: 5,
+    });
+    try {
+      const rows = await Promise.all(
+        Array.from({ length: 8 }, () => wide`select 1 as ok`)
+      );
+      return rows.length;
+    } finally {
+      await wide.end({ timeout: 3 }).catch(() => {});
+    }
+  }, 12_000);
 
   return cronJson({
     ok: true,
@@ -142,13 +168,14 @@ export async function GET(req: NextRequest): Promise<Response> {
       tcpReach: tcpMs,
       freshConnect: connectMs,
       pooledQuery: pooledMs,
-      eightConcurrent: fanOutMs,
+      widePoolEightConcurrent: wideMs,
     },
     results: {
       tcpReach: tcpResult,
       freshConnect: connectResult,
       pooledQuery: pooledResult,
-      eightConcurrent: fanOutResult,
+      sharedPoolFanOut: fanOut,
+      widePoolEightConcurrent: wideResult,
     },
   });
 }
