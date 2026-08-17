@@ -31,16 +31,32 @@ const globalForDb = globalThis as unknown as {
  * rather than erroring. The database was never slow; its worst statement on
  * record is 212ms.
  *
- * max is deliberately small. A page that fires eight queries at once wants
- * eight connections, but each query costs single-digit milliseconds, so
- * queueing them over a few connections is far cheaper than pinning eight
- * pooler slots per instance across every warm instance Vercel keeps.
+ * max is NOT a throughput dial here, it is a correctness constraint, which
+ * cost a day to learn. Supabase's pooler runs in transaction mode, which does
+ * not support pipelining several queries down one connection. postgres.js
+ * pipelines exactly that way once every connection is busy, and against
+ * Supavisor those queued queries never come back at all. Measured in
+ * production against this database: on a pool of 3, two concurrent queries
+ * answered in 16ms and three in 22ms, while four never answered; on a pool of
+ * 12, eight concurrent answered in 43ms. The same fan-out on plain local
+ * Postgres is 1ms at any width, so this is Supavisor's behaviour, not ours.
+ *
+ * The rule that follows: `max` must exceed the largest number of queries any
+ * single request fires concurrently. The widest today is the admin billing
+ * page at eight in one Promise.all. If a page ever needs more than this, raise
+ * this number in the same change, or the page will hang rather than run slow,
+ * and it will hang silently: a query stuck in the client's own queue never
+ * reaches the server, so statement_timeout cannot save it.
  */
 const client =
   globalForDb.__ncPgClient ??
   postgres(connectionString, {
     prepare: false,
-    max: 3,
+    // Comfortably above the widest fan-out (8), with headroom. Wide pools are
+    // affordable because idle_timeout hands the slots straight back: the free
+    // tier allows 200 pooler clients, and an instance between requests holds
+    // none of them.
+    max: 12,
     // Hand connections back to the pooler quickly; an instance between
     // requests should be holding nothing at all.
     idle_timeout: 20,
