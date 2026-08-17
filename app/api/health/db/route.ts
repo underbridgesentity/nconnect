@@ -31,11 +31,31 @@ import { sql } from "drizzle-orm";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-/** Milliseconds, rounded, so the numbers read at a glance. */
-async function timed<T>(fn: () => Promise<T>): Promise<[number, T | string]> {
+/**
+ * Time a stage, but never let it outlive its own deadline.
+ *
+ * The first version of this probe had no deadline and told us nothing: a
+ * stage hung, the whole function hit FUNCTION_INVOCATION_TIMEOUT, and the
+ * response that would have said which stage hung died with it. A probe that
+ * can hang is not a probe. Each stage now gets a hard ceiling, so "this one
+ * never came back" is itself the finding.
+ */
+async function timed<T>(
+  fn: () => Promise<T>,
+  deadlineMs = 8_000
+): Promise<[number, T | string]> {
   const started = Date.now();
   try {
-    return [Date.now() - started, await fn()];
+    const result = await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`no answer within ${deadlineMs}ms`)),
+          deadlineMs
+        )
+      ),
+    ]);
+    return [Date.now() - started, result];
   } catch (err) {
     return [
       Date.now() - started,
@@ -59,20 +79,44 @@ export async function GET(req: NextRequest): Promise<Response> {
     // Leave the placeholder; the shape of the URL is not worth leaking.
   }
 
+  // Does raw TCP to the pooler even answer? Separates "cannot reach the host"
+  // from "reached it and then stalled", which no Postgres-level timing can.
+  const [tcpMs, tcpResult] = await timed(async () => {
+    const { Socket } = await import("node:net");
+    return new Promise<string>((resolve, reject) => {
+      const socket = new Socket();
+      socket.setTimeout(6_000);
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve("connected");
+      });
+      socket.once("timeout", () => {
+        socket.destroy();
+        reject(new Error("tcp timeout"));
+      });
+      socket.once("error", (e) => {
+        socket.destroy();
+        reject(e);
+      });
+      socket.connect(Number(port || 5432), host);
+    });
+  }, 7_000);
+
   // A fresh single-use client, closed in the finally, so this probe can never
   // become the thing that leaks a connection.
   const [connectMs, connectResult] = await timed(async () => {
     const solo = postgres(url, {
       prepare: false,
       max: 1,
-      connect_timeout: 15,
+      connect_timeout: 6,
       idle_timeout: 5,
+      connection: { statement_timeout: 5_000 },
     });
     try {
       const rows = await solo`select 1 as ok`;
       return rows[0]?.ok ?? null;
     } finally {
-      await solo.end({ timeout: 5 });
+      await solo.end({ timeout: 3 }).catch(() => {});
     }
   });
 
@@ -95,11 +139,13 @@ export async function GET(req: NextRequest): Promise<Response> {
     region: process.env.VERCEL_REGION ?? "(unknown)",
     database: { host, port },
     timingsMs: {
+      tcpReach: tcpMs,
       freshConnect: connectMs,
       pooledQuery: pooledMs,
       eightConcurrent: fanOutMs,
     },
     results: {
+      tcpReach: tcpResult,
       freshConnect: connectResult,
       pooledQuery: pooledResult,
       eightConcurrent: fanOutResult,
