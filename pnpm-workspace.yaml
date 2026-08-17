@@ -1,0 +1,29 @@
+# pnpm 11 settings. The "pnpm" field in package.json is no longer read, so
+# anything that used to live there belongs here instead.
+
+# sharp ships a native binding per platform as an optional dependency, and pnpm
+# installs only the current platform's by default. A lockfile generated on macOS
+# therefore left Vercel's linux-x64 runtime with no binding at all, and every
+# image upload died with ERR_DLOPEN_FAILED on libvips. Asking for both keeps a
+# single lockfile working for local development and for the deployed runtime.
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - x64
+
+# pnpm 11 refuses to run dependency build scripts unless they are named here,
+# and exits non-zero while any are merely "ignored", which fails the install
+# and therefore the deploy. These three are the project's only build scripts:
+#   sharp         image processing for catalogue and RICA uploads
+#   esbuild       vitest's bundler
+#   unrs-resolver eslint's module resolver
+# sharp resolves a prebuilt binary and works without its script (verified), but
+# allowing it keeps a future version that does need it from silently losing
+# image processing.
+allowBuilds:
+  sharp: true
+  esbuild: true
+  unrs-resolver: true

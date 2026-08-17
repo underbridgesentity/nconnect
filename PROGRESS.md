@@ -576,3 +576,47 @@ completion of each job with what it did). Neither touches correctness, and
 both were being paid for in an integration that delivered nothing else.
 
 State: typecheck, lint, 343 vitest tests green.
+
+## Production incident, admin pages hanging (2026-08-17) ✅
+
+Reported as "/admin/billing hangs". It was neither billing-specific nor a
+slow database, and the wrong diagnosis cost most of the investigation.
+
+What was actually happening. Vercel functions ran in `cpt1` (Cape Town) while
+the database is in `eu-west-2` (London), because Supabase no longer offers
+af-south-1. Every query therefore paid a ~150ms intercontinental round trip.
+An admin page that fires eight queries spent seconds in pure network, drifted
+toward the function timeout, and got killed mid-query. A killed instance
+cannot close its pool, so the pooler kept those backends parked in
+`ClientRead` waiting for a client that was never coming back. With no
+`idle_timeout` on the postgres.js client the slots leaked permanently:
+sessions were found still holding a finished query eight minutes later, while
+live requests queued behind them for a connection that never arrived. Pages
+hung rather than errored because nothing in the path had a timeout.
+
+Evidence, since the symptom pointed everywhere except the cause:
+- `pg_stat_statements` worst statement ever recorded: 212ms, and that was
+  schema introspection. Real queries run 1-20ms. The database was never slow.
+- Every app backend sat in `wait_event = ClientRead`, i.e. the query was done
+  and Postgres was waiting on a client that had gone away.
+- Hang rate tracked query count per page, not page identity: `/` (prerendered,
+  no query) 0/4, `/admin/services` 0/4, `/admin/customers` 1/4,
+  `/admin/reports` 3/4, `/admin/billing` (eight concurrent queries) 4/4.
+- The same tab succeeded in one run and hung in the next, which is what ruled
+  out the markup and the VAT work that had just landed near it.
+
+Fixed:
+- `vercel.json` region `cpt1` -> `lhr1`, so functions sit beside the data.
+  Public pages are prerendered and served from the CDN edge, so South African
+  visitors still get those locally; only dynamic work moved.
+- `lib/db/client.ts`: `idle_timeout` 20s so an instance between requests holds
+  nothing, `max_lifetime` 10min to recycle half-dead sockets, `connect_timeout`
+  10s so exhaustion surfaces as an error instead of an indefinite spin,
+  `statement_timeout` 15s as a runaway backstop, and `max` 5 -> 3 (queueing
+  millisecond queries over three connections beats pinning five pooler slots
+  on every warm instance).
+
+Worth remembering: the free-tier database allows 60 direct connections, and
+`idle_in_transaction_session_timeout` is 0, so nothing on the server side will
+ever clean up after an abandoned client. The client has to be the one that
+lets go.
