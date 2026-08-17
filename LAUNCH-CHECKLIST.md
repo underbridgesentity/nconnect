@@ -115,13 +115,30 @@ tradeoff (no per-step retries, no run-history dashboard).
       accepts the signature (the sandbox-era "signature does not match" is
       gone, and PayFast validates the signature before anything else). The
       merchant id, key and passphrase are therefore all correct in production.
-- [ ] **client, BLOCKING: Enable the PayFast account to receive payments.**
-      The live host currently answers: "The merchant cannot accept these kind
-      of payments at the moment." That is an account-status message, not a
-      code or configuration problem, and only the account holder can clear it
-      in the PayFast dashboard. Usual causes: account verification (FICA
-      documents, bank confirmation) not finished, or card payments not enabled
-      on the account. Until it is cleared, every checkout fails at PayFast.
+- [ ] **client, BLOCKING: ask PayFast to enable recurring billing
+      (tokenisation / ad-hoc agreements) on merchant 16240038.**
+      Diagnosed exactly on 2026-08-17 by posting the app's own signed payload
+      to the live endpoint twice, identical but for one field:
+
+        with subscription_type=2   HTTP 400, "The merchant cannot accept these
+                                   kind of payments at the moment."
+        without subscription_type  HTTP 200, a real payment page at
+                                   payment.payfast.io, R 382.00, correct item
+
+      So the account is live and can already take once-off card payments, and
+      the merchant id, key, passphrase and signature are all correct. The one
+      missing capability is tokenisation, which is what `subscription_type=2`
+      asks for: storing a card token so the billing engine can charge next
+      month's invoice without the customer returning. PayFast gate it behind
+      full FICA verification and switch it on by request (021 300 4455,
+      sales@payfast.help).
+
+      Note the blast radius while it is off: this blocks *every* payment, not
+      just recurring ones, because all four checkout paths set `tokenize: true`
+      (signup, invoice pay, and both quote-acceptance routes). A customer
+      trying to pay today gets a 400 rather than a payment page. Decision on
+      2026-08-17 was to wait for PayFast rather than ship a once-off fallback,
+      so nothing in the code needs changing when they enable it.
 - [ ] **client+dev: First real checkout and refund** once the account can
       accept payments: one low-value order end to end (ITN will fire at
       https://www.needdconnect.co.za/api/webhooks/payfast), then refund it in
