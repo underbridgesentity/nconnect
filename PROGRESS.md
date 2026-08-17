@@ -620,3 +620,44 @@ Worth remembering: the free-tier database allows 60 direct connections, and
 `idle_in_transaction_session_timeout` is 0, so nothing on the server side will
 ever clean up after an abandoned client. The client has to be the one that
 lets go.
+
+### Root cause, corrected (same day)
+
+The region and idle-timeout work above was real and worth keeping (an admin
+page went from 3.7s to about 0.5s), but it was not the cause. Adding
+`/api/health/db`, which times the path to the query rather than the query,
+found the actual fault in one reading:
+
+```
+tcpReach 38ms | freshConnect 26ms | pooledQuery 22ms
+sharedPoolFanOut: width2 ok 21ms, width3 ok 22ms,
+                  width4 FAILED, width6 FAILED, width8 FAILED
+widePool(max 12) eight concurrent: 43ms
+```
+
+The pool's `max` was 3. Two and three concurrent queries answered in about
+20ms; four never answered at all. Supabase's pooler runs in transaction mode,
+which does not support pipelining several queries down one connection, and
+postgres.js pipelines exactly that way once every connection is busy. The
+identical fan-out against plain local Postgres is 1ms at any width, so this is
+Supavisor's behaviour, not ours.
+
+So `max` is a correctness constraint here, not a throughput dial: it must
+exceed the largest number of queries any single request fires at once, which
+today is eight on the admin billing page. Exceeding it does not make a page
+slow, it makes it hang, and silently, because a query queued in the client
+never reaches the server and `statement_timeout` cannot save it. Set to 12,
+with the reasoning recorded in `lib/db/client.ts` where the next person will
+change it.
+
+Verified after the fix, production, four rounds per route: every one of 35
+routes 200 in under a second, billing included (it had been 4/4 hangs at
+242s). Customer path driven end to end on production, stopping before the pay
+button because PayFast is live: signup, coverage check, emailed code, account
+creation, portal sign-in, and all four portal pages. Every row that created
+was removed afterwards, verified back to 2 staff users, 0 customers, 0 orders,
+0 audit rows, catalogue intact at 26 plans, 20 hardware, 8 providers.
+
+Method note worth keeping: the first sweep called any HTTP response "ok",
+which counted 404s as passes and had me chasing routes that never existed. A
+check that cannot fail is not a check.
